@@ -1,0 +1,8 @@
+{
+  "databaseUrl": {"ENV": "DATABASE_URL"},
+  "dir": "src/db/migrations",
+  "migrationsTable": "pgmigrations",
+  "schema": "public",
+  "createSchema": false,
+  "createMigrationsSchema": false
+}

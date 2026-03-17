@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-service-config
+  namespace: ai
+data:
+  DEBUG: "false"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  LIVEKIT_URL: "ws://livekit.livekit.svc.cluster.local:7880"
+  S3_REGION: "us-east-1"
+  PINECONE_INDEX: "avatar-platform"

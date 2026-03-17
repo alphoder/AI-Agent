@@ -1,0 +1,49 @@
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    debug: bool = True
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+    # OpenAI
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o"
+
+    # Deepgram
+    deepgram_api_key: str = ""
+
+    # Avatar providers
+    simli_api_key: str = ""
+    heygen_api_key: str = ""
+
+    # Pinecone
+    pinecone_api_key: str = ""
+    pinecone_index: str = "avatar-platform"
+
+    # Redis
+    redis_url: str = "redis://localhost:6379"
+
+    # LiveKit
+    livekit_api_key: str = "devkey"
+    livekit_api_secret: str = "devsecret"
+    livekit_url: str = "ws://localhost:7880"
+
+    # S3
+    s3_bucket: str = "avatar-platform"
+    s3_region: str = "us-east-1"
+    s3_endpoint: str = "http://localhost:9000"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+
+    # API Gateway
+    api_gateway_url: str = "http://localhost:4000"
+
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:4000"]
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+settings = Settings()

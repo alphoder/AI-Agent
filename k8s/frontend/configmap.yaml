@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config
+  namespace: frontend
+data:
+  NEXT_PUBLIC_API_URL: "https://api.avatar-platform.com/api"
+  NEXT_PUBLIC_LIVEKIT_URL: "wss://livekit.avatar-platform.com"

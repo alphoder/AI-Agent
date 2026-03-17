@@ -1,0 +1,673 @@
+import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
+import {
+  importSPKI,
+  importPKCS8,
+  exportJWK,
+  calculateJwkThumbprint,
+  createRemoteJWKSet,
+  jwtVerify,
+  SignJWT,
+  decodeJwt,
+} from 'jose';
+import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { rbac } from '../middleware/rbac';
+import { db } from '../config/database';
+import { redis, RedisKeys, RedisTTL } from '../config/redis';
+import { logger } from '../config/logger';
+import { config } from '../config/env';
+import { JWTService } from '../services/jwt-service';
+import { upsertUser } from '../services/user-service';
+
+const router = Router();
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+const LTI_CLAIMS = {
+  ROLES: 'https://purl.imsglobal.org/spec/lti/claim/roles',
+  CONTEXT: 'https://purl.imsglobal.org/spec/lti/claim/context',
+  CUSTOM: 'https://purl.imsglobal.org/spec/lti/claim/custom',
+  MESSAGE_TYPE: 'https://purl.imsglobal.org/spec/lti/claim/message_type',
+  DEEP_LINKING_SETTINGS: 'https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings',
+  CONTENT_ITEMS: 'https://purl.imsglobal.org/spec/lti-dl/claim/content_items',
+  DEPLOYMENT_ID: 'https://purl.imsglobal.org/spec/lti/claim/deployment_id',
+  TARGET_LINK_URI: 'https://purl.imsglobal.org/spec/lti/claim/target_link_uri',
+  AGS: 'https://purl.imsglobal.org/spec/lti-ags/claim/endpoint',
+} as const;
+
+const AGS_SCORE_SCOPE = 'https://purl.imsglobal.org/spec/lti-ags/scope/score';
+
+function getLaunchUrl(req: Request): string {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  return `${proto}://${host}/api/lti/launch`;
+}
+
+function determineLtiRole(roles: string[]): 'admin' | 'learner' {
+  const adminRoles = ['Instructor', 'Administrator', 'ContentDeveloper'];
+  const isAdmin = roles.some((role) =>
+    adminRoles.some((ar) => role.includes(ar)),
+  );
+  return isAdmin ? 'admin' : 'learner';
+}
+
+// ─── 1. JWKS Endpoint ────────────────────────────────────────────────
+
+router.get('/jwks', async (_req: Request, res: Response) => {
+  try {
+    const publicKey = await importSPKI(config.JWT_PUBLIC_KEY, 'RS256');
+    const jwk = await exportJWK(publicKey);
+    const kid = await calculateJwkThumbprint(jwk, 'sha256');
+
+    jwk.kid = kid;
+    jwk.alg = 'RS256';
+    jwk.use = 'sig';
+
+    res.json({ keys: [jwk] });
+  } catch (err) {
+    logger.error({ err }, 'Failed to serve JWKS');
+    res.status(500).json({ success: false, error: { code: 'JWKS_ERROR', message: 'Failed to export JWKS' } });
+  }
+});
+
+// ─── 2. OIDC Login Initiation ────────────────────────────────────────
+
+router.get('/login', async (req: Request, res: Response) => {
+  try {
+    const { iss, login_hint, target_link_uri, lti_message_hint, client_id } = req.query as Record<string, string>;
+
+    if (!iss || !client_id || !login_hint) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_REQUEST', message: 'Missing required parameters: iss, client_id, login_hint' },
+      });
+    }
+
+    // Validate platform registration
+    const platformResult = await db.query(
+      'SELECT id, tenant_id, auth_endpoint FROM lti_platforms WHERE issuer = $1 AND client_id = $2',
+      [iss, client_id],
+    );
+
+    if (platformResult.rows.length === 0) {
+      logger.warn({ iss, client_id }, 'LTI login from unregistered platform');
+      return res.status(403).json({
+        success: false,
+        error: { code: 'UNKNOWN_PLATFORM', message: 'Platform not registered' },
+      });
+    }
+
+    const platform = platformResult.rows[0];
+
+    // Generate nonce and state
+    const nonce = crypto.randomUUID();
+    const state = crypto.randomUUID();
+
+    // Store nonce in Redis
+    await redis.set(
+      RedisKeys.ltiNonce(nonce),
+      JSON.stringify({ platformId: platform.id, tenantId: platform.tenant_id }),
+      'EX',
+      RedisTTL.LTI_NONCE,
+    );
+
+    // Store state in Redis
+    await redis.set(
+      `lti:state:${state}`,
+      JSON.stringify({ platformId: platform.id, nonce, target_link_uri }),
+      'EX',
+      RedisTTL.LTI_NONCE,
+    );
+
+    // Build redirect URL
+    const redirectUrl = new URL(platform.auth_endpoint);
+    redirectUrl.searchParams.set('scope', 'openid');
+    redirectUrl.searchParams.set('response_type', 'id_token');
+    redirectUrl.searchParams.set('client_id', client_id);
+    redirectUrl.searchParams.set('redirect_uri', getLaunchUrl(req));
+    redirectUrl.searchParams.set('login_hint', login_hint);
+    redirectUrl.searchParams.set('state', state);
+    redirectUrl.searchParams.set('nonce', nonce);
+    redirectUrl.searchParams.set('response_mode', 'form_post');
+    redirectUrl.searchParams.set('prompt', 'none');
+
+    if (lti_message_hint) {
+      redirectUrl.searchParams.set('lti_message_hint', lti_message_hint);
+    }
+    if (target_link_uri) {
+      redirectUrl.searchParams.set('target_link_uri', target_link_uri);
+    }
+
+    logger.info({ iss, client_id, platformId: platform.id }, 'LTI OIDC login initiated');
+    return res.redirect(redirectUrl.toString());
+  } catch (err) {
+    logger.error({ err }, 'LTI login initiation failed');
+    return res.status(500).json({
+      success: false,
+      error: { code: 'LOGIN_ERROR', message: 'Login initiation failed' },
+    });
+  }
+});
+
+// ─── 3. Launch Handler ───────────────────────────────────────────────
+
+router.post('/launch', async (req: Request, res: Response) => {
+  try {
+    const { id_token, state } = req.body;
+
+    if (!id_token || !state) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_REQUEST', message: 'Missing id_token or state' },
+      });
+    }
+
+    // Validate state from Redis
+    const stateKey = `lti:state:${state}`;
+    const stateData = await redis.get(stateKey);
+    if (!stateData) {
+      logger.warn({ state }, 'LTI launch with invalid or expired state');
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INVALID_STATE', message: 'Invalid or expired state parameter' },
+      });
+    }
+    // Consume state immediately
+    await redis.del(stateKey);
+
+    const parsedState = JSON.parse(stateData);
+
+    // Decode id_token without verification to extract issuer
+    const unverifiedClaims = decodeJwt(id_token);
+    const iss = unverifiedClaims.iss;
+
+    if (!iss) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_TOKEN', message: 'id_token missing iss claim' },
+      });
+    }
+
+    // Fetch platform by issuer
+    const platformResult = await db.query(
+      'SELECT id, tenant_id, issuer, client_id, jwks_endpoint FROM lti_platforms WHERE id = $1',
+      [parsedState.platformId],
+    );
+
+    if (platformResult.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'UNKNOWN_PLATFORM', message: 'Platform not found' },
+      });
+    }
+
+    const platform = platformResult.rows[0];
+
+    // Verify issuer matches
+    if (iss !== platform.issuer) {
+      logger.warn({ expected: platform.issuer, received: iss }, 'LTI issuer mismatch');
+      return res.status(403).json({
+        success: false,
+        error: { code: 'ISSUER_MISMATCH', message: 'Token issuer does not match platform' },
+      });
+    }
+
+    // Verify id_token signature using remote JWKS
+    const jwks = createRemoteJWKSet(new URL(platform.jwks_endpoint));
+    const { payload } = await jwtVerify(id_token, jwks, {
+      issuer: platform.issuer,
+      audience: platform.client_id,
+    });
+
+    // Validate nonce
+    const nonce = payload.nonce as string;
+    if (!nonce) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'MISSING_NONCE', message: 'id_token missing nonce claim' },
+      });
+    }
+
+    const nonceKey = RedisKeys.ltiNonce(nonce);
+    const nonceData = await redis.get(nonceKey);
+    if (!nonceData) {
+      logger.warn({ nonce }, 'LTI launch with invalid or expired nonce');
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INVALID_NONCE', message: 'Invalid or expired nonce' },
+      });
+    }
+    // Consume nonce
+    await redis.del(nonceKey);
+
+    // Also record nonce in DB to prevent replay across restarts
+    await db.query(
+      'INSERT INTO lti_nonces (nonce, platform_id, consumed, expires_at) VALUES ($1, $2, true, NOW() + INTERVAL \'10 minutes\')',
+      [nonce, platform.id],
+    );
+
+    // Extract LTI claims
+    const ltiRoles = (payload[LTI_CLAIMS.ROLES] as string[]) || [];
+    const ltiContext = payload[LTI_CLAIMS.CONTEXT] as Record<string, string> | undefined;
+    const ltiCustom = payload[LTI_CLAIMS.CUSTOM] as Record<string, string> | undefined;
+    const messageType = payload[LTI_CLAIMS.MESSAGE_TYPE] as string | undefined;
+    const deepLinkingSettings = payload[LTI_CLAIMS.DEEP_LINKING_SETTINGS] as Record<string, unknown> | undefined;
+    const agsEndpoint = payload[LTI_CLAIMS.AGS] as Record<string, unknown> | undefined;
+    const deploymentId = payload[LTI_CLAIMS.DEPLOYMENT_ID] as string | undefined;
+    const sub = payload.sub as string;
+    const email = (payload.email as string) || `${sub}@lti.local`;
+    const displayName = (payload.name as string) || (payload.given_name as string) || email;
+
+    // Determine role
+    const role = determineLtiRole(ltiRoles);
+
+    // JIT user provisioning
+    const user = await upsertUser({
+      tenantId: platform.tenant_id,
+      email,
+      externalId: `lti:${platform.id}:${sub}`,
+      displayName,
+      role,
+    });
+
+    // Issue platform JWT
+    const tokens = await JWTService.issueTokens({
+      id: user.id,
+      tenant_id: platform.tenant_id,
+      role: user.role,
+      email: user.email,
+    });
+
+    // Store deep linking settings and AGS endpoint for later use
+    if (deepLinkingSettings) {
+      await redis.set(
+        `lti:dl_settings:${user.id}:${platform.id}`,
+        JSON.stringify({ deepLinkingSettings, deploymentId }),
+        'EX',
+        3600, // 1 hour
+      );
+    }
+    if (agsEndpoint) {
+      await redis.set(
+        `lti:ags:${platform.tenant_id}:${ltiContext?.id || 'default'}`,
+        JSON.stringify(agsEndpoint),
+        'EX',
+        7200, // 2 hours
+      );
+    }
+
+    logger.info(
+      { userId: user.id, platformId: platform.id, role, messageType },
+      'LTI launch successful',
+    );
+
+    // Check for deep linking request
+    if (messageType === 'LtiDeepLinkingRequest') {
+      const frontendUrl = config.corsOrigins[0];
+      return res.redirect(
+        `${frontendUrl}/lti/deeplinking?access_token=${tokens.accessToken}&platform_id=${platform.id}`,
+      );
+    }
+
+    // Extract target scenario
+    let scenarioId = ltiCustom?.scenario_id || '';
+    if (!scenarioId && parsedState.target_link_uri) {
+      const targetUrl = new URL(parsedState.target_link_uri);
+      scenarioId = targetUrl.searchParams.get('scenario_id') || '';
+    }
+
+    // Redirect to frontend with token in URL fragment
+    const frontendUrl = config.corsOrigins[0];
+    const fragment = new URLSearchParams({
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      lti: 'true',
+      ...(scenarioId ? { scenario_id: scenarioId } : {}),
+    });
+
+    return res.redirect(`${frontendUrl}/callback#${fragment.toString()}`);
+  } catch (err: any) {
+    logger.error({ err: err.message, stack: err.stack }, 'LTI launch failed');
+
+    if (err.code === 'ERR_JWT_EXPIRED') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'TOKEN_EXPIRED', message: 'id_token has expired' },
+      });
+    }
+
+    if (err.code?.startsWith('ERR_JW')) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INVALID_TOKEN', message: 'id_token verification failed' },
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: { code: 'LAUNCH_ERROR', message: 'Launch processing failed' },
+    });
+  }
+});
+
+// ─── 4. Deep Linking Response ────────────────────────────────────────
+
+router.post(
+  '/deeplinking',
+  authMiddleware,
+  rbac('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { scenario_ids, platform_id } = req.body;
+
+      if (!scenario_ids?.length || !platform_id) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_REQUEST', message: 'Missing scenario_ids or platform_id' },
+        });
+      }
+
+      // Load platform
+      const platformResult = await db.query(
+        'SELECT id, tenant_id, issuer, client_id FROM lti_platforms WHERE id = $1',
+        [platform_id],
+      );
+
+      if (platformResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Platform not found' },
+        });
+      }
+
+      const platform = platformResult.rows[0];
+
+      // Verify user belongs to the same tenant
+      if (req.user!.tid !== platform.tenant_id) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Platform does not belong to your tenant' },
+        });
+      }
+
+      // Fetch deep linking settings from Redis
+      const dlSettingsRaw = await redis.get(`lti:dl_settings:${req.user!.sub}:${platform_id}`);
+      if (!dlSettingsRaw) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'NO_DL_SESSION', message: 'No active deep linking session found. Please initiate from LMS.' },
+        });
+      }
+      const { deepLinkingSettings, deploymentId } = JSON.parse(dlSettingsRaw);
+
+      // Load scenarios
+      const scenarioResult = await db.tenantQuery(
+        platform.tenant_id,
+        `SELECT id, title FROM scenarios WHERE id = ANY($1)`,
+        [scenario_ids],
+      );
+
+      const scenarios = scenarioResult.rows;
+      if (scenarios.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'No matching scenarios found' },
+        });
+      }
+
+      // Build content items
+      const contentItems = scenarios.map((scenario: { id: string; title: string }) => ({
+        type: 'ltiResourceLink',
+        title: scenario.title,
+        url: `${getLaunchUrl(req)}?scenario_id=${scenario.id}`,
+        custom: {
+          scenario_id: scenario.id,
+        },
+      }));
+
+      // Sign deep linking response JWT
+      const nonce = crypto.randomUUID();
+      const privateKey = await importPKCS8(config.JWT_PRIVATE_KEY, 'RS256');
+      const publicKey = await importSPKI(config.JWT_PUBLIC_KEY, 'RS256');
+      const jwk = await exportJWK(publicKey);
+      const kid = await calculateJwkThumbprint(jwk, 'sha256');
+
+      const dlResponseJwt = await new SignJWT({
+        nonce,
+        [LTI_CLAIMS.DEPLOYMENT_ID]: deploymentId,
+        [LTI_CLAIMS.MESSAGE_TYPE]: 'LtiDeepLinkingResponse',
+        [LTI_CLAIMS.CONTENT_ITEMS]: contentItems,
+        'https://purl.imsglobal.org/spec/lti-dl/claim/data': deepLinkingSettings.data,
+      })
+        .setProtectedHeader({ alg: 'RS256', kid })
+        .setIssuer(platform.client_id)
+        .setAudience(platform.issuer)
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(privateKey);
+
+      // Clean up deep linking session
+      await redis.del(`lti:dl_settings:${req.user!.sub}:${platform_id}`);
+
+      logger.info(
+        { platformId: platform_id, scenarioCount: scenarios.length },
+        'Deep linking response generated',
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          jwt: dlResponseJwt,
+          return_url: deepLinkingSettings.deep_link_return_url,
+          content_items: contentItems,
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, 'Deep linking response failed');
+      return res.status(500).json({
+        success: false,
+        error: { code: 'DL_ERROR', message: 'Failed to generate deep linking response' },
+      });
+    }
+  },
+);
+
+// ─── 5. Grade Passback via AGS ───────────────────────────────────────
+
+router.post(
+  '/grades/:sessionId',
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const tenantId = req.user!.tid;
+
+      // Load session with score
+      const sessionResult = await db.tenantQuery(
+        tenantId,
+        `SELECT s.id, s.user_id, s.scenario_id, s.status,
+                ss.overall_score
+         FROM sessions s
+         LEFT JOIN session_scores ss ON ss.session_id = s.id
+         WHERE s.id = $1 AND s.user_id = $2`,
+        [sessionId, req.user!.sub],
+      );
+
+      if (sessionResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Session not found' },
+        });
+      }
+
+      const session = sessionResult.rows[0];
+
+      if (session.status !== 'completed') {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'SESSION_INCOMPLETE', message: 'Session is not completed yet' },
+        });
+      }
+
+      // Find LTI platform for this tenant
+      const platformResult = await db.query(
+        'SELECT id, client_id, issuer, token_endpoint FROM lti_platforms WHERE tenant_id = $1 LIMIT 1',
+        [tenantId],
+      );
+
+      if (platformResult.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'NO_PLATFORM', message: 'No LTI platform configured for this tenant' },
+        });
+      }
+
+      const platform = platformResult.rows[0];
+
+      // Find AGS endpoint in Redis or session metadata
+      const agsRaw = await redis.get(`lti:ags:${tenantId}:default`);
+      if (!agsRaw) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'NO_AGS', message: 'No AGS endpoint available. Grade passback not configured.' },
+        });
+      }
+
+      const agsEndpoint = JSON.parse(agsRaw);
+      const lineitemUrl = agsEndpoint.lineitem;
+
+      if (!lineitemUrl) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'NO_LINEITEM', message: 'No lineitem URL in AGS endpoint' },
+        });
+      }
+
+      // Obtain access token from LMS using client_credentials with JWT assertion
+      const accessToken = await obtainLmsAccessToken(platform);
+
+      // POST score to lineitem
+      const scorePayload = {
+        userId: req.user!.sub,
+        scoreOf: 100,
+        scoreGiven: session.overall_score ?? 0,
+        activityProgress: 'Completed',
+        gradingProgress: 'FullyGraded',
+        timestamp: new Date().toISOString(),
+      };
+
+      const scoreUrl = lineitemUrl.endsWith('/')
+        ? `${lineitemUrl}scores`
+        : `${lineitemUrl}/scores`;
+
+      let scoreResponse = await postScore(scoreUrl, accessToken, scorePayload);
+
+      // Retry once on failure
+      if (!scoreResponse.ok) {
+        logger.warn(
+          { status: scoreResponse.status, sessionId },
+          'AGS score post failed, retrying once',
+        );
+        scoreResponse = await postScore(scoreUrl, accessToken, scorePayload);
+      }
+
+      if (!scoreResponse.ok) {
+        const errorBody = await scoreResponse.text();
+        logger.error(
+          { status: scoreResponse.status, body: errorBody, sessionId },
+          'AGS score post failed after retry',
+        );
+        return res.status(502).json({
+          success: false,
+          error: { code: 'AGS_FAILED', message: 'Failed to post grade to LMS' },
+        });
+      }
+
+      logger.info(
+        { sessionId, score: session.overall_score, platformId: platform.id },
+        'AGS grade passback successful',
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          session_id: sessionId,
+          score_given: session.overall_score,
+          score_of: 100,
+          activity_progress: 'Completed',
+          grading_progress: 'FullyGraded',
+        },
+      });
+    } catch (err) {
+      logger.error({ err, sessionId: req.params.sessionId }, 'Grade passback failed');
+      return res.status(500).json({
+        success: false,
+        error: { code: 'GRADE_ERROR', message: 'Grade passback failed' },
+      });
+    }
+  },
+);
+
+// ─── AGS Helpers ─────────────────────────────────────────────────────
+
+async function obtainLmsAccessToken(platform: {
+  client_id: string;
+  token_endpoint: string;
+}): Promise<string> {
+  const privateKey = await importPKCS8(config.JWT_PRIVATE_KEY, 'RS256');
+  const publicKey = await importSPKI(config.JWT_PUBLIC_KEY, 'RS256');
+  const jwk = await exportJWK(publicKey);
+  const kid = await calculateJwkThumbprint(jwk, 'sha256');
+
+  const assertion = await new SignJWT({})
+    .setProtectedHeader({ alg: 'RS256', kid })
+    .setIssuer(platform.client_id)
+    .setSubject(platform.client_id)
+    .setAudience(platform.token_endpoint)
+    .setJti(crypto.randomUUID())
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(privateKey);
+
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+    client_assertion: assertion,
+    scope: AGS_SCORE_SCOPE,
+  });
+
+  const response = await fetch(platform.token_endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error(
+      { status: response.status, body: errorText },
+      'Failed to obtain LMS access token',
+    );
+    throw new Error(`LMS token request failed: ${response.status}`);
+  }
+
+  const tokenData = (await response.json()) as { access_token: string };
+  return tokenData.access_token;
+}
+
+async function postScore(
+  scoreUrl: string,
+  accessToken: string,
+  scorePayload: Record<string, unknown>,
+): Promise<globalThis.Response> {
+  return fetch(scoreUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/vnd.ims.lis.v1.score+json',
+    },
+    body: JSON.stringify(scorePayload),
+  });
+}
+
+export const ltiRoutes = router;

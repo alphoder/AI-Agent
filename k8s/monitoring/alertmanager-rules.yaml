@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: avatar-platform-alerting-rules
+  namespace: monitoring
+  labels:
+    app: avatar-platform
+    component: alerting
+data:
+  rules.yaml: |
+    groups:
+      - name: avatar-platform.rules
+        rules:
+          # Pipeline P95 latency > 3s for 5 minutes
+          - alert: pipeline_p95_high
+            expr: histogram_quantile(0.95, rate(pipeline_latency_seconds_bucket[5m])) > 3
+            for: 5m
+            labels:
+              severity: critical
+              notify: pagerduty
+            annotations:
+              summary: "Pipeline P95 latency is above 3 seconds"
+              description: "The 95th percentile pipeline latency has exceeded 3s for 5 minutes. Current value: {{ $value | printf \"%.2f\" }}s."
+
+          # Pipeline error rate > 5% for 5 minutes
+          - alert: error_rate_high
+            expr: >
+              rate(pipeline_errors_total[5m])
+              / (rate(pipeline_errors_total[5m]) + rate(http_requests_total[5m])) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+              notify: pagerduty
+            annotations:
+              summary: "Pipeline error rate is above 5%"
+              description: "The pipeline error rate has exceeded 5% for 5 minutes. Current value: {{ $value | printf \"%.2f\" }}%."
+
+          # Concurrent sessions > 100 for 2 minutes
+          - alert: concurrent_sessions_high
+            expr: sum(active_sessions_total) > 100
+            for: 2m
+            labels:
+              severity: warning
+              notify: slack
+            annotations:
+              summary: "Active sessions exceed 100"
+              description: "There are currently {{ $value }} active sessions, exceeding the threshold of 100."
+
+          # External API errors (Deepgram / Simli)
+          - alert: external_api_errors
+            expr: >
+              rate(pipeline_errors_total{stage=~"deepgram|simli"}[5m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              notify: pagerduty
+            annotations:
+              summary: "External API errors detected ({{ $labels.stage }})"
+              description: "Errors communicating with external API {{ $labels.stage }}. Error rate: {{ $value | printf \"%.2f\" }}/s."
+
+          # Database connection pool utilization > 80%
+          - alert: db_pool_high
+            expr: >
+              pg_stat_activity_count / pg_settings_max_connections > 0.8
+            for: 5m
+            labels:
+              severity: warning
+              notify: slack
+            annotations:
+              summary: "PostgreSQL connection pool utilization above 80%"
+              description: "Database pool utilization is at {{ $value | printf \"%.0f\" }}%."
+
+          # Redis memory utilization > 80%
+          - alert: redis_memory_high
+            expr: >
+              redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+            for: 5m
+            labels:
+              severity: warning
+              notify: slack
+            annotations:
+              summary: "Redis memory utilization above 80%"
+              description: "Redis memory usage is at {{ $value | printf \"%.0f\" }}%."
+
+          # Pod restart count increase > 3 in 15 minutes
+          - alert: pod_restarts
+            expr: >
+              increase(kube_pod_container_status_restarts_total{namespace="avatar-platform"}[15m]) > 3
+            for: 0m
+            labels:
+              severity: warning
+              notify: slack
+            annotations:
+              summary: "Pod {{ $labels.pod }} restarting frequently"
+              description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes."
+
+          # SSL certificate expiring within 14 days
+          - alert: ssl_expiry_soon
+            expr: >
+              (probe_ssl_earliest_cert_expiry - time()) < 1209600
+            for: 0m
+            labels:
+              severity: info
+              notify: email
+            annotations:
+              summary: "SSL certificate expiring soon"
+              description: "SSL certificate for {{ $labels.instance }} expires in less than 14 days."

@@ -1,0 +1,202 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "avatar-platform-overview",
+    "title": "AI Avatar Training Platform",
+    "tags": ["avatar-platform", "overview"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "schemaVersion": 39,
+    "version": 1,
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Platform Overview",
+        "type": "row",
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+        "collapsed": false
+      },
+      {
+        "id": 2,
+        "title": "Request Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total[5m]))",
+            "legendFormat": "Total RPS",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 15
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+            "legendFormat": "Error %",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 15
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 1 },
+                { "color": "red", "value": 5 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Latency P50 / P95 / P99",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 10
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Active Sessions",
+        "type": "gauge",
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 9 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "expr": "sum(active_sessions_total)",
+            "legendFormat": "Sessions",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 50 },
+                { "color": "red", "value": 100 }
+              ]
+            },
+            "min": 0,
+            "max": 150
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Pipeline Latency Heatmap",
+        "type": "heatmap",
+        "gridPos": { "h": 8, "w": 10, "x": 6, "y": 9 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "expr": "sum(increase(pipeline_latency_seconds_bucket[5m])) by (le)",
+            "legendFormat": "{{le}}",
+            "refId": "A",
+            "format": "heatmap"
+          }
+        ],
+        "options": {
+          "calculate": false,
+          "yAxis": {
+            "unit": "s"
+          },
+          "color": {
+            "scheme": "Spectral",
+            "mode": "scheme"
+          },
+          "cellGap": 1
+        }
+      },
+      {
+        "id": 7,
+        "title": "Score Distribution",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "targets": [
+          {
+            "expr": "sum(increase(scoring_jobs_total{status=\"success\"}[1h]))",
+            "legendFormat": "Success",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(increase(scoring_jobs_total{status=\"failure\"}[1h]))",
+            "legendFormat": "Failure",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "custom": {
+              "fillOpacity": 80
+            }
+          }
+        },
+        "options": {
+          "orientation": "vertical",
+          "barWidth": 0.8,
+          "groupWidth": 0.7,
+          "stacking": "none",
+          "showValue": "auto"
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}
