@@ -26,7 +26,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push web image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/web/Dockerfile
@@ -52,7 +52,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push API image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/api/Dockerfile
@@ -78,7 +78,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push AI service image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/ai-service/Dockerfile
