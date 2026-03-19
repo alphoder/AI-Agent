@@ -85,7 +85,7 @@ data:
           # Pod restart count increase > 3 in 15 minutes
           - alert: pod_restarts
             expr: >
-              increase(kube_pod_container_status_restarts_total{namespace="avatar-platform"}[15m]) > 3
+              increase(kube_pod_container_status_restarts_total{namespace=~"frontend|api|ai"}[15m]) > 3
             for: 0m
             labels:
               severity: warning

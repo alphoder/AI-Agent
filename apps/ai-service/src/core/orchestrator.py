@@ -22,6 +22,14 @@ from src.core.llm import LLMClient
 from src.core.rag import RAGRetriever
 from src.core.guardrails import GuardrailsEngine
 from src.core.avatar import get_avatar_provider
+from src.metrics import (
+    pipeline_latency_seconds,
+    active_sessions_gauge,
+    sessions_started_total,
+    sessions_ended_total,
+    turns_total,
+    guardrail_triggers_total,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +111,8 @@ class SessionOrchestrator:
                     "turn_number": self.turn_number,
                 })
 
+        sessions_started_total.inc()
+        active_sessions_gauge.labels(tenant_id=self.tenant_id).inc()
         logger.info("session_started", session_id=self.session_id)
 
     async def process_audio(self, audio_data: bytes):
@@ -129,6 +139,7 @@ class SessionOrchestrator:
 
         e2e_start = time.time()
         self.turn_number += 1
+        turns_total.inc()
 
         logger.info(
             "processing_utterance",
@@ -152,6 +163,7 @@ class SessionOrchestrator:
         guardrail_duration = (time.time() - guardrail_start) * 1000
 
         if not is_safe:
+            guardrail_triggers_total.labels(direction="input").inc()
             logger.warn("input_guardrail_triggered", violation=violation, turn=self.turn_number)
             fallback = self.guardrails.get_safe_fallback()
             await self._send_avatar_text(fallback)
@@ -207,6 +219,7 @@ class SessionOrchestrator:
             # Per-chunk output guardrails
             is_safe_output, output_violation = self.guardrails.check_output(chunk)
             if not is_safe_output:
+                guardrail_triggers_total.labels(direction="output").inc()
                 logger.warn("output_guardrail_triggered", violation=output_violation)
                 chunk = self.guardrails.get_safe_fallback()
 
@@ -238,6 +251,13 @@ class SessionOrchestrator:
             "total_e2e_ms": round(e2e_total, 2),
         }
         logger.info("turn_latency", **self._latency)
+
+        # Observe Prometheus latency histograms (values in seconds)
+        pipeline_latency_seconds.labels(stage="guardrails").observe(guardrail_duration / 1000)
+        pipeline_latency_seconds.labels(stage="rag").observe(rag_duration / 1000)
+        pipeline_latency_seconds.labels(stage="llm_ttft").observe((llm_ttft or 0) / 1000)
+        pipeline_latency_seconds.labels(stage="llm_total").observe(llm_total / 1000)
+        pipeline_latency_seconds.labels(stage="e2e").observe(e2e_total / 1000)
 
         # 7. Persist transcript async (don't block pipeline)
         asyncio.create_task(self._persist_transcript(text, full_response.strip(), confidence))
@@ -310,6 +330,9 @@ class SessionOrchestrator:
                 "session_id": self.session_id,
                 "total_turns": self.turn_number,
             })
+
+        sessions_ended_total.inc()
+        active_sessions_gauge.labels(tenant_id=self.tenant_id).dec()
 
         await self.redis.aclose()
         logger.info("session_ended", session_id=self.session_id, turns=self.turn_number)

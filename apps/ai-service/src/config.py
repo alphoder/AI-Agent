@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # API Gateway
     api_gateway_url: str = "http://localhost:4000"
 
+    # PII redaction
+    pii_redaction_enabled: bool = False
+
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:4000"]
 
     class Config:

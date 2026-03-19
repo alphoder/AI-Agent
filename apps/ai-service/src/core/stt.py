@@ -6,6 +6,7 @@ Uses nova-2 model with opus encoding at 16kHz mono.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import deque
 from typing import Callable, Awaitable
@@ -24,6 +25,20 @@ except ImportError:
 from src.config import settings
 
 logger = structlog.get_logger(__name__)
+
+# --- PII redaction patterns ---
+PII_PATTERNS = [
+    (re.compile(r'\b[\w.-]+@[\w.-]+\.\w+\b'), '[EMAIL]'),
+    (re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'), '[PHONE]'),
+    (re.compile(r'\b\d{3}[-]?\d{2}[-]?\d{4}\b'), '[SSN]'),
+]
+
+
+def redact_pii(text: str) -> str:
+    """Replace common PII patterns (emails, phones, SSNs) with placeholders."""
+    for pattern, replacement in PII_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 class DeepgramSTTClient:
@@ -93,6 +108,20 @@ class DeepgramSTTClient:
 
         logger.info("stt_connected", session_id=session_id)
 
+        # Flush any audio buffered during disconnect
+        if len(self._audio_buffer) > 0:
+            buffered = bytes(self._audio_buffer)
+            self._audio_buffer.clear()
+            logger.info(
+                "stt_flushing_buffer",
+                buffered_bytes=len(buffered),
+                session_id=session_id,
+            )
+            try:
+                await self.connection.send(buffered)
+            except Exception as e:
+                logger.error("stt_buffer_flush_failed", error=str(e))
+
         # Start silence monitor
         asyncio.create_task(self._monitor_silence())
 
@@ -107,6 +136,10 @@ class DeepgramSTTClient:
             is_final = result.is_final
 
             if is_final and self.on_transcript_final:
+                # Optionally redact PII before passing downstream
+                if settings.pii_redaction_enabled:
+                    transcript = redact_pii(transcript)
+
                 logger.info(
                     "stt_final",
                     text=transcript[:100],

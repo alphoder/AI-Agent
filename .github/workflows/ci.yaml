@@ -129,8 +129,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Node dependency audit
-        run: npm audit --production
-        continue-on-error: true
+        run: npm audit --production --audit-level=high
 
       - uses: actions/setup-python@v5
         with:
@@ -145,7 +144,6 @@ jobs:
       - name: Python dependency audit
         working-directory: apps/ai-service
         run: pip-audit
-        continue-on-error: true
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
@@ -154,7 +152,6 @@ jobs:
           scan-ref: '.'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
-        continue-on-error: true
 
   build:
     name: Build Check
@@ -177,3 +174,80 @@ jobs:
 
       - name: Build all packages
         run: pnpm build
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: build
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: avatar_platform_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @avatar-platform/web exec playwright install --with-deps chromium
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Start API server
+        run: pnpm --filter @avatar-platform/api start &
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/avatar_platform_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+          PORT: 4000
+
+      - name: Start web server
+        run: pnpm --filter @avatar-platform/web start &
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000/api
+          PORT: 3000
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for API server..."
+          timeout 60 bash -c 'until curl -sf http://localhost:4000/health; do sleep 2; done'
+          echo "API server is ready"
+          echo "Waiting for web server..."
+          timeout 60 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
+          echo "Web server is ready"
+
+      - name: Run E2E Tests
+        run: pnpm --filter @avatar-platform/web exec playwright test
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000/api

@@ -82,6 +82,7 @@ export default function ScenariosPage() {
                 <th className="text-center text-sm font-medium p-3">Completed</th>
                 <th className="text-center text-sm font-medium p-3">Avg Score</th>
                 <th className="text-right text-sm font-medium p-3">Created</th>
+                <th className="text-right text-sm font-medium p-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -102,6 +103,7 @@ export default function ScenariosPage() {
                   <td className="p-3"><div className="h-3 w-8 rounded bg-muted mx-auto" /></td>
                   <td className="p-3"><div className="h-3 w-10 rounded bg-muted mx-auto" /></td>
                   <td className="p-3"><div className="h-3 w-20 rounded bg-muted ml-auto" /></td>
+                  <td className="p-3"><div className="h-6 w-10 rounded bg-muted ml-auto" /></td>
                 </tr>
               ))}
             </tbody>
@@ -119,6 +121,7 @@ export default function ScenariosPage() {
                 <th className="text-center text-sm font-medium p-3">Completed</th>
                 <th className="text-center text-sm font-medium p-3">Avg Score</th>
                 <th className="text-right text-sm font-medium p-3">Created</th>
+                <th className="text-right text-sm font-medium p-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -148,10 +151,18 @@ export default function ScenariosPage() {
                   <td className="p-3 text-center text-sm">{s.completed_count}</td>
                   <td className="p-3 text-center text-sm">{s.avg_score != null ? `${Math.round(s.avg_score)}%` : '-'}</td>
                   <td className="p-3 text-right text-sm text-muted-foreground">{new Date(s.created_at).toLocaleDateString()}</td>
+                  <td className="p-3 text-right">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); router.push(`/scenarios/${s.id}/edit`); }}
+                      className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-muted transition-colors"
+                    >
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))}
               {scenarios.length === 0 && (
-                <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No scenarios found</td></tr>
+                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No scenarios found</td></tr>
               )}
             </tbody>
           </table>

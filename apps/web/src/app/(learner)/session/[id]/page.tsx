@@ -13,6 +13,7 @@ import {
   Mic,
   Volume2,
   Wifi,
+  WifiOff,
   Globe,
   CheckCircle2,
   XCircle,
@@ -23,6 +24,8 @@ import {
   BarChart3,
   MessageSquare,
   Sparkles,
+  RefreshCw,
+  PhoneOff,
 } from 'lucide-react';
 
 type Phase = 'preflight' | 'session' | 'ending';
@@ -92,12 +95,14 @@ export default function SessionPage() {
   const [avatarVideoTrack, setAvatarVideoTrack] = useState<MediaStreamTrack | null>(null);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [idleSeconds, setIdleSeconds] = useState(0);
+  const [sessionAudioLevel, setSessionAudioLevel] = useState(0);
 
   // Ending state
   const [endingStep, setEndingStep] = useState(0);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const idleRef = useRef<NodeJS.Timeout | null>(null);
+  const audioLevelRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef<Room | null>(null);
   const turnCountRef = useRef(0);
@@ -280,6 +285,7 @@ export default function SessionPage() {
 
     if (timerRef.current) clearInterval(timerRef.current);
     if (idleRef.current) clearInterval(idleRef.current);
+    if (audioLevelRef.current) clearInterval(audioLevelRef.current);
 
     // Disconnect from LiveKit
     if (roomRef.current) {
@@ -332,6 +338,26 @@ export default function SessionPage() {
       endSession();
     }
   }, [idleSeconds]);
+
+  // Poll local participant audio level from LiveKit room
+  useEffect(() => {
+    if (phase !== 'session') return;
+
+    audioLevelRef.current = setInterval(() => {
+      const room = roomRef.current;
+      if (room && isMicOn) {
+        // LiveKit exposes audioLevel on LocalParticipant (0-1)
+        const level = (room.localParticipant as any).audioLevel ?? 0;
+        setSessionAudioLevel(level);
+      } else {
+        setSessionAudioLevel(0);
+      }
+    }, 50); // ~20fps for smooth visualization
+
+    return () => {
+      if (audioLevelRef.current) clearInterval(audioLevelRef.current);
+    };
+  }, [phase, isMicOn]);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -655,6 +681,69 @@ export default function SessionPage() {
         <div ref={transcriptEndRef} />
       </div>
 
+      {/* Reconnection / Disconnected overlay */}
+      {connectionStatus === 'reconnecting' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-session-fade-in">
+          <div className="flex flex-col items-center gap-4 p-8 bg-gray-900/90 border border-gray-700/60 rounded-2xl shadow-2xl max-w-sm w-full mx-4 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+              <Loader2 className="w-7 h-7 text-amber-400 animate-spin" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white mb-1">Reconnecting...</h2>
+              <p className="text-sm text-gray-400">
+                Please wait, your session is being restored
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {connectionStatus === 'disconnected' && phase === 'session' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/95 animate-session-fade-in">
+          <div className="flex flex-col items-center gap-5 p-8 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl max-w-sm w-full mx-4 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/10 flex items-center justify-center">
+              <WifiOff className="w-7 h-7 text-red-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white mb-1">Connection Lost</h2>
+              <p className="text-sm text-gray-400">
+                Unable to reach the server. Check your internet connection.
+              </p>
+            </div>
+            <div className="flex gap-3 w-full">
+              <button
+                onClick={endSession}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-700 rounded-xl text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors"
+              >
+                <PhoneOff className="w-4 h-4" />
+                End Session
+              </button>
+              <button
+                onClick={async () => {
+                  setConnectionStatus('reconnecting');
+                  try {
+                    if (roomRef.current) {
+                      // Attempt to reconnect the existing room
+                      await roomRef.current.connect(
+                        sessionData?.livekitUrl || LIVEKIT_URL,
+                        sessionData?.livekitToken || '',
+                      );
+                      setConnectionStatus('connected');
+                    }
+                  } catch {
+                    setConnectionStatus('disconnected');
+                  }
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-medium text-white transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Try Reconnecting
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Idle warning toast */}
       {idleSeconds >= 45 && idleSeconds < 60 && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-40 animate-session-toast-in">
@@ -672,6 +761,7 @@ export default function SessionPage() {
         isMicOn={isMicOn}
         elapsed={elapsed}
         maxDuration={maxDuration}
+        audioLevel={sessionAudioLevel}
         onToggleMic={async () => {
           const newState = !isMicOn;
           setIsMicOn(newState);

@@ -15,11 +15,22 @@ spec:
       labels:
         app: api
     spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
       containers:
         - name: api
           image: REGISTRY/avatar-api:IMAGE_TAG
           ports:
             - containerPort: 4000
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             requests:
               cpu: 200m
@@ -45,3 +56,9 @@ spec:
                 name: api-config
             - secretRef:
                 name: api-secrets
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

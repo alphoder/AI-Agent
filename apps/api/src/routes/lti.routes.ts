@@ -673,4 +673,184 @@ async function postScore(
   });
 }
 
+// ─── 6. Platform Registration CRUD (admin only) ─────────────────────
+
+// POST /api/lti/platforms – Register a new LTI platform
+router.post(
+  '/platforms',
+  authMiddleware as unknown as RequestHandler,
+  rbac('admin'),
+  wrap(async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const tenantId = req.user!.tid;
+      const { name, issuer, client_id, auth_login_url, auth_token_url, key_set_url } = req.body;
+
+      // --- Input validation ---
+      if (!issuer || typeof issuer !== 'string' || !issuer.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_ISSUER', message: 'issuer is required and must be a non-empty string' },
+        });
+      }
+
+      if (!client_id || typeof client_id !== 'string' || !client_id.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_CLIENT_ID', message: 'client_id is required and must be a non-empty string' },
+        });
+      }
+
+      if (!auth_login_url || typeof auth_login_url !== 'string' || !auth_login_url.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_AUTH_LOGIN_URL', message: 'auth_login_url is required' },
+        });
+      }
+
+      if (!auth_token_url || typeof auth_token_url !== 'string' || !auth_token_url.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_AUTH_TOKEN_URL', message: 'auth_token_url is required' },
+        });
+      }
+
+      if (!key_set_url || typeof key_set_url !== 'string' || !key_set_url.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_KEY_SET_URL', message: 'key_set_url is required' },
+        });
+      }
+
+      // Validate URLs are valid
+      for (const [label, url] of [['auth_login_url', auth_login_url], ['auth_token_url', auth_token_url], ['key_set_url', key_set_url]]) {
+        try {
+          new URL(url as string);
+        } catch {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'INVALID_URL', message: `${label} must be a valid URL` },
+          });
+        }
+      }
+
+      // Check for duplicate issuer+client_id
+      const dupeCheck = await db.query(
+        `SELECT id FROM lti_platforms WHERE issuer = $1 AND client_id = $2`,
+        [issuer.trim(), client_id.trim()],
+      );
+
+      if (dupeCheck.rows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'DUPLICATE_PLATFORM', message: 'A platform with this issuer and client_id already exists' },
+        });
+      }
+
+      const result = await db.query(
+        `INSERT INTO lti_platforms (tenant_id, issuer, client_id, auth_endpoint, token_endpoint, jwks_endpoint)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, tenant_id, issuer, client_id, auth_endpoint, token_endpoint, jwks_endpoint, created_at, updated_at`,
+        [tenantId, issuer.trim(), client_id.trim(), auth_login_url.trim(), auth_token_url.trim(), key_set_url.trim()],
+      );
+
+      logger.info(
+        { platformId: result.rows[0].id, issuer, tenantId },
+        'LTI platform registered',
+      );
+
+      return res.status(201).json({
+        success: true,
+        data: result.rows[0],
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to register LTI platform');
+      return res.status(500).json({
+        success: false,
+        error: { code: 'PLATFORM_CREATE_ERROR', message: 'Failed to register platform' },
+      });
+    }
+  }),
+);
+
+// GET /api/lti/platforms – List all platforms for the tenant
+router.get(
+  '/platforms',
+  authMiddleware as unknown as RequestHandler,
+  rbac('admin'),
+  wrap(async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const tenantId = req.user!.tid;
+
+      const result = await db.query(
+        `SELECT id, tenant_id, issuer, client_id, auth_endpoint, token_endpoint, jwks_endpoint, created_at, updated_at
+         FROM lti_platforms
+         WHERE tenant_id = $1
+         ORDER BY created_at DESC`,
+        [tenantId],
+      );
+
+      return res.json({
+        success: true,
+        data: result.rows,
+        meta: { total: result.rows.length },
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to list LTI platforms');
+      return res.status(500).json({
+        success: false,
+        error: { code: 'PLATFORM_LIST_ERROR', message: 'Failed to list platforms' },
+      });
+    }
+  }),
+);
+
+// DELETE /api/lti/platforms/:id – Delete a platform registration
+router.delete(
+  '/platforms/:id',
+  authMiddleware as unknown as RequestHandler,
+  rbac('admin'),
+  wrap(async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const tenantId = req.user!.tid;
+      const platformId = req.params.id;
+
+      if (!platformId) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_ID', message: 'Platform ID is required' },
+        });
+      }
+
+      // Verify the platform belongs to this tenant before deleting
+      const result = await db.query(
+        `DELETE FROM lti_platforms WHERE id = $1 AND tenant_id = $2 RETURNING id`,
+        [platformId, tenantId],
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Platform not found or does not belong to your tenant' },
+        });
+      }
+
+      logger.info(
+        { platformId, tenantId },
+        'LTI platform deleted',
+      );
+
+      return res.json({
+        success: true,
+        data: { id: result.rows[0].id, deleted: true },
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to delete LTI platform');
+      return res.status(500).json({
+        success: false,
+        error: { code: 'PLATFORM_DELETE_ERROR', message: 'Failed to delete platform' },
+      });
+    }
+  }),
+);
+
 export const ltiRoutes: Router = router;

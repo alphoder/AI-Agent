@@ -24,6 +24,30 @@ active_sessions_gauge = Gauge(
     labelnames=["tenant_id"],
 )
 
+# --- Session lifecycle ---
+sessions_started_total = Counter(
+    "sessions_started_total",
+    "Total number of sessions started",
+)
+
+sessions_ended_total = Counter(
+    "sessions_ended_total",
+    "Total number of sessions ended",
+)
+
+# --- Turn counter ---
+turns_total = Counter(
+    "turns_total",
+    "Total number of conversation turns processed",
+)
+
+# --- Guardrail triggers ---
+guardrail_triggers_total = Counter(
+    "guardrail_triggers_total",
+    "Total number of guardrail violations",
+    labelnames=["direction"],  # "input" or "output"
+)
+
 # --- Embedding jobs ---
 embedding_jobs_total = Counter(
     "embedding_jobs_total",
