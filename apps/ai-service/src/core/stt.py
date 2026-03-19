@@ -23,15 +23,9 @@ except ImportError:
     LiveOptions = None  # type: ignore[assignment, misc]
 
 from src.config import settings
+from src.core.constants import PII_PATTERNS
 
 logger = structlog.get_logger(__name__)
-
-# --- PII redaction patterns ---
-PII_PATTERNS = [
-    (re.compile(r'\b[\w.-]+@[\w.-]+\.\w+\b'), '[EMAIL]'),
-    (re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'), '[PHONE]'),
-    (re.compile(r'\b\d{3}[-]?\d{2}[-]?\d{4}\b'), '[SSN]'),
-]
 
 
 def redact_pii(text: str) -> str:

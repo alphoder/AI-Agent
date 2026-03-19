@@ -2,6 +2,7 @@ import { SAML } from '@node-saml/passport-saml';
 import { Issuer, Client, generators } from 'openid-client';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
+import { redis } from '../config/redis';
 
 interface SSOResult {
   email: string;
@@ -68,6 +69,14 @@ export class SSOAdapter {
       nonce,
       redirect_uri: callbackUrl,
     });
+
+    // Persist code_verifier and nonce in Redis keyed by state (10 min TTL)
+    await redis.set(
+      `oidc:state:${state}`,
+      JSON.stringify({ codeVerifier, nonce }),
+      'EX',
+      600,
+    );
 
     return { url, tenantId: tenant.id, provider: 'oidc' };
   }

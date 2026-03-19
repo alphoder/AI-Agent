@@ -61,6 +61,16 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 31. **Concurrent request race on session start**: Two concurrent `/start` calls with same session_id both pass the `if session_id in active_sessions` check. ALWAYS use locks or atomic operations for check-then-act patterns in concurrent code
 32. **SSO page is a stub**: `sso/page.tsx` renders only `<h1>SSO Login</h1>`. NEVER commit stub pages without clear "not implemented" UI, redirect to working flow, or NODE_ENV guard
 33. **AlertManager rules wrong namespace**: Alert rules reference namespace `avatar-platform` but actual namespaces are `frontend`, `api`, `ai`. ALWAYS verify monitoring rules reference actual deployed namespaces and metric names
+34. **Scoring self-call sends incomplete payload**: `_trigger_scoring` sends `{"session_id": id}` but `EvaluateRequest` requires `rubric`, `persona_context`, `scenario_objective`, `tenant_id`. The call always 422s. ALWAYS verify request payloads match the target endpoint's schema before implementing inter-service calls
+35. **OIDC code verifier generated but never persisted**: `getLoginUrl()` creates a PKCE code_verifier but doesn't store it. `validateOIDCCallback()` can never verify it. ALWAYS persist ephemeral auth state (nonces, verifiers, state params) in Redis with TTL
+36. **Client-side role check as sole authorization**: Admin/learner layouts decode JWT client-side but anyone can craft a valid-looking base64 payload. ALWAYS enforce authorization server-side (Next.js middleware or API), client checks are UX only
+37. **Cross-namespace Ingress reference**: K8s Ingress in `frontend` namespace references service in `api` namespace. K8s Ingress can ONLY reference services in its own namespace. ALWAYS validate K8s manifests with `kubectl apply --dry-run=server`
+38. **New httpx.AsyncClient per request**: Every HTTP call creates + destroys a client, preventing connection pooling. ALWAYS create HTTP clients once at app startup and reuse them
+39. **Pinecone synchronous calls in async context**: `index.upsert()` and `index.delete()` block the event loop. ALWAYS use `asyncio.to_thread()` for synchronous I/O in async functions
+40. **Substring-based topic blocking**: `if topic in text` makes "war" block "software". ALWAYS use word-boundary regex for keyword matching
+41. **PII regex patterns duplicated and divergent**: STT and guardrails have different patterns for SSN/phone. ALWAYS define shared constants for regex patterns used in multiple modules
+42. **debug=True as production default**: If env var not set, Swagger docs are exposed in production. ALWAYS default debug/dev flags to False/disabled
+43. **Metrics endpoint publicly accessible**: `/metrics` has no auth, exposing internal service details. ALWAYS protect observability endpoints with auth or network policy
 
 ## Architecture Rules
 - Every API route: validate input with Zod schema, check auth, check ownership/RBAC, scope to tenant, return consistent envelope
@@ -82,6 +92,16 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 - Every CI security scan: must fail the build on findings, never use continue-on-error
 - Every data buffer: implement both fill AND flush/drain logic
 - Every monitoring rule: verify referenced namespaces, metrics, and labels match actual deployments
+- Every inter-service call: verify request payload matches the target endpoint's Pydantic/Zod schema
+- Every ephemeral auth value (nonce, verifier, state): persist in Redis with TTL, never rely on in-memory state across requests
+- Every role/permission check: enforce server-side (middleware), client-side checks are UX hints only
+- Every K8s manifest: validate with `kubectl apply --dry-run=server` before committing
+- Every HTTP client in async Python: create once at startup, reuse for connection pooling
+- Every synchronous I/O call in async context: wrap in asyncio.to_thread()
+- Every keyword/topic filter: use word-boundary regex (\b), never plain substring match
+- Every regex pattern used in multiple modules: define once in a shared constants module
+- Every debug/dev flag: default to False/disabled; production must be safe by default
+- Every observability endpoint (/metrics, /health/debug): protect with auth or network policy
 
 ## Known Gaps (see PROJECT_REVIEW.md v2 for full 108-issue inventory)
 ### FIXED in latest batch:
@@ -107,6 +127,14 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 - ~~CI security scans silenced~~ FIXED: removed continue-on-error, fails on CRITICAL/HIGH
 
 ### All 108 issues from PROJECT_REVIEW.md v2 have been addressed.
+
+### NEW issues found in PROJECT_REVIEW_V3.md (165 total):
+- **27 CRITICAL**: Broken deployments, auth bypasses, race conditions, missing inter-service auth
+- **40 HIGH**: Missing rate limits, fire-and-forget patterns, broken OIDC/SAML, DoS vectors
+- **41 MEDIUM**: Missing pagination, accessibility gaps, stale caches, metric mismatches
+- **35 LOW**: Dead code, duplicated helpers, missing .gitignore entries, config defaults
+- **22 PROGRESS GAPS**: Partial completion of Notion build plan deliverables
+- See `PROJECT_REVIEW_V3.md` for full inventory and priority action plan
 
 ## File Structure
 - `apps/web/src/components/ui/` - Reusable primitives (Button, Card, Input, etc.)

@@ -7,12 +7,9 @@ from __future__ import annotations
 import re
 import structlog
 
-logger = structlog.get_logger(__name__)
+from src.core.constants import EMAIL_PATTERN, PHONE_PATTERN, SSN_PATTERN
 
-# PII patterns
-EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-PHONE_PATTERN = re.compile(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b")
-SSN_PATTERN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+logger = structlog.get_logger(__name__)
 
 # Prompt injection patterns
 INJECTION_PATTERNS = [

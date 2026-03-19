@@ -24,6 +24,16 @@ active_rooms: dict[str, rtc.Room] = {}
 # Locks to prevent concurrent /start calls for the same session
 _session_locks: dict[str, asyncio.Lock] = {}
 
+# Reusable httpx client (avoids creating a new client per scoring request)
+_http_client: httpx.AsyncClient | None = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=60.0)
+    return _http_client
+
 
 class StartSessionRequest(BaseModel):
     session_id: str
@@ -169,32 +179,44 @@ async def start_session(req: StartSessionRequest, background_tasks: BackgroundTa
 @router.post("/end")
 async def end_session(req: EndSessionRequest, background_tasks: BackgroundTasks):
     """End a training session and trigger scoring."""
-    orchestrator = active_sessions.pop(req.session_id, None)
-    _session_locks.pop(req.session_id, None)
+    orchestrator = active_sessions.get(req.session_id)
 
+    # Extract scoring data from the orchestrator BEFORE removing it
+    scoring_data: dict = {}
     if orchestrator:
+        scoring_data = {
+            "session_id": req.session_id,
+            "tenant_id": orchestrator.tenant_id,
+            "rubric": orchestrator.scenario.get("rubric", []),
+            "persona_context": orchestrator.persona.get("system_prompt", ""),
+            "scenario_objective": orchestrator.scenario.get("objective", ""),
+        }
         await orchestrator.end()
+
+    # Now safe to remove from active sessions
+    active_sessions.pop(req.session_id, None)
+    _session_locks.pop(req.session_id, None)
 
     # Disconnect bot from room
     room = active_rooms.pop(req.session_id, None)
     if room:
         await room.disconnect()
 
-    # Trigger scoring
-    background_tasks.add_task(_trigger_scoring, req.session_id)
+    # Trigger scoring with the complete payload
+    if scoring_data:
+        background_tasks.add_task(_trigger_scoring, scoring_data)
 
     return {"message": "Session ended", "session_id": req.session_id}
 
 
-async def _trigger_scoring(session_id: str):
-    """Trigger post-session scoring."""
+async def _trigger_scoring(scoring_data: dict):
+    """Trigger post-session scoring with the complete payload."""
     try:
         scoring_url = f"http://{settings.host}:{settings.port}/scoring/evaluate"
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                scoring_url,
-                json={"session_id": session_id},
-                timeout=60.0,
-            )
+        client = get_http_client()
+        await client.post(
+            scoring_url,
+            json=scoring_data,
+        )
     except Exception as e:
-        logger.error("scoring_trigger_failed", session_id=session_id, error=str(e))
+        logger.error("scoring_trigger_failed", session_id=scoring_data.get("session_id"), error=str(e))
