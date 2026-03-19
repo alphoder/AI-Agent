@@ -26,6 +26,11 @@ export class JWTService {
   private static readonly ACCESS_TOKEN_TTL = '15m';
   private static readonly REFRESH_TOKEN_TTL = RedisTTL.REFRESH_TOKEN; // 7 days
 
+  /** Use HS256 in dev when no real RSA keys are configured */
+  private static get algorithm(): jwt.Algorithm {
+    return config.JWT_PRIVATE_KEY.startsWith('-----') ? 'RS256' : 'HS256';
+  }
+
   /**
    * Issue a new access + refresh token pair.
    */
@@ -58,19 +63,21 @@ export class JWTService {
    * Sign an RS256 access token.
    */
   static signAccessToken(payload: AccessTokenPayload): string {
-    return jwt.sign(payload, config.JWT_PRIVATE_KEY, {
-      algorithm: 'RS256',
+    const key = this.algorithm === 'RS256' ? config.JWT_PRIVATE_KEY : config.JWT_PRIVATE_KEY;
+    return jwt.sign(payload, key, {
+      algorithm: this.algorithm,
       expiresIn: this.ACCESS_TOKEN_TTL,
       issuer: 'avatar-platform',
     });
   }
 
   /**
-   * Verify an RS256 access token.
+   * Verify an access token.
    */
   static verifyAccessToken(token: string): AccessTokenPayload {
-    return jwt.verify(token, config.JWT_PUBLIC_KEY, {
-      algorithms: ['RS256'],
+    const key = this.algorithm === 'RS256' ? config.JWT_PUBLIC_KEY : config.JWT_PRIVATE_KEY;
+    return jwt.verify(token, key, {
+      algorithms: [this.algorithm],
       issuer: 'avatar-platform',
     }) as AccessTokenPayload;
   }

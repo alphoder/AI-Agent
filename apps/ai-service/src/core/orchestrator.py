@@ -7,6 +7,8 @@ Manages the full lifecycle of a training session:
 - Processes audio through the critical path:
   STT -> Guardrails -> RAG -> LLM -> Guardrails -> Avatar
 """
+from __future__ import annotations
+
 import time
 import asyncio
 import json

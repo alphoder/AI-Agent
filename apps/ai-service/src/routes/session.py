@@ -1,4 +1,6 @@
 """Session routes for real-time training pipeline."""
+from __future__ import annotations
+
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
 import httpx

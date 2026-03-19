@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction, RequestHandler } from 'express';
 import multer from 'multer';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
@@ -7,14 +7,17 @@ import { S3Service } from '../services/s3-service';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 
-const router = Router();
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
+
+const router: Router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
 });
 
-router.use(authMiddleware);
-router.use(tenantMiddleware);
+router.use(authMiddleware as unknown as RequestHandler);
+router.use(tenantMiddleware as unknown as RequestHandler);
 
 // File type validation
 const ALLOWED_TYPES: Record<string, string[]> = {
@@ -48,7 +51,7 @@ function validateFileContent(buffer: Buffer, mimetype: string): boolean {
 router.post(
   '/',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const userId = req.user!.sub;
@@ -145,14 +148,14 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
  * GET /api/personas
  * List personas (paginated) with avatar info.
  */
-router.get('/', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.user!.tid;
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -196,13 +199,13 @@ router.get('/', async (req: AuthenticatedRequest, res: Response, next: NextFunct
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * GET /api/personas/:id
  * Get a single persona with avatar details.
  */
-router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.tenantQuery(
       req.user!.tid,
@@ -230,7 +233,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFu
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * PATCH /api/personas/:id
@@ -240,7 +243,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFu
 router.patch(
   '/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { name, description, system_prompt, guardrails, rag_enabled, temperature } = req.body;
       const updates: string[] = [];
@@ -308,7 +311,7 @@ router.patch(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
@@ -318,7 +321,7 @@ router.patch(
 router.delete(
   '/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
 
@@ -361,7 +364,7 @@ router.delete(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
@@ -373,7 +376,7 @@ router.post(
   '/:id/documents',
   rbac('admin'),
   upload.single('file'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const userId = req.user!.sub;
@@ -489,7 +492,7 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
@@ -498,7 +501,7 @@ router.post(
  */
 router.get(
   '/:id/documents',
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const personaId = req.params.id;
@@ -557,7 +560,7 @@ router.get(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
@@ -567,7 +570,7 @@ router.get(
 router.delete(
   '/:id/documents/:docId',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const { id: personaId, docId } = req.params;
@@ -621,7 +624,7 @@ router.delete(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
@@ -631,7 +634,7 @@ router.delete(
 router.post(
   '/:id/documents/:docId/reprocess',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const { id: personaId, docId } = req.params;
@@ -706,7 +709,7 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
-export const personaRoutes = router;
+export const personaRoutes: Router = router;

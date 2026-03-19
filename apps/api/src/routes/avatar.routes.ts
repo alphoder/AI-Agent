@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import multer from 'multer';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
@@ -7,15 +7,18 @@ import { S3Service } from '../services/s3-service';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 
-const router = Router();
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
+
+const router: Router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
 // All routes require auth + tenant context
-router.use(authMiddleware);
-router.use(tenantMiddleware);
+router.use(authMiddleware as unknown as RequestHandler);
+router.use(tenantMiddleware as unknown as RequestHandler);
 
 // Magic byte validation
 const MAGIC_BYTES: Record<string, Buffer[]> = {
@@ -39,7 +42,7 @@ router.post(
   '/',
   rbac('admin'),
   upload.single('image'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const file = req.file;
       if (!file) {
@@ -127,14 +130,14 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
  * GET /api/avatars
  * List avatars (paginated, with status filter)
  */
-router.get('/', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.user!.tid;
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -182,12 +185,12 @@ router.get('/', async (req: AuthenticatedRequest, res: Response, next: NextFunct
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * GET /api/avatars/:id
  */
-router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.tenantQuery(
       req.user!.tid,
@@ -208,7 +211,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFu
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * PATCH /api/avatars/:id
@@ -216,7 +219,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFu
 router.patch(
   '/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { name, config: avatarConfig } = req.body;
       const updates: string[] = [];
@@ -259,7 +262,7 @@ router.patch(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
@@ -268,7 +271,7 @@ router.patch(
 router.delete(
   '/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       // Check for active sessions using this avatar's persona
       const sessionCheck = await db.tenantQuery(
@@ -310,7 +313,7 @@ router.delete(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 /**
@@ -319,7 +322,7 @@ router.delete(
 router.post(
   '/:id/regenerate',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
 
@@ -366,7 +369,7 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
-export const avatarRoutes = router;
+export const avatarRoutes: Router = router;

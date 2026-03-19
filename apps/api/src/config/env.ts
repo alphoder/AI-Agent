@@ -3,7 +3,7 @@ import { z } from 'zod';
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
-  DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5432/avatar_platform'),
+  DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5433/avatar_platform'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   JWT_PRIVATE_KEY: z.string().default('dev-private-key'),
   JWT_PUBLIC_KEY: z.string().default('dev-public-key'),

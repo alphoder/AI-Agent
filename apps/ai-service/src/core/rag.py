@@ -2,6 +2,8 @@
 
 Handles vector search against Pinecone for relevant context retrieval.
 """
+from __future__ import annotations
+
 import openai
 import structlog
 from pinecone import Pinecone
@@ -15,11 +17,29 @@ class RAGRetriever:
     """Vector similarity search for knowledge base retrieval."""
 
     def __init__(self):
-        self.openai_client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
-        self.pc = Pinecone(api_key=settings.pinecone_api_key)
-        self.index = self.pc.Index(settings.pinecone_index)
+        self._openai_client: openai.AsyncOpenAI | None = None
+        self._pc: Pinecone | None = None
+        self._index = None
         self.embedding_model = "text-embedding-3-small"
         self.embedding_dims = 1536
+
+    @property
+    def openai_client(self) -> openai.AsyncOpenAI:
+        if self._openai_client is None:
+            self._openai_client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+        return self._openai_client
+
+    @property
+    def pc(self) -> Pinecone:
+        if self._pc is None:
+            self._pc = Pinecone(api_key=settings.pinecone_api_key)
+        return self._pc
+
+    @property
+    def index(self):
+        if self._index is None:
+            self._index = self.pc.Index(settings.pinecone_index)
+        return self._index
 
     async def embed_text(self, text: str) -> list[float]:
         """Generate embedding for a text using text-embedding-3-small."""

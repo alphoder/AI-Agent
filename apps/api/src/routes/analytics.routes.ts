@@ -1,13 +1,16 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 
-const router = Router();
-router.use(authMiddleware);
-router.use(tenantMiddleware);
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
+
+const router: Router = Router();
+router.use(authMiddleware as unknown as RequestHandler);
+router.use(tenantMiddleware as unknown as RequestHandler);
 
 // ---------------------------------------------------------------------------
 // GET /overview — Admin dashboard overview
@@ -15,7 +18,7 @@ router.use(tenantMiddleware);
 router.get(
   '/overview',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
     const tenantId = req.user!.tid;
 
     try {
@@ -135,13 +138,13 @@ router.get(
         },
       });
     } catch (err) {
-      logger.error('Analytics overview error', err);
+      logger.error({ err }, 'Analytics overview error');
       return res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch analytics overview' },
       });
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -150,7 +153,7 @@ router.get(
 router.get(
   '/scenarios/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
     const tenantId = req.user!.tid;
     const scenarioId = req.params.id;
 
@@ -247,13 +250,13 @@ router.get(
         },
       });
     } catch (err) {
-      logger.error('Analytics scenario error', err);
+      logger.error({ err }, 'Analytics scenario error');
       return res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch scenario analytics' },
       });
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -262,7 +265,7 @@ router.get(
 router.get(
   '/learners/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
     const tenantId = req.user!.tid;
     const learnerId = req.params.id;
 
@@ -350,13 +353,13 @@ router.get(
         },
       });
     } catch (err) {
-      logger.error('Analytics learner error', err);
+      logger.error({ err }, 'Analytics learner error');
       return res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch learner analytics' },
       });
     }
-  },
+  }),
 );
 
-export const analyticsRoutes = router;
+export const analyticsRoutes: Router = router;

@@ -2,6 +2,7 @@
 
 Evaluates completed sessions using GPT-4o against the scenario rubric.
 """
+from __future__ import annotations
 
 import json
 
@@ -88,7 +89,13 @@ class ScoringEngine:
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.api_key = api_key
         self.model = model
-        self.client = AsyncOpenAI(api_key=api_key)
+        self._client: AsyncOpenAI | None = None
+
+    @property
+    def client(self) -> AsyncOpenAI:
+        if self._client is None:
+            self._client = AsyncOpenAI(api_key=self.api_key)
+        return self._client
 
     async def evaluate(
         self,

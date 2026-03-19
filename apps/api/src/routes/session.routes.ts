@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import { RoomServiceClient, AccessToken, VideoGrant } from 'livekit-server-sdk';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
@@ -8,9 +8,13 @@ import { redis, RedisKeys } from '../config/redis';
 import { logger } from '../config/logger';
 import { config } from '../config/env';
 
-const router = Router();
-router.use(authMiddleware);
-router.use(tenantMiddleware);
+// Helper type to bridge AuthenticatedRequest handlers with Express router
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
+
+const router: Router = Router();
+router.use(authMiddleware as unknown as RequestHandler);
+router.use(tenantMiddleware as unknown as RequestHandler);
 
 const roomService = new RoomServiceClient(
   config.LIVEKIT_URL,
@@ -21,7 +25,7 @@ const roomService = new RoomServiceClient(
 /**
  * POST /api/sessions — Create a new training session
  */
-router.post('/', rateLimit(5), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const { assignment_id } = req.body;
     const tenantId = req.user!.tid;
@@ -192,12 +196,12 @@ router.post('/', rateLimit(5), async (req: AuthenticatedRequest, res: Response, 
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * POST /api/sessions/:id/end — End a training session
  */
-router.post('/:id/end', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/:id/end', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.user!.tid;
     const sessionId = req.params.id;
@@ -255,12 +259,12 @@ router.post('/:id/end', async (req: AuthenticatedRequest, res: Response, next: N
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * GET /api/sessions/:id — Get session details
  */
-router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.tenantQuery(req.user!.tid,
       `SELECT s.id, s.tenant_id, s.assignment_id, s.user_id, s.scenario_id,
@@ -286,12 +290,12 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFu
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * GET /api/sessions/:id/transcript — Get session transcript ordered by turn number
  */
-router.get('/:id/transcript', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id/transcript', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     // Verify session exists and belongs to tenant
     const sessionCheck = await db.tenantQuery(req.user!.tid,
@@ -319,12 +323,12 @@ router.get('/:id/transcript', async (req: AuthenticatedRequest, res: Response, n
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * GET /api/sessions/:id/report — Get session score/report
  */
-router.get('/:id/report', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id/report', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.tenantQuery(req.user!.tid,
       `SELECT ss.id, ss.session_id, ss.overall_score, ss.criteria_scores,
@@ -350,12 +354,12 @@ router.get('/:id/report', async (req: AuthenticatedRequest, res: Response, next:
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * POST /api/sessions/:id/score — Save session score (from AI service)
  */
-router.post('/:id/score', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/:id/score', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const sessionId = req.params.id;
     const tenantId = req.user!.tid;
@@ -420,12 +424,12 @@ router.post('/:id/score', async (req: AuthenticatedRequest, res: Response, next:
   } catch (err) {
     next(err);
   }
-});
+}));
 
 /**
  * GET /api/sessions/:id/report/pdf — Download PDF report
  */
-router.get('/:id/report/pdf', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id/report/pdf', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const sessionId = req.params.id;
     const tenantId = req.user!.tid;
@@ -491,6 +495,6 @@ router.get('/:id/report/pdf', async (req: AuthenticatedRequest, res: Response, n
   } catch (err) {
     next(err);
   }
-});
+}));
 
-export const sessionRoutes = router;
+export const sessionRoutes: Router = router;

@@ -1,13 +1,16 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 
-const router = Router();
-router.use(authMiddleware);
-router.use(tenantMiddleware);
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
+
+const router: Router = Router();
+router.use(authMiddleware as unknown as RequestHandler);
+router.use(tenantMiddleware as unknown as RequestHandler);
 
 // ---------------------------------------------------------------------------
 // Rubric validation
@@ -61,7 +64,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 router.post(
   '/',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const userId = req.user!.sub;
@@ -171,7 +174,7 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -180,7 +183,7 @@ router.post(
 router.get(
   '/',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -253,7 +256,7 @@ router.get(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -262,7 +265,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.get(
   '/assignments/me',
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const userId = req.user!.sub;
@@ -315,13 +318,13 @@ router.get(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
 // GET /api/scenarios/:id – Full scenario details
 // ---------------------------------------------------------------------------
-router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.user!.tid;
 
@@ -354,7 +357,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFu
   } catch (err) {
     next(err);
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // PATCH /api/scenarios/:id – Update scenario (admin only)
@@ -363,7 +366,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFu
 router.patch(
   '/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const scenarioId = req.params.id;
@@ -575,7 +578,7 @@ router.patch(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -584,7 +587,7 @@ router.patch(
 router.delete(
   '/:id',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const scenarioId = req.params.id;
@@ -627,7 +630,7 @@ router.delete(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -636,7 +639,7 @@ router.delete(
 router.post(
   '/:id/assign',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const assignedBy = req.user!.sub;
@@ -708,7 +711,7 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -717,7 +720,7 @@ router.post(
 router.delete(
   '/:id/assign/:userId',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const { id: scenarioId, userId } = req.params;
@@ -761,7 +764,7 @@ router.delete(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -770,7 +773,7 @@ router.delete(
 router.post(
   '/:id/duplicate',
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
       const userId = req.user!.sub;
@@ -833,7 +836,7 @@ router.post(
     } catch (err) {
       next(err);
     }
-  },
+  }),
 );
 
-export const scenarioRoutes = router;
+export const scenarioRoutes: Router = router;

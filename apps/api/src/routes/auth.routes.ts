@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import { SSOAdapter } from '../services/sso-adapter';
 import { JWTService } from '../services/jwt-service';
 import { resolveRole } from '../services/role-resolver';
@@ -8,10 +8,13 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 
-const router = Router();
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
-// Rate limit: 10/min for auth endpoints
-router.use(rateLimit(10));
+const router: Router = Router();
+
+// Rate limit: relaxed in dev, strict in prod
+router.use(rateLimit(process.env.NODE_ENV === 'production' ? 10 : 100));
 
 /**
  * GET /api/auth/sso/init?tenant=<slug>
@@ -98,6 +101,70 @@ router.post('/sso/callback', async (req: Request, res: Response, next: NextFunct
 });
 
 /**
+ * POST /api/auth/dev-login
+ * Development-only: login by email without SSO
+ * Body: { email: string, tenant: string }
+ */
+router.post('/dev-login', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+    }
+
+    const { email, tenant } = req.body;
+    if (!email || !tenant) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_BODY', message: 'email and tenant are required' },
+      });
+    }
+
+    // Lookup tenant
+    const tenantResult = await db.query('SELECT id FROM tenants WHERE slug = $1', [tenant]);
+    if (tenantResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'TENANT_NOT_FOUND', message: `Tenant "${tenant}" not found` },
+      });
+    }
+    const tenantId = tenantResult.rows[0].id;
+
+    // Lookup user by email in tenant (bypass RLS)
+    const userResult = await db.query(
+      'SELECT id, tenant_id, email, display_name, role FROM users WHERE email = $1 AND tenant_id = $2',
+      [email, tenantId],
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: `User "${email}" not found in tenant "${tenant}"` },
+      });
+    }
+
+    const user = userResult.rows[0];
+    const { accessToken, refreshToken } = await JWTService.issueTokens(user);
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/api/auth',
+    });
+
+    logger.info({ email, tenant, userId: user.id }, 'Dev login successful');
+
+    res.json({
+      success: true,
+      data: { accessToken, user: { id: user.id, email: user.email, displayName: user.display_name, role: user.role } },
+    });
+  } catch (err) {
+    logger.error({ err }, 'Dev login failed');
+    next(err);
+  }
+});
+
+/**
  * POST /api/auth/refresh
  * Rotate refresh token, issue new access + refresh tokens
  */
@@ -165,7 +232,7 @@ router.post('/logout', async (req: Request, res: Response, next: NextFunction) =
  * GET /api/auth/me
  * Return current user info from JWT
  */
-router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/me', authMiddleware as unknown as RequestHandler, wrap(async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) {
     return res.status(401).json({
       success: false,
@@ -187,6 +254,6 @@ router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res: Respons
   }
 
   res.json({ success: true, data: result.rows[0] });
-});
+}));
 
-export const authRoutes = router;
+export const authRoutes: Router = router;

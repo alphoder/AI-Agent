@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import crypto from 'crypto';
 import {
   importSPKI,
@@ -19,7 +19,10 @@ import { config } from '../config/env';
 import { JWTService } from '../services/jwt-service';
 import { upsertUser } from '../services/user-service';
 
-const router = Router();
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
+
+const router: Router = Router();
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -354,9 +357,9 @@ router.post('/launch', async (req: Request, res: Response) => {
 
 router.post(
   '/deeplinking',
-  authMiddleware,
+  authMiddleware as unknown as RequestHandler,
   rbac('admin'),
-  async (req: AuthenticatedRequest, res: Response) => {
+  wrap(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { scenario_ids, platform_id } = req.body;
 
@@ -469,15 +472,15 @@ router.post(
         error: { code: 'DL_ERROR', message: 'Failed to generate deep linking response' },
       });
     }
-  },
+  }),
 );
 
 // ─── 5. Grade Passback via AGS ───────────────────────────────────────
 
 router.post(
   '/grades/:sessionId',
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
+  authMiddleware as unknown as RequestHandler,
+  wrap(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
       const tenantId = req.user!.tid;
@@ -605,7 +608,7 @@ router.post(
         error: { code: 'GRADE_ERROR', message: 'Grade passback failed' },
       });
     }
-  },
+  }),
 );
 
 // ─── AGS Helpers ─────────────────────────────────────────────────────
@@ -670,4 +673,4 @@ async function postScore(
   });
 }
 
-export const ltiRoutes = router;
+export const ltiRoutes: Router = router;

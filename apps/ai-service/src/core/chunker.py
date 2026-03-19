@@ -3,6 +3,8 @@
 Handles text extraction from PDF/DOCX/TXT/MD and splits into chunks
 for embedding using RecursiveCharacterTextSplitter.
 """
+from __future__ import annotations
+
 import io
 import re
 

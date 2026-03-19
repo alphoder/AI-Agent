@@ -15,7 +15,7 @@ import { sessionRoutes } from './routes/session.routes';
 import { analyticsRoutes } from './routes/analytics.routes';
 import { ltiRoutes } from './routes/lti.routes';
 
-export function createApp() {
+export function createApp(): express.Express {
   const app = express();
 
   // Security & parsing

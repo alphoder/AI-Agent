@@ -1,8 +1,8 @@
-import { Response, NextFunction } from 'express';
+import { Response, NextFunction, RequestHandler } from 'express';
 import { AuthenticatedRequest } from './auth';
 
-export function rbac(...allowedRoles: string[]) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+export function rbac(...allowedRoles: string[]): RequestHandler {
+  return ((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
     }
@@ -10,11 +10,11 @@ export function rbac(...allowedRoles: string[]) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
     }
     next();
-  };
+  }) as unknown as RequestHandler;
 }
 
-export function rbacOwnerOrAdmin(userIdParam: string = 'id') {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+export function rbacOwnerOrAdmin(userIdParam: string = 'id'): RequestHandler {
+  return ((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
     }
@@ -22,5 +22,5 @@ export function rbacOwnerOrAdmin(userIdParam: string = 'id') {
       return next();
     }
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
-  };
+  }) as unknown as RequestHandler;
 }

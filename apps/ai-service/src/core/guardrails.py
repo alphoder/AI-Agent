@@ -2,6 +2,8 @@
 
 Filters content for safety, PII, blocked topics, and prompt injection.
 """
+from __future__ import annotations
+
 import re
 import structlog
 

@@ -2,6 +2,8 @@
 
 Handles GPT-4o streaming responses with prompt assembly and chunk buffering.
 """
+from __future__ import annotations
+
 import re
 import time
 import asyncio
@@ -21,8 +23,14 @@ class LLMClient:
     """GPT-4o streaming orchestration with chunk buffering."""
 
     def __init__(self):
-        self.client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+        self._client: openai.AsyncOpenAI | None = None
         self.model = settings.openai_model
+
+    @property
+    def client(self) -> openai.AsyncOpenAI:
+        if self._client is None:
+            self._client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+        return self._client
 
     async def generate_response(
         self,

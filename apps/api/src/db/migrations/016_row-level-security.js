@@ -36,6 +36,17 @@ exports.up = (pgm) => {
           )
         );
       `);
+    } else if (table === 'lti_nonces') {
+      // lti_nonces doesn't have tenant_id, join through lti_platforms
+      pgm.sql(`
+        CREATE POLICY tenant_isolation ON ${table}
+        USING (
+          platform_id IN (
+            SELECT id FROM lti_platforms
+            WHERE tenant_id = current_setting('app.current_tenant_id', true)::uuid
+          )
+        );
+      `);
     } else {
       pgm.sql(`
         CREATE POLICY tenant_isolation ON ${table}

@@ -3,12 +3,23 @@
 Handles real-time audio transcription via WebSocket connection.
 Uses nova-2 model with opus encoding at 16kHz mono.
 """
+from __future__ import annotations
+
 import asyncio
 import time
 from collections import deque
 from typing import Callable, Awaitable
 import structlog
-from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
+from deepgram import DeepgramClient
+
+try:
+    from deepgram import LiveTranscriptionEvents, LiveOptions
+except ImportError:
+    # Deepgram SDK v6+ moved these classes; provide stubs so the module
+    # can be imported even when the installed version differs from what
+    # the code was originally written against.
+    LiveTranscriptionEvents = None  # type: ignore[assignment, misc]
+    LiveOptions = None  # type: ignore[assignment, misc]
 
 from src.config import settings
 
@@ -23,7 +34,7 @@ class DeepgramSTTClient:
         on_transcript_interim: Callable[[str], Awaitable[None]] | None = None,
         on_transcript_final: Callable[[str, float], Awaitable[None]] | None = None,
     ):
-        self.client = DeepgramClient(settings.deepgram_api_key)
+        self._client: DeepgramClient | None = None
         self.connection = None
         self.session_id: str | None = None
         self.on_transcript_interim = on_transcript_interim
@@ -45,6 +56,12 @@ class DeepgramSTTClient:
         self._last_audio_time = 0.0
         self._silence_timeout = 10.0  # Force finalize after 10s silence
         self._connected = False
+
+    @property
+    def client(self) -> DeepgramClient:
+        if self._client is None:
+            self._client = DeepgramClient(settings.deepgram_api_key)
+        return self._client
 
     async def connect(self, session_id: str):
         """Establish WebSocket connection to Deepgram."""

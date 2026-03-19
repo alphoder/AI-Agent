@@ -1,0 +1,67 @@
+version: '3.9'
+
+# Integration test environment
+# Usage: docker compose -f docker-compose.test.yaml up -d
+# Then run: pnpm test:integration
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: avatar-postgres-test
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: avatar_platform_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d avatar_platform_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: avatar-redis-test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio-test:
+    image: minio/minio:latest
+    container_name: avatar-minio-test
+    ports:
+      - "9002:9000"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    tmpfs:
+      - /data
+    command: server /data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  livekit-test:
+    image: livekit/livekit-server:latest
+    container_name: avatar-livekit-test
+    ports:
+      - "7882:7880"
+      - "7883:7881"
+    environment:
+      LIVEKIT_KEYS: "testkey: testsecret"
+    command: --dev --bind 0.0.0.0
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7880"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

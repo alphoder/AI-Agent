@@ -45,16 +45,11 @@ export class SSOAdapter {
 
     if (tenant.sso_provider === 'saml') {
       const saml = await this.getSAMLInstance(tenant);
-      const url = await new Promise<string>((resolve, reject) => {
-        saml.getAuthorizeUrl(
-          { callbackUrl } as any,
-          { additionalParams: {} },
-          (err: Error | null, url?: string | null) => {
-            if (err || !url) return reject(err || new Error('No URL returned'));
-            resolve(url);
-          },
-        );
-      });
+      const url = await saml.getAuthorizeUrlAsync(
+        '' as any,
+        callbackUrl,
+        { additionalParams: {} },
+      );
       return { url, tenantId: tenant.id, provider: 'saml' };
     }
 
@@ -104,14 +99,12 @@ export class SSOAdapter {
   ): Promise<SSOResult> {
     const saml = await this.getSAMLInstance(tenant);
 
-    const result = await new Promise<{ profile: any }>((resolve, reject) => {
-      saml.validatePostResponse(body, (err: Error | null, profile: any) => {
-        if (err) return reject(err);
-        resolve({ profile });
-      });
-    });
+    const result = await saml.validatePostResponseAsync(body);
 
     const profile = result.profile;
+    if (!profile) {
+      throw new Error('SAML response did not contain a valid profile');
+    }
 
     logger.info(
       { tenantId: tenant.id, email: profile.nameID },
@@ -119,14 +112,14 @@ export class SSOAdapter {
     );
 
     return {
-      email: profile.nameID || profile.email,
-      externalId: profile.nameID,
+      email: profile.nameID || (profile as any).email || '',
+      externalId: profile.nameID || '',
       displayName:
-        profile.displayName ||
-        profile['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'] ||
-        profile.nameID,
-      groups: this.extractGroups(profile, tenant.sso_config),
-      rawAttributes: profile,
+        (profile as any).displayName ||
+        (profile as any)['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'] ||
+        profile.nameID || '',
+      groups: this.extractGroups(profile as unknown as Record<string, unknown>, tenant.sso_config),
+      rawAttributes: profile as unknown as Record<string, unknown>,
     };
   }
 

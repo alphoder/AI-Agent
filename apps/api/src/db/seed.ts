@@ -10,7 +10,7 @@
 import { Pool } from 'pg';
 
 const DATABASE_URL =
-  process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/avatar_platform';
+  process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5433/avatar_platform';
 
 async function seed() {
   const pool = new Pool({ connectionString: DATABASE_URL });
@@ -63,41 +63,55 @@ async function seed() {
     const learnerId = learnerResult.rows[0].id;
     console.log(`  Learner user created: ${learnerId}`);
 
-    // 4. Create avatar
-    const avatarResult = await pool.query(
-      `INSERT INTO avatars (id, tenant_id, name, provider, source_image_url, status, created_by)
-       VALUES (generate_uuidv7(), $1, 'Professional Coach', 'simli', 'https://placeholder.com/avatar.jpg', 'active', $2)
-       ON CONFLICT DO NOTHING
-       RETURNING id`,
-      [tenantId, adminId],
+    // 4. Create avatar (idempotent — reuse if name already exists for tenant)
+    const existingAvatar = await pool.query(
+      `SELECT id FROM avatars WHERE tenant_id = $1 AND name = 'Professional Coach' AND deleted_at IS NULL LIMIT 1`,
+      [tenantId],
     );
-    const avatarId = avatarResult.rows[0]?.id;
-    if (!avatarId) {
-      console.log('  Avatar already exists, skipping...');
-      await pool.end();
-      return;
+    let avatarId: string;
+    if (existingAvatar.rows.length > 0) {
+      avatarId = existingAvatar.rows[0].id;
+      console.log(`  Avatar already exists: ${avatarId}`);
+    } else {
+      const avatarResult = await pool.query(
+        `INSERT INTO avatars (id, tenant_id, name, provider, source_image_url, status, created_by)
+         VALUES (generate_uuidv7(), $1, 'Professional Coach', 'simli', 'https://placeholder.com/avatar.jpg', 'active', $2)
+         RETURNING id`,
+        [tenantId, adminId],
+      );
+      avatarId = avatarResult.rows[0].id;
+      console.log(`  Avatar created: ${avatarId}`);
     }
-    console.log(`  Avatar created: ${avatarId}`);
 
-    // 5. Create persona
-    const personaResult = await pool.query(
-      `INSERT INTO personas (
-         id, tenant_id, name, description, avatar_id, system_prompt,
-         guardrails, rag_enabled, temperature, created_by
-       )
-       VALUES (
-         generate_uuidv7(), $1, 'Sales Coach Sarah',
-         'An experienced sales coach who helps learners practice cold calling techniques.',
-         $2,
-         'You are Sarah, a senior sales coach with 15 years of experience. You are conducting a cold calling role-play exercise. Stay in character. Be supportive but challenge the learner. Provide realistic objections. Never break character or discuss being an AI.',
-         '{"allowed_topics": ["sales", "cold calling", "objection handling", "closing techniques"], "blocked_topics": ["politics", "religion", "personal finance advice"], "escalation_triggers": ["harassment", "threats"], "max_response_tokens": 256, "follow_up_question_frequency": 3}',
-         false, 0.70, $3
-       )
-       RETURNING id`,
-      [tenantId, avatarId, adminId],
+    // 5. Create persona (idempotent — reuse if avatar_id already linked)
+    const existingPersona = await pool.query(
+      `SELECT id FROM personas WHERE avatar_id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [avatarId],
     );
-    const personaId = personaResult.rows[0].id;
-    console.log(`  Persona created: ${personaId}`);
+    let personaId: string;
+    if (existingPersona.rows.length > 0) {
+      personaId = existingPersona.rows[0].id;
+      console.log(`  Persona already exists: ${personaId}`);
+    } else {
+      const personaResult = await pool.query(
+        `INSERT INTO personas (
+           id, tenant_id, name, description, avatar_id, system_prompt,
+           guardrails, rag_enabled, temperature, created_by
+         )
+         VALUES (
+           generate_uuidv7(), $1, 'Sales Coach Sarah',
+           'An experienced sales coach who helps learners practice cold calling techniques.',
+           $2,
+           'You are Sarah, a senior sales coach with 15 years of experience. You are conducting a cold calling role-play exercise. Stay in character. Be supportive but challenge the learner. Provide realistic objections. Never break character or discuss being an AI.',
+           '{"allowed_topics": ["sales", "cold calling", "objection handling", "closing techniques"], "blocked_topics": ["politics", "religion", "personal finance advice"], "escalation_triggers": ["harassment", "threats"], "max_response_tokens": 256, "follow_up_question_frequency": 3}',
+           false, 0.70, $3
+         )
+         RETURNING id`,
+        [tenantId, avatarId, adminId],
+      );
+      personaId = personaResult.rows[0].id;
+      console.log(`  Persona created: ${personaId}`);
+    }
 
     // 6. Create scenario with 3-criteria rubric
     const scoringRubric = JSON.stringify([
@@ -139,27 +153,37 @@ async function seed() {
       },
     ]);
 
-    const scenarioResult = await pool.query(
-      `INSERT INTO scenarios (
-         id, tenant_id, persona_id, title, description, objective,
-         opening_context, opening_message, scoring_rubric, status,
-         max_duration_sec, max_turns, difficulty_level, tags, created_by
-       )
-       VALUES (
-         generate_uuidv7(), $1, $2,
-         'Cold Call: Enterprise Software Demo',
-         'Practice cold calling a VP of Engineering to schedule a product demo.',
-         'Successfully schedule a product demo meeting with the prospect by handling objections and demonstrating value.',
-         'You are calling the VP of Engineering at TechCorp. They have 500 engineers and are currently using a competitor product. Your goal is to schedule a 30-minute demo.',
-         'Hello? This is Sarah from TechCorp, who am I speaking with?',
-         $3::jsonb, 'active', 900, 50, 'intermediate',
-         ARRAY['sales', 'cold-calling', 'b2b'], $4
-       )
-       RETURNING id`,
-      [tenantId, personaId, scoringRubric, adminId],
+    const existingScenario = await pool.query(
+      `SELECT id FROM scenarios WHERE tenant_id = $1 AND title = 'Cold Call: Enterprise Software Demo' AND deleted_at IS NULL LIMIT 1`,
+      [tenantId],
     );
-    const scenarioId = scenarioResult.rows[0].id;
-    console.log(`  Scenario created: ${scenarioId}`);
+    let scenarioId: string;
+    if (existingScenario.rows.length > 0) {
+      scenarioId = existingScenario.rows[0].id;
+      console.log(`  Scenario already exists: ${scenarioId}`);
+    } else {
+      const scenarioResult = await pool.query(
+        `INSERT INTO scenarios (
+           id, tenant_id, persona_id, title, description, objective,
+           opening_context, opening_message, scoring_rubric, status,
+           max_duration_sec, max_turns, difficulty_level, tags, created_by
+         )
+         VALUES (
+           generate_uuidv7(), $1, $2,
+           'Cold Call: Enterprise Software Demo',
+           'Practice cold calling a VP of Engineering to schedule a product demo.',
+           'Successfully schedule a product demo meeting with the prospect by handling objections and demonstrating value.',
+           'You are calling the VP of Engineering at TechCorp. They have 500 engineers and are currently using a competitor product. Your goal is to schedule a 30-minute demo.',
+           'Hello? This is Sarah from TechCorp, who am I speaking with?',
+           $3::jsonb, 'active', 900, 50, 'intermediate',
+           ARRAY['sales', 'cold-calling', 'b2b'], $4
+         )
+         RETURNING id`,
+        [tenantId, personaId, scoringRubric, adminId],
+      );
+      scenarioId = scenarioResult.rows[0].id;
+      console.log(`  Scenario created: ${scenarioId}`);
+    }
 
     // 7. Create assignment
     const assignmentResult = await pool.query(

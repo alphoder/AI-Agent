@@ -36,7 +36,7 @@ exports.up = (pgm) => {
     status: {
       type: 'varchar(20)',
       notNull: true,
-      default: "'assigned'",
+      default: pgm.func("'assigned'"),
       check: "status IN ('assigned', 'in_progress', 'completed')",
     },
     created_at: {

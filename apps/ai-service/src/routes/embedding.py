@@ -1,4 +1,6 @@
 """Embedding routes for document processing pipeline."""
+from __future__ import annotations
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import httpx
@@ -12,7 +14,14 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 chunker = DocumentChunker(chunk_size=512, chunk_overlap=64)
-rag = RAGRetriever()
+rag: "RAGRetriever" = None  # type: ignore
+
+
+def get_rag() -> RAGRetriever:
+    global rag
+    if rag is None:
+        rag = RAGRetriever()
+    return rag
 
 
 class EmbeddingRequest(BaseModel):
@@ -71,12 +80,12 @@ async def _process_document(req: EmbeddingRequest):
 
         # If reprocessing, delete old vectors first
         if req.reprocess:
-            await rag.delete_document_vectors(
+            await get_rag().delete_document_vectors(
                 req.document_id, req.tenant_id, req.persona_id
             )
 
         # Embed and store in Pinecone
-        stored_count = await rag.store_chunks(chunks, req.tenant_id, req.persona_id)
+        stored_count = await get_rag().store_chunks(chunks, req.tenant_id, req.persona_id)
 
         total_tokens = sum(c["token_count"] for c in chunks)
 
@@ -147,7 +156,7 @@ async def create_embedding(req: EmbeddingRequest, background_tasks: BackgroundTa
 @router.post("/delete")
 async def delete_embedding(req: DeleteRequest):
     """Delete all vectors for a document."""
-    await rag.delete_document_vectors(
+    await get_rag().delete_document_vectors(
         req.document_id, req.tenant_id, req.persona_id
     )
     return {"message": "Vectors deleted", "document_id": req.document_id}
