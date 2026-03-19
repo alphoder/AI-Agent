@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    debug: bool = True
+    debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
 
@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     pii_redaction_enabled: bool = False
 
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:4000"]
+
+    # Internal metrics key (set in env for production)
+    metrics_api_key: str = ""
+    metrics_allowed_cidrs: list[str] = ["127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
     class Config:
         env_file = ".env"

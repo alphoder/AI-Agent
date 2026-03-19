@@ -4,6 +4,8 @@ Handles vector search against Pinecone for relevant context retrieval.
 """
 from __future__ import annotations
 
+import asyncio
+
 import openai
 import structlog
 from pinecone import Pinecone
@@ -94,10 +96,10 @@ class RAGRetriever:
                 },
             })
 
-        # Upsert in batches of 100
+        # Upsert in batches of 100 (run sync Pinecone call in thread to avoid blocking)
         for i in range(0, len(vectors), 100):
             batch = vectors[i : i + 100]
-            self.index.upsert(vectors=batch, namespace=namespace)
+            await asyncio.to_thread(self.index.upsert, vectors=batch, namespace=namespace)
 
         logger.info(
             "store_chunks",
@@ -114,8 +116,9 @@ class RAGRetriever:
     ) -> None:
         """Delete all vectors for a document from Pinecone."""
         namespace = f"{tenant_id}:{persona_id}"
-        # Delete by metadata filter
-        self.index.delete(
+        # Delete by metadata filter (run sync Pinecone call in thread)
+        await asyncio.to_thread(
+            self.index.delete,
             filter={"document_id": document_id},
             namespace=namespace,
         )
@@ -140,7 +143,8 @@ class RAGRetriever:
         query_embedding = await self.embed_text(query)
         namespace = f"{tenant_id}:{persona_id}"
 
-        results = self.index.query(
+        results = await asyncio.to_thread(
+            self.index.query,
             vector=query_embedding,
             top_k=top_k,
             namespace=namespace,

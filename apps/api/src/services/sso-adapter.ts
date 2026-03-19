@@ -143,7 +143,24 @@ export class SSOAdapter {
     const client = await this.getOIDCClient(tenant);
     const callbackParams = client.callbackParams({ method: 'POST', body: params } as any);
 
-    const tokenSet = await client.callback(callbackUrl, callbackParams);
+    // Retrieve PKCE code_verifier and nonce from Redis using the state parameter
+    const state = params.state;
+    if (!state) {
+      throw new Error('OIDC callback missing state parameter');
+    }
+    const storedData = await redis.get(`oidc:state:${state}`);
+    if (!storedData) {
+      throw new Error('OIDC state not found or expired — please try logging in again');
+    }
+    const { codeVerifier, nonce } = JSON.parse(storedData);
+    // Clean up the one-time-use state
+    await redis.del(`oidc:state:${state}`);
+
+    const tokenSet = await client.callback(callbackUrl, callbackParams, {
+      code_verifier: codeVerifier,
+      nonce,
+      state,
+    });
 
     const claims = tokenSet.claims();
     const userinfo = await client.userinfo(tokenSet.access_token!);

@@ -41,9 +41,9 @@ class GuardrailsEngine:
                 logger.warn("guardrail_input_injection", text=text[:100])
                 return False, "prompt_injection_detected"
 
-        # Check blocked topics
+        # Check blocked topics (word-boundary match to avoid false positives on substrings)
         for topic in self.blocked_topics:
-            if topic.lower() in cleaned.lower():
+            if re.search(r'\b' + re.escape(topic) + r'\b', cleaned, re.IGNORECASE):
                 logger.warn("guardrail_blocked_topic", topic=topic)
                 return False, f"blocked_topic:{topic}"
 
@@ -59,9 +59,9 @@ class GuardrailsEngine:
         if SSN_PATTERN.search(text):
             return False, "pii_ssn"
 
-        # Blocked topics
+        # Blocked topics (word-boundary match to avoid false positives on substrings)
         for topic in self.blocked_topics:
-            if topic.lower() in text.lower():
+            if re.search(r'\b' + re.escape(topic) + r'\b', text, re.IGNORECASE):
                 return False, f"blocked_topic:{topic}"
 
         return True, None
