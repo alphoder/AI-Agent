@@ -71,6 +71,8 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 41. **PII regex patterns duplicated and divergent**: STT and guardrails have different patterns for SSN/phone. ALWAYS define shared constants for regex patterns used in multiple modules
 42. **debug=True as production default**: If env var not set, Swagger docs are exposed in production. ALWAYS default debug/dev flags to False/disabled
 43. **Metrics endpoint publicly accessible**: `/metrics` has no auth, exposing internal service details. ALWAYS protect observability endpoints with auth or network policy
+44. **Navigation links using wrong IDs**: Dashboard passed assignment_id to reports but reports needed session_id. Scenario list row click went to non-existent detail page. ALWAYS verify every navigation link points to a real page and passes the correct ID type
+45. **Reports page infinite skeleton when no params**: Reports nav link had no session param, causing infinite loading. ALWAYS handle missing query params gracefully — show empty state, not infinite loading
 
 ## Architecture Rules
 - Every API route: validate input with Zod schema, check auth, check ownership/RBAC, scope to tenant, return consistent envelope
