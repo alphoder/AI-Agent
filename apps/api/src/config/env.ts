@@ -22,6 +22,7 @@ const envSchema = z.object({
   PINECONE_API_KEY: z.string().optional(),
   PINECONE_INDEX: z.string().default('avatar-platform'),
   AI_SERVICE_URL: z.string().default('http://localhost:8000'),
+  INTERNAL_API_KEY: z.string().default('dev-internal-key'),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
 });
 

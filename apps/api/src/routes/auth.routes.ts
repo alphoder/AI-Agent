@@ -212,12 +212,17 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
  * POST /api/auth/logout
  * Revoke refresh token, clear cookie
  */
-router.post('/logout', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/logout', authMiddleware as unknown as RequestHandler, wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const refreshToken = req.cookies?.refresh_token;
 
     if (refreshToken) {
       await JWTService.revokeRefreshToken(refreshToken);
+    }
+
+    // Also revoke all tokens for this user to ensure full logout
+    if (req.user?.sub) {
+      await JWTService.revokeAllUserTokens(req.user.sub);
     }
 
     res.clearCookie('refresh_token', { path: '/api/auth' });
@@ -226,7 +231,7 @@ router.post('/logout', async (req: Request, res: Response, next: NextFunction) =
     logger.error({ err }, 'Logout failed');
     next(err);
   }
-});
+}));
 
 /**
  * GET /api/auth/me

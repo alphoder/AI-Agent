@@ -297,6 +297,14 @@ router.post('/:id/end', wrap(async (req: AuthenticatedRequest, res: Response, ne
  */
 router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
+    const isAdmin = req.user!.role === 'admin';
+    const params: any[] = [req.params.id];
+    let ownershipClause = '';
+    if (!isAdmin) {
+      ownershipClause = ' AND s.user_id = $2';
+      params.push(req.user!.sub);
+    }
+
     const result = await db.tenantQuery(req.user!.tid,
       `SELECT s.id, s.tenant_id, s.assignment_id, s.user_id, s.scenario_id,
               s.status, s.livekit_room_id, s.started_at, s.ended_at,
@@ -306,8 +314,8 @@ router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: N
        FROM sessions s
        JOIN scenarios sc ON s.scenario_id = sc.id
        JOIN personas p ON sc.persona_id = p.id
-       WHERE s.id = $1`,
-      [req.params.id],
+       WHERE s.id = $1${ownershipClause}`,
+      params,
     );
 
     if (result.rows.length === 0) {
@@ -328,10 +336,18 @@ router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: N
  */
 router.get('/:id/transcript', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    // Verify session exists and belongs to tenant
+    const isAdmin = req.user!.role === 'admin';
+    const checkParams: any[] = [req.params.id];
+    let checkOwnership = '';
+    if (!isAdmin) {
+      checkOwnership = ' AND user_id = $2';
+      checkParams.push(req.user!.sub);
+    }
+
+    // Verify session exists, belongs to tenant, and user owns it
     const sessionCheck = await db.tenantQuery(req.user!.tid,
-      'SELECT id FROM sessions WHERE id = $1',
-      [req.params.id],
+      `SELECT id FROM sessions WHERE id = $1${checkOwnership}`,
+      checkParams,
     );
 
     if (sessionCheck.rows.length === 0) {
@@ -361,6 +377,14 @@ router.get('/:id/transcript', wrap(async (req: AuthenticatedRequest, res: Respon
  */
 router.get('/:id/report', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
+    const isAdmin = req.user!.role === 'admin';
+    const params: any[] = [req.params.id];
+    let ownershipClause = '';
+    if (!isAdmin) {
+      ownershipClause = ' AND s.user_id = $2';
+      params.push(req.user!.sub);
+    }
+
     const result = await db.tenantQuery(req.user!.tid,
       `SELECT ss.id, ss.session_id, ss.overall_score, ss.criteria_scores,
               ss.strengths, ss.improvements, ss.narrative_feedback,
@@ -370,8 +394,8 @@ router.get('/:id/report', wrap(async (req: AuthenticatedRequest, res: Response, 
        FROM session_scores ss
        JOIN sessions s ON ss.session_id = s.id
        JOIN scenarios sc ON s.scenario_id = sc.id
-       WHERE ss.session_id = $1`,
-      [req.params.id],
+       WHERE ss.session_id = $1${ownershipClause}`,
+      params,
     );
 
     if (result.rows.length === 0) {
@@ -394,6 +418,19 @@ router.post('/:id/score', wrap(async (req: AuthenticatedRequest, res: Response, 
   try {
     const sessionId = req.params.id;
     const tenantId = req.user!.tid;
+
+    // Only allow internal AI service calls or admin users
+    const internalKey = req.get('X-Internal-Key');
+    const isAdmin = req.user!.role === 'admin';
+    const isInternalService = internalKey === config.INTERNAL_API_KEY;
+
+    if (!isAdmin && !isInternalService) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Only the AI service or admins can submit scores' },
+      });
+    }
+
     const {
       overall_score,
       criteria_scores,
@@ -464,6 +501,25 @@ router.get('/:id/report/pdf', wrap(async (req: AuthenticatedRequest, res: Respon
   try {
     const sessionId = req.params.id;
     const tenantId = req.user!.tid;
+    const isAdmin = req.user!.role === 'admin';
+
+    // Verify user ownership before serving PDF
+    const ownerCheckParams: any[] = [sessionId];
+    let ownerCheckClause = '';
+    if (!isAdmin) {
+      ownerCheckClause = ' AND user_id = $2';
+      ownerCheckParams.push(req.user!.sub);
+    }
+    const ownerCheck = await db.tenantQuery(tenantId,
+      `SELECT id FROM sessions WHERE id = $1${ownerCheckClause}`,
+      ownerCheckParams,
+    );
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Session not found' },
+      });
+    }
 
     // Check S3 cache first
     const { S3Service } = await import('../services/s3-service');

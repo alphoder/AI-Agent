@@ -269,8 +269,33 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [showTranscript, setShowTranscript] = useState(false);
   const [reportDate, setReportDate] = useState<string>('\u2014');
+  const [downloading, setDownloading] = useState(false);
 
   const targetId = sessionId || assignmentId;
+
+  const handleDownloadPdf = async () => {
+    if (!targetId) return;
+    setDownloading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${apiUrl}/sessions/${targetId}/report/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to download');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `session-report-${targetId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF download failed:', err);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   useEffect(() => {
     setReportDate(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
@@ -467,10 +492,16 @@ export default function ReportsPage() {
           Back to Dashboard
         </button>
         <button
-          className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border border-border px-5 py-3 text-sm font-medium hover:bg-muted/80 transition-colors"
+          onClick={handleDownloadPdf}
+          disabled={downloading}
+          className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border border-border px-5 py-3 text-sm font-medium hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Download className="w-4 h-4" />
-          Download PDF
+          {downloading ? (
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          {downloading ? 'Downloading...' : 'Download PDF'}
         </button>
         <button
           onClick={() => router.back()}

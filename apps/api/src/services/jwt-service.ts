@@ -95,6 +95,16 @@ export class JWTService {
 
     await redis.set(key, JSON.stringify(data), 'EX', this.REFRESH_TOKEN_TTL);
 
+    // Track this token family under the user for efficient revocation
+    const userFamiliesKey = `user:${data.userId}:token_families`;
+    await redis.sadd(userFamiliesKey, data.tokenFamily);
+    await redis.expire(userFamiliesKey, this.REFRESH_TOKEN_TTL);
+
+    // Track this specific token under its family for cleanup
+    const familyTokensKey = `refresh:family:${data.tokenFamily}:tokens`;
+    await redis.sadd(familyTokensKey, token);
+    await redis.expire(familyTokensKey, this.REFRESH_TOKEN_TTL);
+
     return token;
   }
 
@@ -167,8 +177,28 @@ export class JWTService {
    */
   static async revokeAllUserTokens(userId: string): Promise<void> {
     logger.info({ userId }, 'Revoking all user tokens');
-    // Scan and delete all refresh tokens for this user
-    // In production, maintain a user->token set in Redis for efficient revocation
+
+    const userFamiliesKey = `user:${userId}:token_families`;
+    const families = await redis.smembers(userFamiliesKey);
+
+    for (const family of families) {
+      // Mark the family as revoked (for theft detection)
+      const revokedKey = `refresh:family:${family}:revoked`;
+      await redis.set(revokedKey, '1', 'EX', this.REFRESH_TOKEN_TTL);
+
+      // Delete all tokens in this family
+      const familyTokensKey = `refresh:family:${family}:tokens`;
+      const tokens = await redis.smembers(familyTokensKey);
+      for (const token of tokens) {
+        await redis.del(RedisKeys.refreshToken(token));
+      }
+      await redis.del(familyTokensKey);
+    }
+
+    // Clean up the user's family set
+    await redis.del(userFamiliesKey);
+
+    logger.info({ userId, familiesRevoked: families.length }, 'All user tokens revoked');
   }
 
   /**

@@ -52,6 +52,15 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 22. **Redis operations not atomic**: JWT refresh deletes old token then creates new one without MULTI/EXEC. ALWAYS use transactions for multi-step Redis operations where consistency matters
 23. **Declared production-ready without testing**: Said "production ready" without actually testing the full user flow (create avatar, start session, end session). ALWAYS test EVERY user-facing flow end-to-end in a real browser before declaring anything production ready
 24. **Not updating CLAUDE.md after changes**: Made dozens of changes without updating CLAUDE.md. ALWAYS update CLAUDE.md after EVERY change, no matter how small. Read it before starting, update it after finishing
+25. **Empty function bodies with just comments**: `revokeAllUserTokens()` has a function signature but the body is just a comment - tokens never actually revoked. NEVER leave a function with an empty body or just a comment. Either implement it or throw `NotImplementedError` so callers know it's incomplete
+26. **Logout endpoint with no auth check**: POST `/auth/logout` doesn't require `authMiddleware`, allowing anyone to trigger logout via cookie. ALWAYS require auth middleware on endpoints that modify user session state
+27. **Security scans silently ignored**: Trivy and npm audit both use `continue-on-error: true` in CI, meaning CRITICAL vulnerabilities pass. NEVER silence security scan failures in CI - either fix the vulnerabilities or explicitly allowlist them
+28. **Open redirect in LTI handler**: LTI deep linking redirects to `config.corsOrigins[0]` without URL validation. ALWAYS validate redirect URLs against a whitelist, never trust config values directly in redirects
+29. **Audio buffer filled but never flushed**: STT buffers audio during disconnect but never sends it after reconnection. ALWAYS implement both sides of a buffer: filling AND flushing. If you buffer data during disconnect, flush it on reconnect
+30. **Background tasks with no exception handler**: `asyncio.ensure_future(process_audio_frames())` has no error callback. If the coroutine raises, the exception is silently lost. ALWAYS add exception handlers to background asyncio tasks via `task.add_done_callback()`
+31. **Concurrent request race on session start**: Two concurrent `/start` calls with same session_id both pass the `if session_id in active_sessions` check. ALWAYS use locks or atomic operations for check-then-act patterns in concurrent code
+32. **SSO page is a stub**: `sso/page.tsx` renders only `<h1>SSO Login</h1>`. NEVER commit stub pages without clear "not implemented" UI, redirect to working flow, or NODE_ENV guard
+33. **AlertManager rules wrong namespace**: Alert rules reference namespace `avatar-platform` but actual namespaces are `frontend`, `api`, `ai`. ALWAYS verify monitoring rules reference actual deployed namespaces and metric names
 
 ## Architecture Rules
 - Every API route: validate input with Zod schema, check auth, check ownership/RBAC, scope to tenant, return consistent envelope
@@ -66,16 +75,30 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 - Every metric: verify it's both defined AND recorded (called) in the actual code path
 - Every CRUD module: build create AND edit as shared form component from the start
 - Every UI button: must either function or be visibly disabled with explanation
+- Every function: must have a real implementation, never just a comment. Throw NotImplementedError if incomplete
+- Every redirect URL: validate against whitelist, never trust config/header values directly
+- Every background asyncio task: add exception handler via add_done_callback()
+- Every check-then-act pattern: use locks or atomic operations in concurrent code
+- Every CI security scan: must fail the build on findings, never use continue-on-error
+- Every data buffer: implement both fill AND flush/drain logic
+- Every monitoring rule: verify referenced namespaces, metrics, and labels match actual deployments
 
-## Known Gaps (see PROJECT_REVIEW.md for full details)
+## Known Gaps (see PROJECT_REVIEW.md v2 for full 108-issue inventory)
 - Scenario edit page not implemented (create-only)
 - PDF download button non-functional
+- SSO page is a stub (just `<h1>SSO Login</h1>`)
 - Mic waveform visualization missing from session room
 - Reconnection overlay missing from session room
 - LTI platform registration endpoints missing (manual DB required)
+- revokeAllUserTokens() body is empty (tokens not revoked on logout)
+- Session read endpoints lack user ownership check (data breach risk)
+- Score endpoint has no auth/RBAC (any user can post scores)
 - AI service metrics defined but not exported to Prometheus
 - PII redaction not implemented in STT pipeline
+- Audio buffer filled on disconnect but never flushed on reconnect
 - E2E and load tests not integrated into CI pipeline
+- SecurityContext missing from all K8s deployments
+- Trivy/npm audit silenced with continue-on-error in CI
 
 ## File Structure
 - `apps/web/src/components/ui/` - Reusable primitives (Button, Card, Input, etc.)

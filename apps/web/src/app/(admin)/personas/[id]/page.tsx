@@ -119,8 +119,28 @@ export default function PersonaDetailPage() {
 
   if (loading || !persona) {
     return (
-      <div className="flex justify-center py-12">
-        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+      <div className="max-w-4xl mx-auto p-6 animate-pulse">
+        <div className="h-4 w-28 rounded bg-muted mb-4" />
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-16 h-16 rounded-full bg-muted" />
+          <div className="space-y-2">
+            <div className="h-6 w-48 rounded bg-muted" />
+            <div className="h-4 w-32 rounded bg-muted" />
+          </div>
+        </div>
+        <div className="flex gap-4 border-b mb-6">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-8 w-20 rounded bg-muted mb-2" />
+          ))}
+        </div>
+        <div className="space-y-4">
+          <div className="h-4 w-40 rounded bg-muted" />
+          <div className="h-32 w-full rounded-lg bg-muted" />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="h-28 rounded-lg bg-muted" />
+            <div className="h-28 rounded-lg bg-muted" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -240,11 +260,18 @@ export default function PersonaDetailPage() {
         </div>
       )}
 
-      {/* Test Tab - Mini chat placeholder */}
+      {/* Test Tab - Coming Soon */}
       {tab === 'test' && (
-        <div className="border rounded-lg p-6 text-center text-muted-foreground">
-          <p className="text-lg">Test Persona</p>
-          <p className="text-sm mt-1">Chat interface will be available after session pipeline is built (Prompt 7)</p>
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30 py-16 px-6">
+          <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
+            <svg className="w-7 h-7 text-muted-foreground/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold mb-1">Test Chat Coming Soon</h3>
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            An interactive chat interface to test this persona will be available in a future update.
+          </p>
         </div>
       )}
     </div>

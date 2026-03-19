@@ -71,8 +71,41 @@ export default function ScenariosPage() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        <div className="border rounded-lg overflow-hidden animate-pulse">
+          <table className="w-full">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="text-left text-sm font-medium p-3">Scenario</th>
+                <th className="text-left text-sm font-medium p-3">Status</th>
+                <th className="text-left text-sm font-medium p-3">Difficulty</th>
+                <th className="text-center text-sm font-medium p-3">Assigned</th>
+                <th className="text-center text-sm font-medium p-3">Completed</th>
+                <th className="text-center text-sm font-medium p-3">Avg Score</th>
+                <th className="text-right text-sm font-medium p-3">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} className="border-t">
+                  <td className="p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-muted flex-shrink-0" />
+                      <div className="space-y-1.5">
+                        <div className="h-3.5 w-32 rounded bg-muted" />
+                        <div className="h-3 w-20 rounded bg-muted" />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-3"><div className="h-5 w-14 rounded bg-muted" /></td>
+                  <td className="p-3"><div className="h-5 w-20 rounded bg-muted" /></td>
+                  <td className="p-3"><div className="h-3 w-8 rounded bg-muted mx-auto" /></td>
+                  <td className="p-3"><div className="h-3 w-8 rounded bg-muted mx-auto" /></td>
+                  <td className="p-3"><div className="h-3 w-10 rounded bg-muted mx-auto" /></td>
+                  <td className="p-3"><div className="h-3 w-20 rounded bg-muted ml-auto" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">

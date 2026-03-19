@@ -264,10 +264,18 @@ router.get(
 // ---------------------------------------------------------------------------
 router.get(
   '/learners/:id',
-  rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
     const tenantId = req.user!.tid;
     const learnerId = req.params.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    // Learners can only view their own analytics; admins can view any learner
+    if (!isAdmin && req.user!.sub !== learnerId) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'You can only view your own analytics' },
+      });
+    }
 
     try {
       // Verify learner exists in tenant

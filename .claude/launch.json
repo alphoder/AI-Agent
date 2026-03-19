@@ -12,12 +12,6 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@avatar-platform/api", "dev"],
       "port": 4000
-    },
-    {
-      "name": "ai-service",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": ["/tmp/ai-service-start.sh"],
-      "port": 8000
     }
   ]
 }

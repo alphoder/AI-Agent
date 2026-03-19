@@ -47,8 +47,20 @@ export default function PersonasPage() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        <div className="space-y-3 animate-pulse">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 border rounded-lg p-4">
+              <div className="w-12 h-12 rounded-full bg-muted flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-1/3 rounded bg-muted" />
+                <div className="h-3 w-1/2 rounded bg-muted" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-3 w-20 rounded bg-muted" />
+                <div className="h-3 w-12 rounded bg-muted" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : personas.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">

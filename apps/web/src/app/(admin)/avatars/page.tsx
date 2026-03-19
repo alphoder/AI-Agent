@@ -92,8 +92,19 @@ export default function AvatarsPage() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-pulse">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="border rounded-lg overflow-hidden">
+              <div className="aspect-square bg-muted" />
+              <div className="p-4 space-y-3">
+                <div className="h-4 w-2/3 rounded bg-muted" />
+                <div className="flex items-center justify-between">
+                  <div className="h-5 w-16 rounded bg-muted" />
+                  <div className="h-3 w-20 rounded bg-muted" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : avatars.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">

@@ -21,6 +21,8 @@ router = APIRouter()
 active_sessions: dict[str, SessionOrchestrator] = {}
 # Active LiveKit rooms
 active_rooms: dict[str, rtc.Room] = {}
+# Locks to prevent concurrent /start calls for the same session
+_session_locks: dict[str, asyncio.Lock] = {}
 
 
 class StartSessionRequest(BaseModel):
@@ -89,14 +91,21 @@ async def _run_bot_in_room(session_id: str, room_name: str, orchestrator: Sessio
             audio_stream = rtc.AudioStream(track)
 
             async def process_audio_frames():
-                async for frame_event in audio_stream:
-                    if hasattr(frame_event, 'frame'):
-                        # Convert frame to bytes and send to STT
-                        frame = frame_event.frame
-                        audio_bytes = frame.data.tobytes()
-                        await orchestrator.process_audio(audio_bytes)
+                try:
+                    async for frame_event in audio_stream:
+                        if hasattr(frame_event, 'frame'):
+                            # Convert frame to bytes and send to STT
+                            frame = frame_event.frame
+                            audio_bytes = frame.data.tobytes()
+                            await orchestrator.process_audio(audio_bytes)
+                except Exception as e:
+                    logger.error("audio_processing_failed", error=str(e), session_id=session_id)
 
-            asyncio.ensure_future(process_audio_frames())
+            task = asyncio.ensure_future(process_audio_frames())
+            task.add_done_callback(
+                lambda t: logger.error("audio_task_exception", error=str(t.exception()), session_id=session_id)
+                if not t.cancelled() and t.exception() else None
+            )
 
     @room.on("participant_disconnected")
     def on_participant_left(participant: rtc.RemoteParticipant):
@@ -128,18 +137,23 @@ async def _run_bot_in_room(session_id: str, room_name: str, orchestrator: Sessio
 @router.post("/start")
 async def start_session(req: StartSessionRequest, background_tasks: BackgroundTasks):
     """Start a new training session - spawns the orchestrator and bot."""
-    if req.session_id in active_sessions:
-        return {"message": "Session already active", "session_id": req.session_id}
+    # Acquire a per-session lock to prevent race conditions on concurrent /start calls
+    if req.session_id not in _session_locks:
+        _session_locks[req.session_id] = asyncio.Lock()
 
-    orchestrator = SessionOrchestrator(
-        session_id=req.session_id,
-        tenant_id=req.tenant_id,
-        scenario_config=req.scenario_config,
-        persona_config=req.persona_config,
-        avatar_provider=req.avatar_provider,
-    )
+    async with _session_locks[req.session_id]:
+        if req.session_id in active_sessions:
+            return {"message": "Session already active", "session_id": req.session_id}
 
-    active_sessions[req.session_id] = orchestrator
+        orchestrator = SessionOrchestrator(
+            session_id=req.session_id,
+            tenant_id=req.tenant_id,
+            scenario_config=req.scenario_config,
+            persona_config=req.persona_config,
+            avatar_provider=req.avatar_provider,
+        )
+
+        active_sessions[req.session_id] = orchestrator
 
     if req.livekit_room:
         # Join the LiveKit room as a bot and process audio in real-time
@@ -156,6 +170,7 @@ async def start_session(req: StartSessionRequest, background_tasks: BackgroundTa
 async def end_session(req: EndSessionRequest, background_tasks: BackgroundTasks):
     """End a training session and trigger scoring."""
     orchestrator = active_sessions.pop(req.session_id, None)
+    _session_locks.pop(req.session_id, None)
 
     if orchestrator:
         await orchestrator.end()
@@ -174,9 +189,10 @@ async def end_session(req: EndSessionRequest, background_tasks: BackgroundTasks)
 async def _trigger_scoring(session_id: str):
     """Trigger post-session scoring."""
     try:
+        scoring_url = f"http://{settings.host}:{settings.port}/scoring/evaluate"
         async with httpx.AsyncClient() as client:
             await client.post(
-                f"http://localhost:8000/scoring/evaluate",
+                scoring_url,
                 json={"session_id": session_id},
                 timeout=60.0,
             )
