@@ -191,9 +191,9 @@ function StatCard({
 /*  Assignment Card                                                    */
 /* ------------------------------------------------------------------ */
 
-function AssignmentCard({ assignment, onAction }: { assignment: Assignment; onAction: (action: string) => void }) {
+function AssignmentCard({ assignment, onAction, isClient }: { assignment: Assignment; onAction: (action: string) => void; isClient: boolean }) {
   const a = assignment;
-  const overdue = isOverdue(a.due_date, a.assignment_status);
+  const overdue = isClient ? isOverdue(a.due_date, a.assignment_status) : false;
   const diff = DIFFICULTY_STYLES[a.difficulty_level] || DIFFICULTY_STYLES.beginner;
   const statusCfg = STATUS_CONFIG[a.assignment_status] || STATUS_CONFIG.assigned;
   const gradient = getAvatarGradient(a.persona_name);
@@ -256,7 +256,7 @@ function AssignmentCard({ assignment, onAction }: { assignment: Assignment; onAc
           {a.due_date && (
             <span className={`inline-flex items-center gap-1 ${overdue ? 'text-destructive font-medium' : ''}`}>
               {overdue ? <AlertTriangle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-              {overdue ? 'Overdue' : formatDueDate(a.due_date)}
+              {overdue ? 'Overdue' : isClient ? formatDueDate(a.due_date) : '\u2014'}
             </span>
           )}
         </div>
@@ -324,9 +324,11 @@ export default function LearnerDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState<string | null>(null);
   const [greeting, setGreeting] = useState('Welcome back');
+  const [isClient, setIsClient] = useState(false);
 
   // Hydration-safe: read localStorage only on client mount
   useEffect(() => {
+    setIsClient(true);
     const email = decodeUserEmail();
     if (email) setUserName(email.split('@')[0]);
     setGreeting(getGreeting());
@@ -420,6 +422,7 @@ export default function LearnerDashboardPage() {
               <AssignmentCard
                 key={a.assignment_id}
                 assignment={a}
+                isClient={isClient}
                 onAction={(action) => handleAction(a, action)}
               />
             ))}

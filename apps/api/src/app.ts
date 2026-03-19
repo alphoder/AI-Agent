@@ -1,9 +1,11 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import { config } from './config/env';
+import { db } from './config/database';
+import { redis } from './config/redis';
 import { requestLogger } from './middleware/request-logger';
 import { errorHandler } from './middleware/error-handler';
 import { metricsMiddleware, metricsHandler } from './middleware/metrics';
@@ -56,10 +58,42 @@ export function createApp(): express.Express {
   app.use(requestLogger);
   app.use(metricsMiddleware);
 
-  // Health check & metrics
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  // Health checks & metrics
+  app.get('/health/live', (_req, res) => {
+    res.json({ status: 'ok' });
   });
+
+  app.get('/health', async (_req, res) => {
+    const checks: Record<string, string> = {};
+    let healthy = true;
+
+    // Check database
+    try {
+      await db.query('SELECT 1');
+      checks.database = 'ok';
+    } catch {
+      checks.database = 'error';
+      healthy = false;
+    }
+
+    // Check Redis
+    try {
+      await redis.ping();
+      checks.redis = 'ok';
+    } catch {
+      checks.redis = 'error';
+      healthy = false;
+    }
+
+    const status = healthy ? 'ok' : 'degraded';
+    res.status(healthy ? 200 : 503).json({
+      status,
+      service: 'api',
+      dependencies: checks,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   app.get('/metrics', metricsHandler);
 
   // API routes
@@ -70,6 +104,14 @@ export function createApp(): express.Express {
   app.use('/api/sessions', sessionRoutes);
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/lti', ltiRoutes);
+
+  // 404 catch-all
+  app.use((_req: Request, res: Response) => {
+    res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Route not found' },
+    });
+  });
 
   // Error handling
   app.use(errorHandler);

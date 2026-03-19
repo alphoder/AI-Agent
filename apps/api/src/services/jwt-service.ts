@@ -28,7 +28,11 @@ export class JWTService {
 
   /** Use HS256 in dev when no real RSA keys are configured */
   private static get algorithm(): jwt.Algorithm {
-    return config.JWT_PRIVATE_KEY.startsWith('-----') ? 'RS256' : 'HS256';
+    const isRSA = config.JWT_PRIVATE_KEY.startsWith('-----');
+    if (!isRSA && process.env.NODE_ENV === 'production') {
+      throw new Error('RSA keys required in production. Set JWT_PRIVATE_KEY and JWT_PUBLIC_KEY with PEM-formatted keys.');
+    }
+    return isRSA ? 'RS256' : 'HS256';
   }
 
   /**

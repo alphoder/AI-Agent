@@ -3,6 +3,7 @@ import { config } from './config/env';
 import { logger } from './config/logger';
 import { db } from './config/database';
 import { redis } from './config/redis';
+import { setupGracefulShutdown } from './utils/graceful-shutdown';
 
 async function main() {
   const app = createApp();
@@ -13,9 +14,11 @@ async function main() {
   await redis.ping();
   logger.info('Redis connected');
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     logger.info(`API server running on port ${config.port}`);
   });
+
+  setupGracefulShutdown(server);
 }
 
 main().catch((err) => {

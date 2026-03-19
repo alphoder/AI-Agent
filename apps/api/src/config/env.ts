@@ -25,7 +25,21 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const envSchemaRefined = envSchema.refine(
+  (data) => {
+    if (data.NODE_ENV === 'production') {
+      if (!data.JWT_PRIVATE_KEY.startsWith('-----BEGIN')) return false;
+      if (data.DATABASE_URL.includes('localhost')) return false;
+    }
+    return true;
+  },
+  {
+    message:
+      'Production requires: JWT_PRIVATE_KEY must be a PEM key (starting with -----BEGIN) and DATABASE_URL must not contain localhost.',
+  },
+);
+
+const parsed = envSchemaRefined.safeParse(process.env);
 
 if (!parsed.success) {
   console.error('Invalid environment variables:', parsed.error.flatten().fieldErrors);

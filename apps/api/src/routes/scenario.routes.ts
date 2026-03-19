@@ -4,6 +4,7 @@ import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
+import { auditLog } from '../middleware/audit-logger';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -166,6 +167,18 @@ router.post(
           userId,
         ],
       );
+
+      // Fire-and-forget audit log
+      auditLog({
+        tenantId,
+        userId,
+        action: 'scenario.create',
+        resourceType: 'scenario',
+        resourceId: result.rows[0].id,
+        details: { title: title.trim() },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
 
       res.status(201).json({
         success: true,
@@ -574,6 +587,18 @@ router.patch(
         });
       }
 
+      // Fire-and-forget audit log
+      auditLog({
+        tenantId,
+        userId: req.user!.sub,
+        action: 'scenario.update',
+        resourceType: 'scenario',
+        resourceId: scenarioId,
+        details: { updatedFields: updates.map((u: string) => u.split(' = ')[0]) },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
       res.json({ success: true, data: result.rows[0] });
     } catch (err) {
       next(err);
@@ -625,6 +650,17 @@ router.delete(
           error: { code: 'NOT_FOUND', message: 'Scenario not found' },
         });
       }
+
+      // Fire-and-forget audit log
+      auditLog({
+        tenantId,
+        userId: req.user!.sub,
+        action: 'scenario.delete',
+        resourceType: 'scenario',
+        resourceId: scenarioId,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
 
       res.json({ success: true, data: { id: result.rows[0].id, deleted: true } });
     } catch (err) {
@@ -828,6 +864,18 @@ router.post(
           userId,
         ],
       );
+
+      // Fire-and-forget audit log
+      auditLog({
+        tenantId,
+        userId,
+        action: 'scenario.duplicate',
+        resourceType: 'scenario',
+        resourceId: result.rows[0].id,
+        details: { sourceScenarioId: scenarioId },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
 
       res.status(201).json({
         success: true,

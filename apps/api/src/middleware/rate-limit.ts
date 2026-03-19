@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { redis, RedisKeys, RedisTTL } from '../config/redis';
+import { logger } from '../config/logger';
 
 export function rateLimit(maxRequests: number, windowSec: number = RedisTTL.RATE_LIMIT) {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -16,7 +17,8 @@ export function rateLimit(maxRequests: number, windowSec: number = RedisTTL.RATE
         });
       }
       next();
-    } catch {
+    } catch (err) {
+      logger.warn({ err }, 'Rate limiter Redis error — bypassing rate limit');
       next();
     }
   };

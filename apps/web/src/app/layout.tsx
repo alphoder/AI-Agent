@@ -5,8 +5,11 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'AI Avatar Training Platform',
-  description: 'AI-powered avatar training and assessment platform',
+  title: {
+    default: 'AI Avatar Training Platform',
+    template: '%s | Avatar Platform',
+  },
+  description: 'Practice high-stakes conversations with AI-powered avatars',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

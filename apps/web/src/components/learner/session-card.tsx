@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 interface SessionCardProps {
@@ -24,7 +25,9 @@ interface SessionCardProps {
 
 export default function SessionCard({ assignment }: SessionCardProps) {
   const { scenario, status, due_date, last_score } = assignment;
-  const isOverdue = due_date && new Date(due_date) < new Date() && status !== 'completed';
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => setIsClient(true), []);
+  const isOverdue = isClient && due_date && new Date(due_date) < new Date() && status !== 'completed';
 
   const difficultyColor: Record<string, string> = {
     beginner: 'bg-green-100 text-green-700',
@@ -77,7 +80,7 @@ export default function SessionCard({ assignment }: SessionCardProps) {
         <span className="text-muted-foreground">{statusLabel[status]}</span>
         {due_date && (
           <span className={isOverdue ? 'text-red-500 font-medium' : 'text-muted-foreground'}>
-            Due: {new Date(due_date).toLocaleDateString()}
+            Due: {isClient ? new Date(due_date).toLocaleDateString() : '\u2014'}
           </span>
         )}
       </div>

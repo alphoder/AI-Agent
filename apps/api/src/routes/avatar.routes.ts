@@ -6,6 +6,7 @@ import { rbac } from '../middleware/rbac';
 import { S3Service } from '../services/s3-service';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
+import { callAIServiceBackground } from '../utils/ai-service-client';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -110,18 +111,16 @@ router.post(
       );
 
       // Call AI service to create avatar (async, don't await)
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-      fetch(`${aiServiceUrl}/avatar/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      callAIServiceBackground({
+        path: '/avatar/create',
+        body: {
           avatar_id: avatarId,
           tenant_id: tenantId,
           image_url: sourceUrl,
           provider: (req as any).tenantConfig?.avatar_provider || 'simli',
           config: req.body.config || {},
-        }),
-      }).catch((err) => logger.error({ err, avatarId }, 'AI service avatar creation failed'));
+        },
+      });
 
       res.status(202).json({
         success: true,
@@ -347,20 +346,18 @@ router.post(
       );
 
       // Re-trigger AI service
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
       const sourceUrl = await S3Service.getSignedUrl(avatar.rows[0].source_image_url);
 
-      fetch(`${aiServiceUrl}/avatar/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      callAIServiceBackground({
+        path: '/avatar/create',
+        body: {
           avatar_id: req.params.id,
           tenant_id: tenantId,
           image_url: sourceUrl,
           provider: avatar.rows[0].provider,
           config: avatar.rows[0].config,
-        }),
-      }).catch((err) => logger.error({ err }, 'Regenerate failed'));
+        },
+      });
 
       res.status(202).json({
         success: true,

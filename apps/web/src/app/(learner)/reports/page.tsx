@@ -268,8 +268,13 @@ export default function ReportsPage() {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [reportDate, setReportDate] = useState<string>('\u2014');
 
   const targetId = sessionId || assignmentId;
+
+  useEffect(() => {
+    setReportDate(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
+  }, []);
 
   useEffect(() => {
     if (!targetId) return;
@@ -344,7 +349,7 @@ export default function ReportsPage() {
           </span>
           <span className="inline-flex items-center gap-1.5">
             <Calendar className="w-4 h-4" />
-            {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            {reportDate}
           </span>
         </div>
       </div>

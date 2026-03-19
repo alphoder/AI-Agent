@@ -6,6 +6,7 @@ import { rbac } from '../middleware/rbac';
 import { S3Service } from '../services/s3-service';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
+import { callAIServiceBackground } from '../utils/ai-service-client';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -460,23 +461,19 @@ router.post(
       );
 
       // Trigger async embedding via AI service
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
       const s3Url = await S3Service.getSignedUrl(s3Key);
 
-      fetch(`${aiServiceUrl}/embedding/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      callAIServiceBackground({
+        path: '/embedding/create',
+        body: {
           document_id: docId,
           persona_id: personaId,
           tenant_id: tenantId,
           file_url: s3Url,
           file_type: fileType,
           original_filename: file.originalname,
-        }),
-      }).catch((err) =>
-        logger.error({ err, docId, personaId }, 'AI service embedding creation failed'),
-      );
+        },
+      });
 
       res.status(202).json({
         success: true,
@@ -607,18 +604,14 @@ router.delete(
       );
 
       // Trigger vector deletion in AI service (async, don't await)
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-      fetch(`${aiServiceUrl}/embedding/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      callAIServiceBackground({
+        path: '/embedding/delete',
+        body: {
           document_id: docId,
           persona_id: personaId,
           tenant_id: tenantId,
-        }),
-      }).catch((err) =>
-        logger.error({ err, docId, personaId }, 'AI service vector deletion failed'),
-      );
+        },
+      });
 
       res.json({ success: true, data: { id: docId, deleted: true } });
     } catch (err) {
@@ -683,13 +676,11 @@ router.post(
       );
 
       // Re-trigger embedding via AI service
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
       const s3Url = await S3Service.getSignedUrl(doc.s3_key);
 
-      fetch(`${aiServiceUrl}/embedding/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      callAIServiceBackground({
+        path: '/embedding/create',
+        body: {
           document_id: docId,
           persona_id: personaId,
           tenant_id: tenantId,
@@ -697,10 +688,8 @@ router.post(
           file_type: doc.file_type,
           original_filename: doc.original_filename,
           reprocess: true,
-        }),
-      }).catch((err) =>
-        logger.error({ err, docId, personaId }, 'AI service embedding reprocess failed'),
-      );
+        },
+      });
 
       res.status(202).json({
         success: true,

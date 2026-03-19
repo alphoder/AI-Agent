@@ -7,6 +7,8 @@ import { db } from '../config/database';
 import { redis, RedisKeys } from '../config/redis';
 import { logger } from '../config/logger';
 import { config } from '../config/env';
+import { callAIService, callAIServiceBackground } from '../utils/ai-service-client';
+import { auditLog } from '../middleware/audit-logger';
 
 // Helper type to bridge AuthenticatedRequest handlers with Express router
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
@@ -144,39 +146,58 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
       [assignment_id],
     );
 
-    // Notify AI service to spawn bot (fire-and-forget)
-    const aiServiceUrl = config.AI_SERVICE_URL;
-    fetch(`${aiServiceUrl}/session/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId,
-        tenant_id: tenantId,
-        scenario_id: row.scenario_id,
-        livekit_room: roomName,
-        scenario_config: {
-          title: row.title,
-          objective: row.objective,
-          opening_context: row.opening_context,
-          opening_message: row.opening_message,
-          max_duration_sec: row.max_duration_sec,
-          max_turns: row.max_turns,
-          scoring_rubric: row.scoring_rubric,
+    // Notify AI service to spawn bot (await with timeout)
+    try {
+      await callAIService({
+        path: '/session/start',
+        body: {
+          session_id: sessionId,
+          tenant_id: tenantId,
+          scenario_id: row.scenario_id,
+          livekit_room: roomName,
+          scenario_config: {
+            title: row.title,
+            objective: row.objective,
+            opening_context: row.opening_context,
+            opening_message: row.opening_message,
+            max_duration_sec: row.max_duration_sec,
+            max_turns: row.max_turns,
+            scoring_rubric: row.scoring_rubric,
+          },
+          persona_config: {
+            id: row.persona_id,
+            name: row.persona_name,
+            system_prompt: row.system_prompt,
+            guardrails: row.guardrails,
+            rag_enabled: row.rag_enabled,
+            rag_top_k: row.rag_top_k,
+            rag_similarity_threshold: row.rag_similarity_threshold,
+            temperature: row.temperature,
+            provider_avatar_id: row.provider_avatar_id,
+          },
+          avatar_provider: row.avatar_provider,
         },
-        persona_config: {
-          id: row.persona_id,
-          name: row.persona_name,
-          system_prompt: row.system_prompt,
-          guardrails: row.guardrails,
-          rag_enabled: row.rag_enabled,
-          rag_top_k: row.rag_top_k,
-          rag_similarity_threshold: row.rag_similarity_threshold,
-          temperature: row.temperature,
-          provider_avatar_id: row.provider_avatar_id,
-        },
-        avatar_provider: row.avatar_provider,
-      }),
-    }).catch(err => logger.error({ err, sessionId }, 'AI service session start notification failed'));
+        timeoutMs: 15000,
+      });
+    } catch (aiErr) {
+      // AI service failed — mark session as error, cleanup
+      logger.error({ aiErr, sessionId }, 'Failed to start AI bot');
+      await db.tenantQuery(tenantId, "UPDATE sessions SET status = 'error' WHERE id = $1", [sessionId]);
+      await redis.decr(activeKey);
+      // Still return the session — frontend will show connection error gracefully
+    }
+
+    // Fire-and-forget audit log
+    auditLog({
+      tenantId,
+      userId,
+      action: 'session.create',
+      resourceType: 'session',
+      resourceId: sessionId,
+      details: { assignmentId: assignment_id, scenarioId: row.scenario_id },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.status(201).json({
       success: true,
@@ -244,13 +265,23 @@ router.post('/:id/end', wrap(async (req: AuthenticatedRequest, res: Response, ne
         .catch(err => logger.warn({ err, sessionId }, 'Failed to delete LiveKit room'));
     }
 
-    // Notify AI service to end session and trigger scoring (fire-and-forget)
-    const aiServiceUrl = config.AI_SERVICE_URL;
-    fetch(`${aiServiceUrl}/session/end`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, trigger_scoring: true }),
-    }).catch(err => logger.error({ err, sessionId }, 'AI service session end notification failed'));
+    // Notify AI service to end session and trigger scoring (non-critical, background)
+    callAIServiceBackground({
+      path: '/session/end',
+      body: { session_id: sessionId, trigger_scoring: true },
+    });
+
+    // Fire-and-forget audit log
+    auditLog({
+      tenantId,
+      userId: req.user!.sub,
+      action: 'session.end',
+      resourceType: 'session',
+      resourceId: sessionId,
+      details: { assignmentId: assignment_id },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       success: true,
