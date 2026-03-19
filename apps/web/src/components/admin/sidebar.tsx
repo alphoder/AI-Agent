@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, Drama, ClipboardList, BarChart3, Settings } from 'lucide-react';
+import { Users, Drama, ClipboardList, BarChart3, Settings, LayoutDashboard } from 'lucide-react';
 
 function LogoMark({ className = '' }: { className?: string }) {
   return (
@@ -23,6 +23,7 @@ function LogoMark({ className = '' }: { className?: string }) {
 }
 
 const navItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/avatars', label: 'Avatars', icon: Users },
   { href: '/personas', label: 'Personas', icon: Drama },
   { href: '/scenarios', label: 'Scenarios', icon: ClipboardList },
