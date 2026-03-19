@@ -84,15 +84,21 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 - Every monitoring rule: verify referenced namespaces, metrics, and labels match actual deployments
 
 ## Known Gaps (see PROJECT_REVIEW.md v2 for full 108-issue inventory)
+### FIXED in latest batch:
+- ~~PDF download button non-functional~~ FIXED: downloads blob from API
+- ~~SSO page is a stub~~ FIXED: redirects to SSO init or shows login link
+- ~~revokeAllUserTokens() body is empty~~ FIXED: implemented with Redis family tracking
+- ~~Session read endpoints lack ownership~~ FIXED: user ownership check, admin bypass
+- ~~Score endpoint has no auth/RBAC~~ FIXED: X-Internal-Key or admin role required
+- ~~Hardcoded localhost in AI service~~ FIXED: uses settings.host:settings.port
+- ~~Background audio task dies silently~~ FIXED: exception handler + add_done_callback
+- ~~Session start race condition~~ FIXED: asyncio.Lock per session_id
+
+### Still open:
 - Scenario edit page not implemented (create-only)
-- PDF download button non-functional
-- SSO page is a stub (just `<h1>SSO Login</h1>`)
 - Mic waveform visualization missing from session room
 - Reconnection overlay missing from session room
 - LTI platform registration endpoints missing (manual DB required)
-- revokeAllUserTokens() body is empty (tokens not revoked on logout)
-- Session read endpoints lack user ownership check (data breach risk)
-- Score endpoint has no auth/RBAC (any user can post scores)
 - AI service metrics defined but not exported to Prometheus
 - PII redaction not implemented in STT pipeline
 - Audio buffer filled on disconnect but never flushed on reconnect
