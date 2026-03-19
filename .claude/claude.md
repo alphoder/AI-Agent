@@ -16,6 +16,8 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 - **Error States**: Friendly messages with retry actions, never raw error codes
 
 ## Code Standards
+- **MANDATORY**: After EVERY code change, re-read this CLAUDE.md file and update it if needed
+- **MANDATORY**: NEVER declare anything "production ready" without testing EVERY user flow end-to-end in a real browser
 - Always match API response shape EXACTLY in frontend interfaces. NEVER guess field names
 - Always test API endpoints with curl BEFORE building frontend consumers
 - Always handle loading, error, and empty states in every data-fetching component
@@ -48,6 +50,8 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 20. **Create-only CRUD**: Built scenario create page but no edit page, making it impossible to modify existing scenarios. ALWAYS build create AND edit together as a shared form component
 21. **Non-functional UI buttons**: PDF download button renders but onClick is empty. NEVER ship a button that does nothing - either implement it or clearly disable it with tooltip explaining why
 22. **Redis operations not atomic**: JWT refresh deletes old token then creates new one without MULTI/EXEC. ALWAYS use transactions for multi-step Redis operations where consistency matters
+23. **Declared production-ready without testing**: Said "production ready" without actually testing the full user flow (create avatar, start session, end session). ALWAYS test EVERY user-facing flow end-to-end in a real browser before declaring anything production ready
+24. **Not updating CLAUDE.md after changes**: Made dozens of changes without updating CLAUDE.md. ALWAYS update CLAUDE.md after EVERY change, no matter how small. Read it before starting, update it after finishing
 
 ## Architecture Rules
 - Every API route: validate input with Zod schema, check auth, check ownership/RBAC, scope to tenant, return consistent envelope

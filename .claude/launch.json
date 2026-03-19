@@ -16,7 +16,7 @@
     {
       "name": "ai-service",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["/Users/vedantsingh/Documents/Projects/AI AVATAR TRAINING PLATFORM/apps/ai-service/start.sh"],
+      "runtimeArgs": ["/tmp/ai-service-start.sh"],
       "port": 8000
     }
   ]
