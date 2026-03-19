@@ -15,8 +15,8 @@
     },
     {
       "name": "ai-service",
-      "runtimeExecutable": "/Users/vedantsingh/Documents/Projects/AI AVATAR TRAINING PLATFORM/apps/ai-service/.venv/bin/python",
-      "runtimeArgs": ["-m", "uvicorn", "src.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/Users/vedantsingh/Documents/Projects/AI AVATAR TRAINING PLATFORM/apps/ai-service"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["/Users/vedantsingh/Documents/Projects/AI AVATAR TRAINING PLATFORM/apps/ai-service/start.sh"],
       "port": 8000
     }
   ]

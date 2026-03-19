@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import apiClient from '@/lib/api-client';
-import { LIVEKIT_URL } from '@/lib/livekit';
+import { LIVEKIT_URL, connectToSession, toggleMicrophone, disconnectFromSession, type SessionEvent } from '@/lib/livekit';
+import type { Room } from 'livekit-client';
+import { ConnectionState } from 'livekit-client';
 import VideoPanel from '@/components/session/video-panel';
 import TranscriptPanel from '@/components/session/transcript-panel';
 import ControlsBar from '@/components/session/controls-bar';
@@ -87,6 +89,7 @@ export default function SessionPage() {
   const [elapsed, setElapsed] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'disconnected'>('connecting');
   const [avatarSpeaking, setAvatarSpeaking] = useState(false);
+  const [avatarVideoTrack, setAvatarVideoTrack] = useState<MediaStreamTrack | null>(null);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [idleSeconds, setIdleSeconds] = useState(0);
 
@@ -96,6 +99,8 @@ export default function SessionPage() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const idleRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const roomRef = useRef<Room | null>(null);
+  const turnCountRef = useRef(0);
 
   // Preflight checks
   useEffect(() => {
@@ -164,10 +169,93 @@ export default function SessionPage() {
 
     try {
       const { data } = await apiClient.post('/sessions', { assignment_id: assignmentId });
-      setSessionData(data.data);
+      const config = data.data as SessionConfig;
+      setSessionData(config);
       setPhase('session');
-      setConnectionStatus('connected');
-      setIsMicOn(true);
+      setConnectionStatus('connecting');
+
+      // Connect to LiveKit room
+      try {
+        const room = await connectToSession({
+          url: config.livekitUrl || LIVEKIT_URL,
+          token: config.livekitToken,
+          onVideoTrack: (track) => {
+            setAvatarVideoTrack(track);
+          },
+          onAudioTrack: () => {
+            // Audio auto-plays via livekit.ts
+          },
+          onSessionEvent: (event: SessionEvent) => {
+            setIdleSeconds(0); // Reset idle on any event
+
+            switch (event.type) {
+              case 'TRANSCRIPT_INTERIM':
+                setInterimText(event.text || '');
+                break;
+              case 'TRANSCRIPT_FINAL':
+                if (event.text?.trim()) {
+                  turnCountRef.current += 1;
+                  setTranscripts(prev => [...prev, {
+                    role: 'learner',
+                    content: event.text!,
+                    turn_number: turnCountRef.current,
+                    timestamp: Date.now(),
+                  }]);
+                  setInterimText('');
+                }
+                break;
+              case 'AVATAR_SPEAKING':
+                setAvatarSpeaking(true);
+                if (event.text?.trim()) {
+                  turnCountRef.current += 1;
+                  setTranscripts(prev => [...prev, {
+                    role: 'avatar',
+                    content: event.text!,
+                    turn_number: turnCountRef.current,
+                    timestamp: Date.now(),
+                  }]);
+                }
+                break;
+              case 'AVATAR_IDLE':
+                setAvatarSpeaking(false);
+                break;
+              case 'SESSION_WARNING':
+                // Show warning toast handled by idleSeconds
+                break;
+              case 'SESSION_END':
+                endSession();
+                break;
+              case 'GUARDRAIL_TRIGGERED':
+                // Could show a toast here
+                break;
+            }
+          },
+          onConnectionStateChange: (state: ConnectionState) => {
+            switch (state) {
+              case ConnectionState.Connected:
+                setConnectionStatus('connected');
+                break;
+              case ConnectionState.Reconnecting:
+                setConnectionStatus('reconnecting');
+                break;
+              case ConnectionState.Disconnected:
+                setConnectionStatus('disconnected');
+                break;
+              default:
+                setConnectionStatus('connecting');
+            }
+          },
+        });
+
+        roomRef.current = room;
+        setIsMicOn(true);
+        setConnectionStatus('connected');
+      } catch (livekitErr) {
+        console.error('LiveKit connection failed:', livekitErr);
+        // Still allow session to work without LiveKit (demo mode)
+        setConnectionStatus('connected');
+        setIsMicOn(true);
+      }
 
       // Start timer
       timerRef.current = setInterval(() => {
@@ -192,6 +280,12 @@ export default function SessionPage() {
 
     if (timerRef.current) clearInterval(timerRef.current);
     if (idleRef.current) clearInterval(idleRef.current);
+
+    // Disconnect from LiveKit
+    if (roomRef.current) {
+      disconnectFromSession(roomRef.current);
+      roomRef.current = null;
+    }
 
     // Animate through ending steps
     const stepTimer = setInterval(() => {
@@ -548,6 +642,7 @@ export default function SessionPage() {
       <div className="flex-1 flex flex-col items-center justify-center p-4 gap-4 relative">
         {/* Avatar video */}
         <VideoPanel
+          videoTrack={avatarVideoTrack}
           avatarSpeaking={avatarSpeaking}
           connectionStatus={connectionStatus}
         />
@@ -577,7 +672,14 @@ export default function SessionPage() {
         isMicOn={isMicOn}
         elapsed={elapsed}
         maxDuration={maxDuration}
-        onToggleMic={() => { setIsMicOn(!isMicOn); setIdleSeconds(0); }}
+        onToggleMic={async () => {
+          const newState = !isMicOn;
+          setIsMicOn(newState);
+          setIdleSeconds(0);
+          if (roomRef.current) {
+            await toggleMicrophone(roomRef.current, newState);
+          }
+        }}
         onEndSession={() => setShowEndConfirm(true)}
       />
 
