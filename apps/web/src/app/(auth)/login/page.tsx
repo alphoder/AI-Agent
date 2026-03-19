@@ -103,9 +103,13 @@ export default function LoginPage() {
         return;
       }
 
-      // Store token and redirect to dashboard
+      // Store token and redirect based on role
       localStorage.setItem('access_token', data.data.accessToken);
-      router.push('/dashboard');
+      if (data.data.user?.role === 'admin') {
+        router.push('/scenarios');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err) {
       setError('Failed to connect to API');
     } finally {

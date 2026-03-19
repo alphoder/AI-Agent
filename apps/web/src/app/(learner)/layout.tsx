@@ -191,6 +191,14 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
                   {item.label}
                 </Link>
               ))}
+              {user.role === 'admin' && (
+                <Link
+                  href="/scenarios"
+                  className="rounded-md px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors duration-150"
+                >
+                  Admin Panel
+                </Link>
+              )}
             </div>
           </div>
 
@@ -261,6 +269,14 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
                   {item.label}
                 </Link>
               ))}
+              {user.role === 'admin' && (
+                <Link
+                  href="/scenarios"
+                  className="block rounded-lg px-3 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+                >
+                  Admin Panel
+                </Link>
+              )}
             </div>
 
             {user && (
