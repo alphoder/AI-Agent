@@ -126,7 +126,7 @@ export default function ScenariosPage() {
             </thead>
             <tbody>
               {scenarios.map((s) => (
-                <tr key={s.id} onClick={() => router.push(`/scenarios/${s.id}`)}
+                <tr key={s.id} onClick={() => router.push(`/scenarios/${s.id}/edit`)}
                   className="border-t cursor-pointer hover:bg-muted/30">
                   <td className="p-3">
                     <div className="flex items-center gap-3">

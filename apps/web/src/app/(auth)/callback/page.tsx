@@ -32,7 +32,7 @@ export default function CallbackPage() {
 
         // Route based on role
         if (data.data.role === 'admin') {
-          router.push('/avatars');
+          router.push('/scenarios');
         } else {
           router.push('/dashboard');
         }

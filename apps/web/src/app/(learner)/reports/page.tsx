@@ -302,7 +302,10 @@ export default function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    if (!targetId) return;
+    if (!targetId) {
+      setLoading(false);
+      return;
+    }
     async function load() {
       try {
         const [reportRes, transcriptRes] = await Promise.all([

@@ -367,7 +367,7 @@ export default function LearnerDashboardPage() {
         router.push(`/session/${a.scenario_id}?assignment=${a.assignment_id}`);
         break;
       case 'report':
-        router.push(`/reports?assignment=${a.assignment_id}`);
+        router.push(`/reports?session=${(a as any).latest_session_id || a.assignment_id}`);
         break;
     }
   }

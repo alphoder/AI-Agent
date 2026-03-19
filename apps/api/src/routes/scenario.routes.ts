@@ -296,7 +296,8 @@ router.get(
                   s.max_duration_sec, s.max_turns, s.status AS scenario_status,
                   s.opening_context, s.opening_message, s.tags,
                   p.name AS persona_name, p.description AS persona_description,
-                  a.thumbnail_url AS persona_thumbnail_url
+                  a.thumbnail_url AS persona_thumbnail_url,
+                  (SELECT sess.id FROM sessions sess WHERE sess.assignment_id = sa.id ORDER BY sess.created_at DESC LIMIT 1) AS latest_session_id
            FROM scenario_assignments sa
            JOIN scenarios s ON sa.scenario_id = s.id AND s.deleted_at IS NULL
            LEFT JOIN personas p ON s.persona_id = p.id AND p.deleted_at IS NULL
