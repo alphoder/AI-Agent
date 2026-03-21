@@ -1,14 +1,24 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Building2, Clock, Database, Loader2, Monitor, Save, Users } from 'lucide-react';
+import { Building2, Clock, Database, KeyRound, Loader2, Monitor, Save, Shield, Users } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+
+interface SSOConfig {
+  role_mapping?: {
+    source_field: string;
+    admin_values: string[];
+  };
+}
 
 interface TenantSettings {
   id: string;
   name: string;
   slug: string;
   sso_provider: string;
+  sso_metadata_url: string | null;
+  sso_client_id: string | null;
+  sso_config: SSOConfig;
   avatar_provider: string;
   max_concurrent_sessions: number;
   session_duration_limit_sec: number;
@@ -48,6 +58,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [ssoSecret, setSsoSecret] = useState('');
+  const [adminGroupsInput, setAdminGroupsInput] = useState('');
 
   // Auto-dismiss toast after 3s
   useEffect(() => {
@@ -66,7 +78,11 @@ export default function SettingsPage() {
       const tenantId = data.data?.tenantId;
       if (tenantId) {
         const res = await apiClient.get(`/tenants/${tenantId}/settings`);
-        setSettings(res.data.data);
+        const data = res.data.data;
+        setSettings(data);
+        // Populate admin groups from sso_config
+        const adminVals = data.sso_config?.role_mapping?.admin_values || [];
+        setAdminGroupsInput(adminVals.join(', '));
       }
     } catch {
       setToast({ type: 'error', text: 'Failed to load settings. Please try again.' });
@@ -103,13 +119,37 @@ export default function SettingsPage() {
     setSaving(true);
     setToast(null);
     try {
-      await apiClient.patch(`/tenants/${settings.id}/settings`, {
+      // Build SSO config from admin groups input
+      const adminValues = adminGroupsInput
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+
+      const ssoConfig: SSOConfig = {
+        role_mapping: {
+          source_field: settings.sso_config?.role_mapping?.source_field || 'groups',
+          admin_values: adminValues,
+        },
+      };
+
+      const payload: Record<string, unknown> = {
         max_concurrent_sessions: settings.max_concurrent_sessions,
         session_duration_limit_sec: settings.session_duration_limit_sec,
         idle_timeout_sec: settings.idle_timeout_sec,
         data_retention_days: settings.data_retention_days,
         avatar_provider: settings.avatar_provider,
-      });
+        sso_provider: settings.sso_provider,
+        sso_metadata_url: settings.sso_metadata_url,
+        sso_client_id: settings.sso_client_id,
+        sso_config: ssoConfig,
+      };
+
+      // Only send secret if changed
+      if (ssoSecret) {
+        payload.sso_client_secret = ssoSecret;
+      }
+
+      await apiClient.patch(`/tenants/${settings.id}/settings`, payload);
       setToast({ type: 'success', text: 'Settings saved successfully.' });
     } catch {
       setToast({ type: 'error', text: 'Failed to save settings. Please try again.' });
@@ -212,6 +252,170 @@ export default function SettingsPage() {
               <label className="text-xs font-medium text-muted-foreground">SSO Provider</label>
               <p className="text-sm font-medium text-foreground mt-0.5 uppercase">{settings.sso_provider}</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SSO Configuration */}
+      <div className="rounded-xl border bg-card shadow-sm">
+        <div className="px-6 py-4 border-b">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-base font-semibold text-foreground">Single Sign-On (SSO)</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5 ml-6">
+            Connect your Identity Provider so admins and learners log in with their org credentials.
+          </p>
+        </div>
+        <div className="px-6 py-4 space-y-5">
+          {/* Provider type */}
+          <div>
+            <label className="text-xs font-medium text-foreground block mb-1.5">Protocol</label>
+            <div className="flex gap-3">
+              {(['oidc', 'saml'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => updateField('sso_provider', p)}
+                  className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all ${
+                    settings.sso_provider === p
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20 text-primary'
+                      : 'border-border text-muted-foreground hover:border-primary/50'
+                  }`}
+                >
+                  {p === 'oidc' ? 'OpenID Connect (OIDC)' : 'SAML 2.0'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Metadata / Discovery URL */}
+          <div>
+            <label className="text-xs font-medium text-foreground block mb-1.5">
+              {settings.sso_provider === 'oidc' ? 'Discovery URL' : 'Metadata URL'}
+            </label>
+            <input
+              type="url"
+              value={settings.sso_metadata_url || ''}
+              onChange={(e) => updateField('sso_metadata_url', e.target.value)}
+              placeholder={
+                settings.sso_provider === 'oidc'
+                  ? 'https://accounts.google.com/.well-known/openid-configuration'
+                  : 'https://idp.yourcompany.com/saml/metadata'
+              }
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {settings.sso_provider === 'oidc'
+                ? 'Your IdP\'s OpenID Connect discovery endpoint (e.g. Google, Okta, Azure AD)'
+                : 'Your SAML IdP metadata URL (e.g. Okta, OneLogin, ADFS)'}
+            </p>
+          </div>
+
+          {/* Client ID (OIDC only) */}
+          {settings.sso_provider === 'oidc' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1.5">Client ID</label>
+                <input
+                  type="text"
+                  value={settings.sso_client_id || ''}
+                  onChange={(e) => updateField('sso_client_id', e.target.value)}
+                  placeholder="your-client-id.apps.googleusercontent.com"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1.5">
+                  Client Secret
+                  <span className="text-muted-foreground font-normal ml-1">(leave blank to keep current)</span>
+                </label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+                  <input
+                    type="password"
+                    value={ssoSecret}
+                    onChange={(e) => setSsoSecret(e.target.value)}
+                    placeholder="********"
+                    className="w-full rounded-lg border border-border bg-background pl-9 pr-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Role Mapping */}
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-medium">Role Mapping</h3>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Users whose IdP groups match the admin values below get the <strong>Admin</strong> role.
+              Everyone else is a <strong>Learner</strong>. Both share the same tenant.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1.5">
+                  Group Attribute Field
+                </label>
+                <input
+                  type="text"
+                  value={settings.sso_config?.role_mapping?.source_field || 'groups'}
+                  onChange={(e) =>
+                    setSettings((s) =>
+                      s
+                        ? {
+                            ...s,
+                            sso_config: {
+                              ...s.sso_config,
+                              role_mapping: {
+                                source_field: e.target.value,
+                                admin_values: s.sso_config?.role_mapping?.admin_values || [],
+                              },
+                            },
+                          }
+                        : s,
+                    )
+                  }
+                  placeholder="groups"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  The claim/attribute name your IdP sends (usually &quot;groups&quot; or &quot;roles&quot;)
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1.5">
+                  Admin Group Names
+                </label>
+                <input
+                  type="text"
+                  value={adminGroupsInput}
+                  onChange={(e) => setAdminGroupsInput(e.target.value)}
+                  placeholder="Instructors, TrainingAdmins, Admins"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Comma-separated group names that grant admin access
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* SSO Test Info */}
+          <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3">
+            <p className="text-xs text-blue-700">
+              <strong>Callback URL:</strong>{' '}
+              <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs">
+                {typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':4000') : ''}/api/auth/sso/callback
+              </code>
+            </p>
+            <p className="text-xs text-blue-600 mt-1">
+              Add this URL to your IdP&apos;s allowed redirect/callback URIs.
+            </p>
           </div>
         </div>
       </div>

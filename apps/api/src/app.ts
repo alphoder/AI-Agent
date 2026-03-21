@@ -16,6 +16,7 @@ import { scenarioRoutes } from './routes/scenario.routes';
 import { sessionRoutes } from './routes/session.routes';
 import { analyticsRoutes } from './routes/analytics.routes';
 import { ltiRoutes } from './routes/lti.routes';
+import { tenantRoutes } from './routes/tenant.routes';
 import { internalRoutes } from './routes/internal.routes';
 
 export function createApp(): express.Express {
@@ -108,6 +109,7 @@ export function createApp(): express.Express {
   app.use('/api/sessions', sessionRoutes);
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/lti', ltiRoutes);
+  app.use('/api/tenants', tenantRoutes);
   app.use('/api/internal', internalRoutes);
 
   // 404 catch-all
