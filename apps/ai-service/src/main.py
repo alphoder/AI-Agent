@@ -9,7 +9,7 @@ import structlog
 
 from src.config import settings
 from src.metrics import metrics_endpoint
-from src.routes import embedding, scoring, session, tts
+from src.routes import avatar as avatar_routes, embedding, scoring, session, tts
 
 logger = structlog.get_logger(__name__)
 
@@ -136,6 +136,7 @@ async def protected_metrics_endpoint(request: Request):
 
 app.add_api_route("/metrics", protected_metrics_endpoint, methods=["GET"], tags=["monitoring"])
 
+app.include_router(avatar_routes.router, prefix="/avatar", tags=["avatar"], dependencies=[Depends(require_internal_key)])
 app.include_router(session.router, prefix="/session", tags=["session"], dependencies=[Depends(require_internal_key)])
 app.include_router(embedding.router, prefix="/embedding", tags=["embedding"], dependencies=[Depends(require_internal_key)])
 app.include_router(scoring.router, prefix="/scoring", tags=["scoring"], dependencies=[Depends(require_internal_key)])

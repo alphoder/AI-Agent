@@ -192,4 +192,59 @@ router.post('/sessions/:id/score', async (req: Request, res: Response, next: Nex
   }
 });
 
+/**
+ * POST /api/internal/avatar-status — Update avatar status from AI service
+ *
+ * Called by the AI service after avatar creation completes (or fails).
+ */
+router.post('/avatar-status', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { avatar_id, tenant_id, status, provider_avatar_id } = req.body;
+
+    if (!avatar_id || !tenant_id || !status) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_BODY', message: 'avatar_id, tenant_id, and status required' },
+      });
+    }
+
+    if (!['active', 'inactive', 'processing', 'failed'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_STATUS', message: 'Invalid avatar status' },
+      });
+    }
+
+    const updates = ['status = $1'];
+    const params: unknown[] = [status, avatar_id];
+    let paramIdx = 3;
+
+    if (provider_avatar_id) {
+      updates.push(`provider_avatar_id = $${paramIdx++}`);
+      params.push(provider_avatar_id);
+    }
+
+    // Use tenant-scoped query so RLS is satisfied
+    const result = await db.tenantQuery(tenant_id,
+      `UPDATE avatars SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE id = $2 AND deleted_at IS NULL
+       RETURNING id, status`,
+      params,
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Avatar not found' },
+      });
+    }
+
+    logger.info({ avatar_id, status, provider_avatar_id }, 'Avatar status updated (internal)');
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export const internalRoutes: Router = router;
