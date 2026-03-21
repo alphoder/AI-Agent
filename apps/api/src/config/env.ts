@@ -1,4 +1,10 @@
+import { config as dotenvConfig } from 'dotenv';
+import { resolve } from 'path';
 import { z } from 'zod';
+
+// Load .env — try app-local first, then root monorepo .env
+dotenvConfig({ path: resolve(__dirname, '../../.env') });
+dotenvConfig({ path: resolve(__dirname, '../../../../.env') });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production']).default('development'),
@@ -40,7 +46,13 @@ const envSchemaRefined = envSchema.refine(
   },
 );
 
-const parsed = envSchemaRefined.safeParse(process.env);
+// Strip empty-string env vars so Zod defaults apply correctly
+// (dotenv sets KEY= as "" which overrides Zod .default())
+const cleanedEnv = Object.fromEntries(
+  Object.entries(process.env).map(([k, v]) => [k, v === '' ? undefined : v]),
+);
+
+const parsed = envSchemaRefined.safeParse(cleanedEnv);
 
 if (!parsed.success) {
   console.error('Invalid environment variables:', parsed.error.flatten().fieldErrors);
