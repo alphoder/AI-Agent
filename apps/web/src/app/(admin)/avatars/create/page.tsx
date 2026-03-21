@@ -143,15 +143,17 @@ export default function CreateAvatarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Restart preview with new settings (stops current, replays same voice)
+  const restartPreview = (voiceId: string) => {
+    stopPreview();
+    setTimeout(() => previewVoice(voiceId), 50);
+  };
+
   // Auto-restart preview when speaking rate changes while a voice is playing
   useEffect(() => {
     if (playingVoice) {
-      // Small debounce so dragging the slider doesn't spam requests
       const timer = setTimeout(() => {
-        const voiceId = playingVoice;
-        stopPreview();
-        // Re-trigger after stop completes
-        setTimeout(() => previewVoice(voiceId), 50);
+        restartPreview(playingVoice);
       }, 300);
       return () => clearTimeout(timer);
     }
