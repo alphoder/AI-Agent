@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Building2, Clock, Database, KeyRound, Loader2, Monitor, Save, Shield, Users } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+import { HelpHint } from '@/components/ui/help-hint';
 
 interface SSOConfig {
   role_mapping?: {
@@ -268,6 +269,9 @@ export default function SettingsPage() {
           </p>
         </div>
         <div className="px-6 py-4 space-y-5">
+          <HelpHint variant="info" dismissible dismissKey="sso-setup-tip" title="How SSO works">
+            Configure your Identity Provider (Google, Okta, Azure AD) here. All users from your organization log in with the same SSO — admins and learners are distinguished by their IdP group membership via the Role Mapping below.
+          </HelpHint>
           {/* Provider type */}
           <div>
             <label className="text-xs font-medium text-foreground block mb-1.5">Protocol</label>

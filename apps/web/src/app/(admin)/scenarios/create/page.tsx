@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { HelpHint } from '@/components/ui/help-hint';
 
 interface PersonaOption { id: string; name: string; avatar_thumbnail_url: string | null; }
 interface RubricLevel { score: number; label: string; description: string; }
@@ -123,6 +124,9 @@ export default function CreateScenarioPage() {
 
       {tab === 'context' && (
         <div className="space-y-4">
+          <HelpHint variant="tip" dismissible dismissKey="scenario-context-tip" title="Setting the scene">
+            The opening context gives background to the AI avatar. The opening message is what the avatar says first. A strong opening message sets the tone — e.g. &apos;Hello, I understand you&apos;re calling about our enterprise plan?&apos;
+          </HelpHint>
           <div><label className="block text-sm font-medium mb-1">Objective *</label>
             <textarea value={objective} onChange={(e) => setObjective(e.target.value)} rows={3}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="What should the learner achieve?" /></div>
@@ -137,6 +141,9 @@ export default function CreateScenarioPage() {
 
       {tab === 'rubric' && (
         <div className="space-y-6">
+          <HelpHint variant="info" dismissible dismissKey="rubric-weight-tip" title="Scoring Rubric">
+            Each criterion measures a specific skill. Weights must total 100% — they determine how much each skill contributes to the overall score. For example, give higher weight to the most important skills in your training scenario.
+          </HelpHint>
           <div className="flex items-center justify-between">
             <div>
               <span className="text-sm font-medium">Total Weight: </span>

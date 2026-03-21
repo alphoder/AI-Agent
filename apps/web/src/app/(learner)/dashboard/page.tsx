@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { HelpHint } from '@/components/ui/help-hint';
 import { getAccessToken } from '@/lib/auth';
 import {
   BookOpen,
@@ -403,6 +404,13 @@ export default function LearnerDashboardPage() {
             accent="bg-violet-500"
           />
         </div>
+      )}
+
+      {/* Help hint */}
+      {!loading && assignments.length > 0 && (
+        <HelpHint variant="tip" dismissible dismissKey="learner-dashboard-tip" title="Your training assignments">
+          Each card below is a training scenario assigned by your instructor. Click &apos;Start Session&apos; to begin a live conversation with an AI avatar. Your performance will be scored against the scenario&apos;s rubric criteria.
+        </HelpHint>
       )}
 
       {/* Assignment Cards */}

@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { HelpHint } from '@/components/ui/help-hint';
 import {
   ArrowLeft,
   Clock,
@@ -396,6 +397,11 @@ function ReportsPageInner() {
           </div>
         </div>
       </div>
+
+      {/* Score tip */}
+      <HelpHint variant="tip" dismissible dismissKey="report-score-tip" title="Understanding your score">
+        Your overall score is a weighted average of each criterion. Each criterion is scored 1-5 based on the rubric. Focus on improving criteria with lower scores — the AI feedback explains what to do differently next time.
+      </HelpHint>
 
       {/* Score Breakdown */}
       <div className="rounded-2xl border border-border/50 bg-card p-6">

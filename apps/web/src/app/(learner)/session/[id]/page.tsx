@@ -7,6 +7,7 @@ import { formatTime } from '@/lib/format';
 import { LIVEKIT_URL, connectToSession, toggleMicrophone, disconnectFromSession, type SessionEvent } from '@/lib/livekit';
 import type { Room } from 'livekit-client';
 import { ConnectionState } from 'livekit-client';
+import { HelpHint } from '@/components/ui/help-hint';
 import VideoPanel from '@/components/session/video-panel';
 import TranscriptPanel from '@/components/session/transcript-panel';
 import ControlsBar from '@/components/session/controls-bar';
@@ -426,6 +427,13 @@ function SessionPageInner() {
                   </p>
                 </>
               )}
+            </div>
+
+            {/* Help hint */}
+            <div className="px-8 pt-5 pb-0">
+              <HelpHint variant="info" dismissible dismissKey="session-preflight-tip" title="Before you begin">
+                Make sure your microphone and speakers are working. The avatar will speak to you and listen to your responses in real-time. Use headphones for the best experience and find a quiet space.
+              </HelpHint>
             </div>
 
             {/* Check items */}

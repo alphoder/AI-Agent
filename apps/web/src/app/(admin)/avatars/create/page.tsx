@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { HelpHint } from '@/components/ui/help-hint';
 
 type Step = 'upload' | 'configure' | 'review';
 
@@ -343,6 +344,10 @@ export default function CreateAvatarPage() {
           {error}
         </div>
       )}
+
+      <HelpHint variant="tip" dismissible dismissKey="avatar-upload-tip" title="Getting started">
+        Upload a clear, front-facing photo with good lighting. The AI will use this to generate a realistic talking avatar. JPEG and PNG files under 5MB work best.
+      </HelpHint>
 
       {/* Step 1: Upload */}
       {step === 'upload' && (

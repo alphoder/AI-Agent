@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { HelpHint } from '@/components/ui/help-hint';
 
 interface AvatarOption {
   id: string;
@@ -83,6 +84,10 @@ export default function CreatePersonaPage() {
   return (
     <div className="max-w-3xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">Create Persona</h1>
+
+      <HelpHint variant="tip" dismissible dismissKey="persona-create-tip" title="What is a Persona?" className="mb-4">
+        A persona defines your avatar&apos;s personality, knowledge, and behavior. Write a detailed system prompt describing who the avatar is, how they should respond, and what topics they can discuss. The more specific, the better the training experience.
+      </HelpHint>
 
       {error && (
         <div className="mb-4 p-3 rounded bg-destructive/10 text-destructive text-sm">{error}</div>
