@@ -14,15 +14,69 @@ interface AvatarConfig {
 }
 
 const VOICE_OPTIONS = [
-  { id: 'alloy', label: 'Alloy', description: 'Neutral and balanced', pitch: 1.0, rate: 1.0 },
-  { id: 'echo', label: 'Echo', description: 'Warm and conversational', pitch: 0.85, rate: 0.95 },
-  { id: 'fable', label: 'Fable', description: 'Expressive and dynamic', pitch: 1.15, rate: 1.05 },
-  { id: 'onyx', label: 'Onyx', description: 'Deep and authoritative', pitch: 0.7, rate: 0.9 },
-  { id: 'nova', label: 'Nova', description: 'Friendly and upbeat', pitch: 1.25, rate: 1.1 },
-  { id: 'shimmer', label: 'Shimmer', description: 'Clear and professional', pitch: 1.1, rate: 1.0 },
+  {
+    id: 'nova',
+    label: 'Friendly Coach',
+    description: 'Warm, approachable tone — great for onboarding and soft-skills training',
+    category: 'friendly',
+    icon: '😊',
+    gender: 'female',
+    voiceNames: ['Samantha', 'Karen', 'Tessa'],
+    pitch: 1.1, rate: 1.0,
+  },
+  {
+    id: 'onyx',
+    label: 'Executive Mentor',
+    description: 'Confident, authoritative presence — ideal for leadership and interview prep',
+    category: 'professional',
+    icon: '👔',
+    gender: 'male',
+    voiceNames: ['Daniel', 'Aaron', 'Alex'],
+    pitch: 0.85, rate: 0.92,
+  },
+  {
+    id: 'shimmer',
+    label: 'Clinical Trainer',
+    description: 'Clear, precise articulation — suited for medical and compliance scenarios',
+    category: 'professional',
+    icon: '🩺',
+    gender: 'female',
+    voiceNames: ['Moira', 'Fiona', 'Victoria'],
+    pitch: 1.05, rate: 0.95,
+  },
+  {
+    id: 'echo',
+    label: 'Patient Advisor',
+    description: 'Calm, empathetic delivery — perfect for counseling and de-escalation',
+    category: 'empathetic',
+    icon: '🤝',
+    gender: 'male',
+    voiceNames: ['Tom', 'Oliver', 'James'],
+    pitch: 0.9, rate: 0.88,
+  },
+  {
+    id: 'alloy',
+    label: 'Neutral Facilitator',
+    description: 'Balanced, adaptable voice — works across any training scenario',
+    category: 'neutral',
+    icon: '🎯',
+    gender: 'neutral',
+    voiceNames: ['Alex', 'Samantha', 'Google UK English'],
+    pitch: 1.0, rate: 1.0,
+  },
+  {
+    id: 'fable',
+    label: 'Energetic Presenter',
+    description: 'Dynamic, engaging energy — best for sales training and pitching',
+    category: 'energetic',
+    icon: '⚡',
+    gender: 'female',
+    voiceNames: ['Samantha', 'Karen', 'Tessa'],
+    pitch: 1.15, rate: 1.08,
+  },
 ];
 
-const VOICE_PREVIEW_TEXT = "Hello! I'm your AI training avatar. Let's get started with your practice session.";
+const VOICE_PREVIEW_TEXT = "Welcome to your training session. I'll be guiding you through today's scenario. Feel free to respond naturally, and I'll adapt to your pace.";
 
 const LANGUAGE_OPTIONS = [
   { id: 'en-US', label: 'English (US)' },
@@ -132,7 +186,7 @@ export default function CreateAvatarPage() {
       // AI service unavailable — fall back to browser TTS
     }
 
-    // Fallback: Web Speech API with voice-specific pitch/rate
+    // Fallback: Web Speech API — pick the best matching system voice by name
     if (typeof window === 'undefined' || !window.speechSynthesis) {
       setPlayingVoice(null);
       return;
@@ -146,12 +200,29 @@ export default function CreateAvatarPage() {
     utterance.rate = voiceOption.rate * config.speakingRate;
     utterance.lang = config.language;
 
+    // Pick best system voice: match by preferred name list, then by language
     const voices = window.speechSynthesis.getVoices();
-    const langPrefix = config.language.split('-')[0];
-    const matchingVoices = voices.filter((v) => v.lang.startsWith(langPrefix));
-    if (matchingVoices.length > 0) {
-      const voiceIndex = VOICE_OPTIONS.findIndex((v) => v.id === voiceId);
-      utterance.voice = matchingVoices[voiceIndex % matchingVoices.length];
+    let bestVoice: SpeechSynthesisVoice | null = null;
+
+    // Try preferred voice names first (e.g. "Samantha", "Daniel" on macOS)
+    for (const preferred of voiceOption.voiceNames) {
+      const match = voices.find((v) =>
+        v.name.includes(preferred) && v.lang.startsWith(config.language.split('-')[0])
+      );
+      if (match) { bestVoice = match; break; }
+    }
+
+    // Fall back to any premium/enhanced voice in the right language
+    if (!bestVoice) {
+      const langPrefix = config.language.split('-')[0];
+      const langVoices = voices.filter((v) => v.lang.startsWith(langPrefix));
+      // Prefer non-compact, non-online voices (they sound better)
+      bestVoice = langVoices.find((v) => !v.name.includes('compact') && !v.name.includes('Online'))
+        || langVoices[0] || null;
+    }
+
+    if (bestVoice) {
+      utterance.voice = bestVoice;
     }
 
     utterance.onend = () => setPlayingVoice(null);
@@ -352,54 +423,58 @@ export default function CreateAvatarPage() {
             </div>
           </div>
 
-          {/* Voice */}
+          {/* Voice Persona */}
           <div>
-            <label className="block text-sm font-medium mb-1.5">Voice</label>
-            <p className="text-xs text-muted-foreground mb-2">Click a voice to select it. Use the play button to preview.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <label className="block text-sm font-medium mb-1.5">Voice Persona</label>
+            <p className="text-xs text-muted-foreground mb-3">Choose a voice that matches your training scenario. Click the play button to hear a preview.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {VOICE_OPTIONS.map((voice) => (
-                <div
+                <button
                   key={voice.id}
-                  className={`rounded-lg border transition-all relative ${
+                  type="button"
+                  onClick={() => {
+                    setConfig((c) => ({ ...c, voice: voice.id }));
+                    previewVoice(voice.id);
+                  }}
+                  className={`rounded-xl border p-4 text-left transition-all relative group ${
                     config.voice === voice.id
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : 'border-input hover:border-primary/50 hover:bg-muted/50'
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm'
+                      : 'border-input hover:border-primary/50 hover:bg-muted/30'
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setConfig((c) => ({ ...c, voice: voice.id }))}
-                    className="w-full p-2.5 pb-8 text-left"
-                  >
-                    <span className="block text-sm font-medium">{voice.label}</span>
-                    <span className="block text-xs text-muted-foreground">{voice.description}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfig((c) => ({ ...c, voice: voice.id }));
-                      previewVoice(voice.id);
-                    }}
-                    className={`absolute bottom-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${
-                      playingVoice === voice.id
-                        ? 'bg-primary text-primary-foreground scale-110'
-                        : 'bg-muted hover:bg-primary/20 text-muted-foreground hover:text-primary'
-                    }`}
-                    title={playingVoice === voice.id ? 'Stop preview' : `Preview ${voice.label}`}
-                  >
-                    {playingVoice === voice.id ? (
-                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                        <rect x="6" y="5" width="4" height="14" rx="1" />
-                        <rect x="14" y="5" width="4" height="14" rx="1" />
-                      </svg>
-                    ) : (
-                      <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl mt-0.5 shrink-0">{voice.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">{voice.label}</span>
+                        {config.voice === voice.id && (
+                          <svg className="w-4 h-4 text-primary shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                          </svg>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{voice.description}</p>
+                    </div>
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                        playingVoice === voice.id
+                          ? 'bg-primary text-primary-foreground scale-110 shadow-md'
+                          : 'bg-muted/80 text-muted-foreground group-hover:bg-primary/15 group-hover:text-primary'
+                      }`}
+                    >
+                      {playingVoice === voice.id ? (
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                          <rect x="6" y="5" width="4" height="14" rx="1" />
+                          <rect x="14" y="5" width="4" height="14" rx="1" />
+                        </svg>
+                      ) : (
+                        <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                </button>
               ))}
             </div>
           </div>
@@ -512,7 +587,7 @@ export default function CreateAvatarPage() {
             </div>
             <div className="flex justify-between p-3.5">
               <span className="text-sm text-muted-foreground">Voice</span>
-              <span className="text-sm font-medium">{selectedVoice?.label} — {selectedVoice?.description}</span>
+              <span className="text-sm font-medium">{selectedVoice?.icon} {selectedVoice?.label}</span>
             </div>
             <div className="flex justify-between p-3.5">
               <span className="text-sm text-muted-foreground">Language</span>
