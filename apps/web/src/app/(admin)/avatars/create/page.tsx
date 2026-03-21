@@ -121,38 +121,52 @@ export default function CreateAvatarPage() {
   }, [preview]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const speakingRateRef = useRef(config.speakingRate);
+  speakingRateRef.current = config.speakingRate;
+
+  // Stop all audio helper
+  const stopPreview = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setPlayingVoice(null);
+  };
 
   // Stop audio on unmount
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-    };
+    return () => { stopPreview(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-restart preview when speaking rate changes while a voice is playing
+  useEffect(() => {
+    if (playingVoice) {
+      // Small debounce so dragging the slider doesn't spam requests
+      const timer = setTimeout(() => {
+        const voiceId = playingVoice;
+        stopPreview();
+        // Re-trigger after stop completes
+        setTimeout(() => previewVoice(voiceId), 50);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.speakingRate]);
+
   const previewVoice = async (voiceId: string) => {
-    // If same voice is already playing, stop it
+    // If same voice is already playing, just stop it
     if (playingVoice === voiceId) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      window.speechSynthesis?.cancel();
-      setPlayingVoice(null);
+      stopPreview();
       return;
     }
 
-    // Stop any currently playing audio
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    window.speechSynthesis?.cancel();
+    // Stop any currently playing audio first
+    stopPreview();
 
     setPlayingVoice(voiceId);
 
@@ -160,7 +174,7 @@ export default function CreateAvatarPage() {
     try {
       const resp = await apiClient.post(
         '/avatars/voice-preview',
-        { voice: voiceId, speed: config.speakingRate },
+        { voice: voiceId, speed: speakingRateRef.current },
         { responseType: 'blob', timeout: 15000 },
       );
 
@@ -197,14 +211,13 @@ export default function CreateAvatarPage() {
 
     const utterance = new SpeechSynthesisUtterance(VOICE_PREVIEW_TEXT);
     utterance.pitch = voiceOption.pitch;
-    utterance.rate = voiceOption.rate * config.speakingRate;
+    utterance.rate = voiceOption.rate * speakingRateRef.current;
     utterance.lang = config.language;
 
-    // Pick best system voice: match by preferred name list, then by language
+    // Pick best system voice by preferred name list
     const voices = window.speechSynthesis.getVoices();
     let bestVoice: SpeechSynthesisVoice | null = null;
 
-    // Try preferred voice names first (e.g. "Samantha", "Daniel" on macOS)
     for (const preferred of voiceOption.voiceNames) {
       const match = voices.find((v) =>
         v.name.includes(preferred) && v.lang.startsWith(config.language.split('-')[0])
@@ -212,11 +225,9 @@ export default function CreateAvatarPage() {
       if (match) { bestVoice = match; break; }
     }
 
-    // Fall back to any premium/enhanced voice in the right language
     if (!bestVoice) {
       const langPrefix = config.language.split('-')[0];
       const langVoices = voices.filter((v) => v.lang.startsWith(langPrefix));
-      // Prefer non-compact, non-online voices (they sound better)
       bestVoice = langVoices.find((v) => !v.name.includes('compact') && !v.name.includes('Online'))
         || langVoices[0] || null;
     }
@@ -456,21 +467,26 @@ export default function CreateAvatarPage() {
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{voice.description}</p>
                     </div>
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1.5 shrink-0 transition-all text-xs font-medium ${
                         playingVoice === voice.id
-                          ? 'bg-primary text-primary-foreground scale-110 shadow-md'
+                          ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
                           : 'bg-muted/80 text-muted-foreground group-hover:bg-primary/15 group-hover:text-primary'
                       }`}
                     >
                       {playingVoice === voice.id ? (
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                          <rect x="6" y="5" width="4" height="14" rx="1" />
-                          <rect x="14" y="5" width="4" height="14" rx="1" />
-                        </svg>
+                        <>
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                          </svg>
+                          Stop
+                        </>
                       ) : (
-                        <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
+                        <>
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                          Play
+                        </>
                       )}
                     </div>
                   </div>
