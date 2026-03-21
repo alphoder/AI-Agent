@@ -16,9 +16,13 @@ import { scenarioRoutes } from './routes/scenario.routes';
 import { sessionRoutes } from './routes/session.routes';
 import { analyticsRoutes } from './routes/analytics.routes';
 import { ltiRoutes } from './routes/lti.routes';
+import { internalRoutes } from './routes/internal.routes';
 
 export function createApp(): express.Express {
   const app = express();
+
+  // Trust reverse proxy (required for correct req.ip and req.protocol behind LB/Ingress)
+  app.set('trust proxy', 1);
 
   // Security & parsing
   app.use(
@@ -52,7 +56,7 @@ export function createApp(): express.Express {
   );
   app.use(cors({ origin: config.corsOrigins, credentials: true }));
   app.use(compression());
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
   app.use(requestLogger);
@@ -104,6 +108,7 @@ export function createApp(): express.Express {
   app.use('/api/sessions', sessionRoutes);
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/lti', ltiRoutes);
+  app.use('/api/internal', internalRoutes);
 
   // 404 catch-all
   app.use((_req: Request, res: Response) => {

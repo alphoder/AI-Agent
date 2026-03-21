@@ -27,10 +27,15 @@ jobs:
 
       - name: Update image tags in manifests
         run: |
-          sed -i "s|IMAGE_TAG|${{ github.sha }}|g" k8s/staging/*.yaml
+          sed -i "s|IMAGE_TAG|${{ github.sha }}|g" k8s/frontend/*.yaml k8s/api/*.yaml k8s/ai/*.yaml
 
       - name: Apply Kubernetes manifests
-        run: kubectl apply -f k8s/staging/ --recursive
+        run: |
+          kubectl apply -f k8s/namespaces.yaml
+          kubectl apply -f k8s/frontend/ --recursive
+          kubectl apply -f k8s/api/ --recursive
+          kubectl apply -f k8s/ai/ --recursive
+          kubectl apply -f k8s/ingress.yaml
 
       - name: Wait for rollout
         run: |

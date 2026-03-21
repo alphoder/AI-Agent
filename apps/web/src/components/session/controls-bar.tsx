@@ -1,6 +1,7 @@
 'use client';
 
 import { Mic, MicOff, PhoneOff, Clock } from 'lucide-react';
+import { formatTime } from '@/lib/format';
 
 interface ControlsBarProps {
   isMicOn: boolean;
@@ -43,11 +44,6 @@ export default function ControlsBar({
   const isNearEnd = elapsed > maxDuration * 0.8;
   const isAlmostOver = elapsed > maxDuration * 0.9;
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
 
   const remaining = maxDuration - elapsed;
 

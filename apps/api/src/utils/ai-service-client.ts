@@ -15,7 +15,10 @@ export async function callAIService({ path, body, timeoutMs = 10000 }: AIService
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Key': config.INTERNAL_API_KEY,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -38,9 +41,29 @@ export async function callAIService({ path, body, timeoutMs = 10000 }: AIService
   }
 }
 
-// Fire-and-forget version that logs errors but doesn't throw
+// Background version with retry (up to 3 attempts with exponential backoff)
 export function callAIServiceBackground(options: AIServiceRequestOptions): void {
-  callAIService(options).catch(err => {
-    logger.error({ path: options.path, err: err.message }, 'Background AI service call failed');
-  });
+  const maxRetries = 3;
+
+  async function attempt(retryCount: number): Promise<void> {
+    try {
+      await callAIService(options);
+    } catch (err: any) {
+      if (retryCount < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 8000);
+        logger.warn(
+          { path: options.path, attempt: retryCount + 1, delay },
+          'Background AI service call failed, retrying',
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return attempt(retryCount + 1);
+      }
+      logger.error(
+        { path: options.path, err: err.message, attempts: retryCount + 1 },
+        'Background AI service call failed after all retries',
+      );
+    }
+  }
+
+  attempt(0);
 }

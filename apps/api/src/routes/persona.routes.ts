@@ -3,10 +3,12 @@ import multer from 'multer';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
+import { rateLimit } from '../middleware/rate-limit';
 import { S3Service } from '../services/s3-service';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 import { callAIServiceBackground } from '../utils/ai-service-client';
+import { validateUuidParam } from '../middleware/validate-uuid';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -19,6 +21,8 @@ const upload = multer({
 
 router.use(authMiddleware as unknown as RequestHandler);
 router.use(tenantMiddleware as unknown as RequestHandler);
+// 30 requests per minute for persona CRUD
+router.use(rateLimit(30, 60));
 
 // File type validation
 const ALLOWED_TYPES: Record<string, string[]> = {
@@ -206,7 +210,7 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response, next: Next
  * GET /api/personas/:id
  * Get a single persona with avatar details.
  */
-router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.tenantQuery(
       req.user!.tid,
@@ -243,6 +247,7 @@ router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: N
  */
 router.patch(
   '/:id',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -321,6 +326,7 @@ router.patch(
  */
 router.delete(
   '/:id',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -375,6 +381,7 @@ router.delete(
  */
 router.post(
   '/:id/documents',
+  validateUuidParam(),
   rbac('admin'),
   upload.single('file'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -498,6 +505,7 @@ router.post(
  */
 router.get(
   '/:id/documents',
+  validateUuidParam(),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tid;
@@ -566,6 +574,8 @@ router.get(
  */
 router.delete(
   '/:id/documents/:docId',
+  validateUuidParam(),
+  validateUuidParam('docId'),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -626,6 +636,8 @@ router.delete(
  */
 router.post(
   '/:id/documents/:docId/reprocess',
+  validateUuidParam(),
+  validateUuidParam('docId'),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {

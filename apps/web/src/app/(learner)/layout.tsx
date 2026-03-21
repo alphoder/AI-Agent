@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { decodeJwtPayload } from '@/lib/auth';
+import { LogoMark } from '@/components/ui/logo-mark';
 
 // ── Types ──
 
@@ -10,19 +12,6 @@ interface UserInfo {
   email: string;
   role: string;
   initials: string;
-}
-
-// ── Helpers ──
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const base64 = token.split('.')[1];
-    if (!base64) return null;
-    const json = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
 }
 
 function getInitials(email: string): string {
@@ -42,24 +31,6 @@ const NAV_ITEMS = [
 ] as const;
 
 // ── Icon components ──
-
-function LogoMark({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 32 32"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-    >
-      <rect width="32" height="32" rx="8" fill="currentColor" fillOpacity="0.15" />
-      <path
-        d="M16 6C10.477 6 6 10.477 6 16s4.477 10 10 10 10-4.477 10-10S21.523 6 16 6zm0 3a3 3 0 110 6 3 3 0 010-6zm0 14.2a7.2 7.2 0 01-6-3.22c.03-1.99 4-3.08 6-3.08s5.97 1.09 6 3.08a7.2 7.2 0 01-6 3.22z"
-        fill="currentColor"
-        fillOpacity="0.9"
-      />
-    </svg>
-  );
-}
 
 function MenuIcon() {
   return (
@@ -191,7 +162,7 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
                   {item.label}
                 </Link>
               ))}
-              {user.role === 'admin' && (
+              {user?.role === 'admin' && (
                 <Link
                   href="/scenarios"
                   className="rounded-md px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors duration-150"
@@ -269,7 +240,7 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
                   {item.label}
                 </Link>
               ))}
-              {user.role === 'admin' && (
+              {user?.role === 'admin' && (
                 <Link
                   href="/scenarios"
                   className="block rounded-lg px-3 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"

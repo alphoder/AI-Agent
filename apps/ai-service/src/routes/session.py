@@ -187,7 +187,7 @@ async def end_session(req: EndSessionRequest, background_tasks: BackgroundTasks)
         scoring_data = {
             "session_id": req.session_id,
             "tenant_id": orchestrator.tenant_id,
-            "rubric": orchestrator.scenario.get("rubric", []),
+            "rubric": orchestrator.scenario.get("scoring_rubric", []),
             "persona_context": orchestrator.persona.get("system_prompt", ""),
             "scenario_objective": orchestrator.scenario.get("objective", ""),
         }

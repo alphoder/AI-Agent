@@ -90,6 +90,15 @@ router.post('/sso/callback', async (req: Request, res: Response, next: NextFunct
       path: '/api/auth',
     });
 
+    // Set access token cookie for Next.js middleware SSR route protection
+    res.cookie('access_token', accessToken, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 15 * 60 * 1000,
+      path: '/',
+    });
+
     // Redirect to frontend with access token in URL fragment
     const frontendUrl =
       process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:3000';
@@ -152,6 +161,15 @@ router.post('/dev-login', async (req: Request, res: Response, next: NextFunction
       path: '/api/auth',
     });
 
+    // Set access token cookie so Next.js middleware can read it for SSR route protection
+    res.cookie('access_token', accessToken, {
+      httpOnly: false,  // needs to be readable by Next.js middleware
+      secure: false,
+      sameSite: 'strict',
+      maxAge: 15 * 60 * 1000,  // 15 min, matches JWT expiry
+      path: '/',
+    });
+
     logger.info({ email, tenant, userId: user.id }, 'Dev login successful');
 
     res.json({
@@ -196,6 +214,15 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: '/api/auth',
+    });
+
+    // Update access token cookie for Next.js middleware
+    res.cookie('access_token', result.accessToken, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 15 * 60 * 1000,
+      path: '/',
     });
 
     res.json({

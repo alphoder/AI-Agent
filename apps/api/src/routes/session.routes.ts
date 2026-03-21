@@ -9,6 +9,7 @@ import { logger } from '../config/logger';
 import { config } from '../config/env';
 import { callAIService, callAIServiceBackground } from '../utils/ai-service-client';
 import { auditLog } from '../middleware/audit-logger';
+import { validateUuidParam } from '../middleware/validate-uuid';
 
 // Helper type to bridge AuthenticatedRequest handlers with Express router
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
@@ -75,11 +76,20 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
       });
     }
 
-    // Enforce concurrent session limit via Redis atomic increment
+    // Enforce concurrent session limit via atomic Lua script (prevents TOCTOU race)
     const activeKey = RedisKeys.tenantActiveSessions(tenantId);
-    const currentActive = parseInt(await redis.get(activeKey) || '0', 10);
+    const luaScript = `
+      local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+      if current >= tonumber(ARGV[1]) then
+        return -1
+      end
+      redis.call('INCR', KEYS[1])
+      redis.call('EXPIRE', KEYS[1], 7200)
+      return current + 1
+    `;
+    const result = await redis.eval(luaScript, 1, activeKey, row.max_concurrent_sessions.toString());
 
-    if (currentActive >= row.max_concurrent_sessions) {
+    if (result === -1) {
       return res.status(429).json({
         success: false,
         error: { code: 'SESSION_LIMIT', message: 'Maximum concurrent sessions reached' },
@@ -94,10 +104,6 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
       [tenantId, assignment_id, userId, row.scenario_id],
     );
     const sessionId = sessionResult.rows[0].id;
-
-    // Increment active sessions counter with TTL
-    await redis.incr(activeKey);
-    await redis.expire(activeKey, 7200); // 2hr TTL safety net
 
     const roomName = `session-${sessionId}`;
     const livekitUrl = config.LIVEKIT_URL;
@@ -222,19 +228,29 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
 /**
  * POST /api/sessions/:id/end — End a training session
  */
-router.post('/:id/end', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/:id/end', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.user!.tid;
+    const userId = req.user!.sub;
+    const isAdmin = req.user!.role === 'admin';
     const sessionId = req.params.id;
+
+    // Build ownership clause: admins can end any session in their tenant,
+    // learners can only end their own sessions.
+    const ownershipClause = isAdmin ? '' : ' AND user_id = $3';
+    const queryParams: (string | number)[] = [sessionId, tenantId];
+    if (!isAdmin) {
+      queryParams.push(userId);
+    }
 
     // Update session status and compute duration
     const sessionResult = await db.tenantQuery(tenantId,
       `UPDATE sessions
        SET status = 'completed', ended_at = NOW(),
            duration_sec = EXTRACT(EPOCH FROM (NOW() - started_at))
-       WHERE id = $1 AND tenant_id = $2 AND status != 'completed'
+       WHERE id = $1 AND tenant_id = $2 AND status != 'completed'${ownershipClause}
        RETURNING id, assignment_id, livekit_room_id`,
-      [sessionId, tenantId],
+      queryParams,
     );
 
     if (sessionResult.rows.length === 0) {
@@ -295,7 +311,7 @@ router.post('/:id/end', wrap(async (req: AuthenticatedRequest, res: Response, ne
 /**
  * GET /api/sessions/:id — Get session details
  */
-router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const isAdmin = req.user!.role === 'admin';
     const params: any[] = [req.params.id];
@@ -334,7 +350,7 @@ router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: N
 /**
  * GET /api/sessions/:id/transcript — Get session transcript ordered by turn number
  */
-router.get('/:id/transcript', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id/transcript', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const isAdmin = req.user!.role === 'admin';
     const checkParams: any[] = [req.params.id];
@@ -375,7 +391,7 @@ router.get('/:id/transcript', wrap(async (req: AuthenticatedRequest, res: Respon
 /**
  * GET /api/sessions/:id/report — Get session score/report
  */
-router.get('/:id/report', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id/report', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const isAdmin = req.user!.role === 'admin';
     const params: any[] = [req.params.id];
@@ -414,7 +430,7 @@ router.get('/:id/report', wrap(async (req: AuthenticatedRequest, res: Response, 
 /**
  * POST /api/sessions/:id/score — Save session score (from AI service)
  */
-router.post('/:id/score', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/:id/score', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const sessionId = req.params.id;
     const tenantId = req.user!.tid;
@@ -497,7 +513,7 @@ router.post('/:id/score', wrap(async (req: AuthenticatedRequest, res: Response, 
 /**
  * GET /api/sessions/:id/report/pdf — Download PDF report
  */
-router.get('/:id/report/pdf', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id/report/pdf', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const sessionId = req.params.id;
     const tenantId = req.user!.tid;

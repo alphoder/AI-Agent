@@ -12,6 +12,7 @@ import {
 } from 'jose';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { rbac } from '../middleware/rbac';
+import { rateLimit } from '../middleware/rate-limit';
 import { db } from '../config/database';
 import { redis, RedisKeys, RedisTTL } from '../config/redis';
 import { logger } from '../config/logger';
@@ -23,6 +24,8 @@ type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
 const router: Router = Router();
+// 30 requests per minute for all LTI endpoints
+router.use(rateLimit(30, 60));
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -319,13 +322,22 @@ router.post('/launch', async (req: Request, res: Response) => {
       scenarioId = targetUrl.searchParams.get('scenario_id') || '';
     }
 
-    // Redirect to frontend with token in URL fragment
+    // Redirect to frontend with access_token only in URL fragment.
+    // The refresh_token is set as an httpOnly cookie — it must never appear in URLs
+    // where it would be captured by server logs, browser history, or referrer headers.
     const frontendUrl = config.corsOrigins[0];
     const fragment = new URLSearchParams({
       access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
       lti: 'true',
       ...(scenarioId ? { scenario_id: scenarioId } : {}),
+    });
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+      path: '/',
     });
 
     return res.redirect(`${frontendUrl}/callback#${fragment.toString()}`);

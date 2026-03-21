@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Production infrastructure services only.
 # Application services (web, api, ai-service) are deployed separately via ECS/K8s.
 

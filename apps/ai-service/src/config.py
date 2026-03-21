@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
 
     # LiveKit
-    livekit_api_key: str = "devkey"
-    livekit_api_secret: str = "devsecret"
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
     livekit_url: str = "ws://localhost:7880"
 
     # S3
@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     pii_redaction_enabled: bool = False
 
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:4000"]
+
+    # Internal service-to-service authentication key (MUST be set in env; empty = reject all)
+    internal_api_key: str = ""
 
     # Internal metrics key (set in env for production)
     metrics_api_key: str = ""

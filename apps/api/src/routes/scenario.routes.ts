@@ -2,9 +2,11 @@ import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
+import { rateLimit } from '../middleware/rate-limit';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 import { auditLog } from '../middleware/audit-logger';
+import { validateUuidParam } from '../middleware/validate-uuid';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -12,6 +14,8 @@ const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandle
 const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);
 router.use(tenantMiddleware as unknown as RequestHandler);
+// 30 requests per minute for scenario CRUD
+router.use(rateLimit(30, 60));
 
 // ---------------------------------------------------------------------------
 // Rubric validation
@@ -234,13 +238,14 @@ router.get(
                   COUNT(DISTINCT sa.id)::int AS assignment_count,
                   COUNT(DISTINCT CASE WHEN sa.status = 'completed' THEN sa.id END)::int AS completed_count,
                   ROUND(AVG(
-                    CASE WHEN sess.overall_score IS NOT NULL THEN sess.overall_score END
+                    CASE WHEN ss.overall_score IS NOT NULL THEN ss.overall_score END
                   )::numeric, 2) AS avg_score
            FROM scenarios s
            LEFT JOIN personas p ON s.persona_id = p.id AND p.deleted_at IS NULL
            LEFT JOIN avatars a ON p.avatar_id = a.id AND a.deleted_at IS NULL
            LEFT JOIN scenario_assignments sa ON s.id = sa.scenario_id
            LEFT JOIN sessions sess ON sess.scenario_id = s.id AND sess.status = 'completed'
+           LEFT JOIN session_scores ss ON ss.session_id = sess.id
            WHERE ${whereClause}
            GROUP BY s.id, p.name, a.thumbnail_url
            ORDER BY s.created_at DESC
@@ -338,7 +343,7 @@ router.get(
 // ---------------------------------------------------------------------------
 // GET /api/scenarios/:id – Full scenario details
 // ---------------------------------------------------------------------------
-router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.user!.tid;
 
@@ -367,7 +372,14 @@ router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: N
       });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    const data = result.rows[0];
+
+    // Learners must not see the persona's internal system prompt
+    if (req.user!.role !== 'admin') {
+      delete data.persona_system_prompt;
+    }
+
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -379,6 +391,7 @@ router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: N
 // ---------------------------------------------------------------------------
 router.patch(
   '/:id',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -612,6 +625,7 @@ router.patch(
 // ---------------------------------------------------------------------------
 router.delete(
   '/:id',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -675,6 +689,7 @@ router.delete(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/assign',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -701,6 +716,14 @@ router.post(
         return res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Scenario not found' },
+        });
+      }
+
+      // Verify scenario is active before assigning
+      if (scenarioCheck.rows[0].status !== 'active') {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'SCENARIO_INACTIVE', message: 'Cannot assign learners to an inactive scenario' },
         });
       }
 
@@ -756,6 +779,8 @@ router.post(
 // ---------------------------------------------------------------------------
 router.delete(
   '/:id/assign/:userId',
+  validateUuidParam(),
+  validateUuidParam('userId'),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -809,6 +834,7 @@ router.delete(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/duplicate',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {

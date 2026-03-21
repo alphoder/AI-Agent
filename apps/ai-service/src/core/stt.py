@@ -24,6 +24,7 @@ except ImportError:
 
 from src.config import settings
 from src.core.constants import PII_PATTERNS
+from src.metrics import pipeline_errors_total
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +66,7 @@ class DeepgramSTTClient:
         self._last_audio_time = 0.0
         self._silence_timeout = 10.0  # Force finalize after 10s silence
         self._connected = False
+        self._silence_monitor_task: asyncio.Task | None = None
 
     @property
     def client(self) -> DeepgramClient:
@@ -116,8 +118,10 @@ class DeepgramSTTClient:
             except Exception as e:
                 logger.error("stt_buffer_flush_failed", error=str(e))
 
-        # Start silence monitor
-        asyncio.create_task(self._monitor_silence())
+        # Cancel previous silence monitor before spawning a new one (prevents stacking)
+        if self._silence_monitor_task and not self._silence_monitor_task.done():
+            self._silence_monitor_task.cancel()
+        self._silence_monitor_task = asyncio.create_task(self._monitor_silence())
 
     async def _on_transcript(self, _self, result, **kwargs):
         """Handle transcript events from Deepgram."""
@@ -145,10 +149,12 @@ class DeepgramSTTClient:
                 await self.on_transcript_interim(transcript)
         except Exception as e:
             logger.error("stt_transcript_error", error=str(e))
+            pipeline_errors_total.labels(stage="stt_transcript").inc()
 
     async def _on_error(self, _self, error, **kwargs):
         """Handle errors from Deepgram."""
         logger.error("stt_error", error=str(error), session_id=self.session_id)
+        pipeline_errors_total.labels(stage="stt_connection").inc()
 
     async def _on_close(self, _self, close, **kwargs):
         """Handle connection close - attempt reconnection."""
@@ -159,25 +165,28 @@ class DeepgramSTTClient:
             await self._reconnect()
 
     async def _reconnect(self):
-        """Auto-reconnect with exponential backoff (100ms to 2s)."""
-        self._reconnect_attempts += 1
-        delay = min(0.1 * (2 ** self._reconnect_attempts), 2.0)
+        """Auto-reconnect with exponential backoff (100ms to 2s). Uses loop, not recursion."""
+        while self._reconnect_attempts < self._max_reconnect_attempts:
+            self._reconnect_attempts += 1
+            delay = min(0.1 * (2 ** self._reconnect_attempts), 2.0)
 
-        logger.info(
-            "stt_reconnecting",
-            attempt=self._reconnect_attempts,
-            delay=delay,
-            session_id=self.session_id,
-        )
+            logger.info(
+                "stt_reconnecting",
+                attempt=self._reconnect_attempts,
+                delay=delay,
+                session_id=self.session_id,
+            )
 
-        await asyncio.sleep(delay)
+            await asyncio.sleep(delay)
 
-        try:
-            await self.connect(self.session_id or "")
-        except Exception as e:
-            logger.error("stt_reconnect_failed", error=str(e))
-            if self._reconnect_attempts < self._max_reconnect_attempts:
-                await self._reconnect()
+            try:
+                await self.connect(self.session_id or "")
+                return  # success
+            except Exception as e:
+                logger.error("stt_reconnect_failed", error=str(e))
+                pipeline_errors_total.labels(stage="stt_reconnect").inc()
+
+        logger.error("stt_reconnect_exhausted", session_id=self.session_id)
 
     async def send_audio(self, audio_data: bytes):
         """Send audio chunk to Deepgram."""

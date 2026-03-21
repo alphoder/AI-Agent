@@ -1,5 +1,41 @@
-import puppeteer from 'puppeteer';
+import puppeteer, { Browser } from 'puppeteer';
 import { logger } from '../config/logger';
+
+// Shared browser instance — created lazily on first use and reused across requests.
+let sharedBrowser: Browser | null = null;
+
+// Concurrency semaphore — limit to 5 simultaneous PDF pages to prevent OOM
+const MAX_CONCURRENT_PAGES = 5;
+let activePages = 0;
+const pageQueue: Array<{ resolve: () => void }> = [];
+
+async function acquirePageSlot(): Promise<void> {
+  if (activePages < MAX_CONCURRENT_PAGES) {
+    activePages++;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    pageQueue.push({ resolve });
+  });
+}
+
+function releasePageSlot(): void {
+  activePages--;
+  const next = pageQueue.shift();
+  if (next) {
+    activePages++;
+    next.resolve();
+  }
+}
+
+async function getSharedBrowser(): Promise<Browser> {
+  if (sharedBrowser && sharedBrowser.connected) {
+    return sharedBrowser;
+  }
+  sharedBrowser = await puppeteer.launch({ headless: true });
+  logger.info('Puppeteer browser launched (shared instance)');
+  return sharedBrowser;
+}
 
 interface CriteriaScore {
   criterion_name: string;
@@ -51,10 +87,10 @@ export class PDFService {
 
     const html = PDFService.buildHTML(report, transcript, sessionId);
 
-    let browser;
+    const browser = await getSharedBrowser();
+    await acquirePageSlot();
+    const page = await browser.newPage();
     try {
-      browser = await puppeteer.launch({ headless: true });
-      const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
       const pdfBuffer = await page.pdf({
@@ -83,9 +119,8 @@ export class PDFService {
       logger.error({ sessionId, err }, 'Failed to generate PDF report');
       throw err;
     } finally {
-      if (browser) {
-        await browser.close();
-      }
+      await page.close();
+      releasePageSlot();
     }
   }
 

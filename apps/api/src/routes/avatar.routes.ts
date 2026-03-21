@@ -3,10 +3,13 @@ import multer from 'multer';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
+import { rateLimit } from '../middleware/rate-limit';
 import { S3Service } from '../services/s3-service';
 import { db } from '../config/database';
+import { config as envConfig } from '../config/env';
 import { logger } from '../config/logger';
 import { callAIServiceBackground } from '../utils/ai-service-client';
+import { validateUuidParam } from '../middleware/validate-uuid';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -20,6 +23,8 @@ const upload = multer({
 // All routes require auth + tenant context
 router.use(authMiddleware as unknown as RequestHandler);
 router.use(tenantMiddleware as unknown as RequestHandler);
+// 30 requests per minute for avatar CRUD
+router.use(rateLimit(30, 60));
 
 // Magic byte validation
 const MAGIC_BYTES: Record<string, Buffer[]> = {
@@ -189,7 +194,7 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response, next: Next
 /**
  * GET /api/avatars/:id
  */
-router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.tenantQuery(
       req.user!.tid,
@@ -217,6 +222,7 @@ router.get('/:id', wrap(async (req: AuthenticatedRequest, res: Response, next: N
  */
 router.patch(
   '/:id',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -269,6 +275,7 @@ router.patch(
  */
 router.delete(
   '/:id',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -320,6 +327,7 @@ router.delete(
  */
 router.post(
   '/:id/regenerate',
+  validateUuidParam(),
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -363,6 +371,75 @@ router.post(
         success: true,
         data: { id: req.params.id, status: 'processing' },
       });
+    } catch (err) {
+      next(err);
+    }
+  }),
+);
+
+/**
+ * POST /api/avatars/voice-preview
+ * Proxy to AI service TTS preview (admin only, rate limited)
+ */
+router.post(
+  '/voice-preview',
+  rbac('admin'),
+  rateLimit(10, 60), // 10 previews per minute
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { voice, speed } = req.body;
+
+      const ALLOWED_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+      if (!voice || !ALLOWED_VOICES.includes(voice)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_VOICE', message: `Voice must be one of: ${ALLOWED_VOICES.join(', ')}` },
+        });
+      }
+
+      const aiUrl = `${envConfig.AI_SERVICE_URL}/tts/preview`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
+      try {
+        const aiResp = await fetch(aiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-Key': envConfig.INTERNAL_API_KEY,
+          },
+          body: JSON.stringify({ voice, speed: speed || 1.0 }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        if (!aiResp.ok) {
+          const errorText = await aiResp.text().catch(() => 'Unknown error');
+          logger.warn({ status: aiResp.status, errorText }, 'TTS preview failed');
+          return res.status(aiResp.status === 503 ? 503 : 502).json({
+            success: false,
+            error: { code: 'TTS_UNAVAILABLE', message: 'Voice preview is temporarily unavailable' },
+          });
+        }
+
+        // Stream the audio response
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('Content-Disposition', `inline; filename="preview-${voice}.mp3"`);
+
+        const buffer = await aiResp.arrayBuffer();
+        res.send(Buffer.from(buffer));
+      } catch (fetchErr: any) {
+        clearTimeout(timeout);
+        if (fetchErr.name === 'AbortError') {
+          return res.status(504).json({
+            success: false,
+            error: { code: 'TTS_TIMEOUT', message: 'Voice preview timed out' },
+          });
+        }
+        throw fetchErr;
+      }
     } catch (err) {
       next(err);
     }

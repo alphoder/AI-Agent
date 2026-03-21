@@ -2,6 +2,7 @@ import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
+import { rateLimit } from '../middleware/rate-limit';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 
@@ -11,6 +12,8 @@ const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandle
 const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);
 router.use(tenantMiddleware as unknown as RequestHandler);
+// 60 requests per minute for analytics reads
+router.use(rateLimit(60, 60));
 
 // ---------------------------------------------------------------------------
 // GET /overview — Admin dashboard overview

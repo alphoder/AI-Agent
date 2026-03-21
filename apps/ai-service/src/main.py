@@ -1,29 +1,61 @@
 import ipaddress
+import secrets
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import redis.asyncio as aioredis
 import structlog
 
 from src.config import settings
 from src.metrics import metrics_endpoint
-from src.routes import embedding, scoring, session
+from src.routes import embedding, scoring, session, tts
 
 logger = structlog.get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: startup and shutdown logic."""
+    yield
+    # Shutdown: end all active sessions gracefully
+    from src.routes.session import active_sessions, active_rooms
+
+    for session_id, orchestrator in list(active_sessions.items()):
+        try:
+            await orchestrator.end()
+            logger.info("shutdown.session_ended", session_id=session_id)
+        except Exception:
+            logger.warning("shutdown.session_end_failed", session_id=session_id)
+    for session_id, room in list(active_rooms.items()):
+        try:
+            await room.disconnect()
+            logger.info("shutdown.room_disconnected", session_id=session_id)
+        except Exception:
+            logger.warning("shutdown.room_disconnect_failed", session_id=session_id)
+
 
 app = FastAPI(
     title="AI Avatar Training Platform - AI Service",
     version="0.0.1",
     docs_url="/docs" if settings.debug else None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-Internal-Key", "X-Metrics-Key"],
 )
+
+
+async def require_internal_key(request: Request) -> None:
+    """Dependency that enforces X-Internal-Key authentication on service routes."""
+    key = request.headers.get("x-internal-key", "")
+    if not settings.internal_api_key or not secrets.compare_digest(key, settings.internal_api_key):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Internal-Key")
 
 
 @app.get("/health/live")
@@ -36,9 +68,9 @@ async def health_check():
     checks: dict[str, str] = {}
     healthy = True
 
-    # Check Redis
+    # Check Redis (with timeout)
     try:
-        r = aioredis.from_url(settings.redis_url)
+        r = aioredis.from_url(settings.redis_url, socket_timeout=3.0)
         await r.ping()
         await r.aclose()
         checks["redis"] = "ok"
@@ -54,23 +86,25 @@ async def health_check():
     return {"status": status, "service": "ai-service", "dependencies": checks}
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """End all active sessions gracefully on shutdown."""
-    from src.routes.session import active_sessions, active_rooms
+@app.get("/health/ready")
+async def readiness_check():
+    """K8s readiness probe — verifies required API keys and Redis are available."""
+    issues = []
+    if not settings.openai_api_key:
+        issues.append("openai_api_key not configured")
+    if not settings.deepgram_api_key:
+        issues.append("deepgram_api_key not configured")
 
-    for session_id, orchestrator in list(active_sessions.items()):
-        try:
-            await orchestrator.end()
-            logger.info("shutdown.session_ended", session_id=session_id)
-        except Exception:
-            logger.warning("shutdown.session_end_failed", session_id=session_id)
-    for session_id, room in list(active_rooms.items()):
-        try:
-            await room.disconnect()
-            logger.info("shutdown.room_disconnected", session_id=session_id)
-        except Exception:
-            logger.warning("shutdown.room_disconnect_failed", session_id=session_id)
+    try:
+        r = aioredis.from_url(settings.redis_url, socket_timeout=3.0)
+        await r.ping()
+        await r.aclose()
+    except Exception:
+        issues.append("redis unavailable")
+
+    if issues:
+        return {"status": "not_ready", "issues": issues}
+    return {"status": "ready"}
 
 
 def _is_internal_ip(client_host: str) -> bool:
@@ -102,6 +136,7 @@ async def protected_metrics_endpoint(request: Request):
 
 app.add_api_route("/metrics", protected_metrics_endpoint, methods=["GET"], tags=["monitoring"])
 
-app.include_router(session.router, prefix="/session", tags=["session"])
-app.include_router(embedding.router, prefix="/embedding", tags=["embedding"])
-app.include_router(scoring.router, prefix="/scoring", tags=["scoring"])
+app.include_router(session.router, prefix="/session", tags=["session"], dependencies=[Depends(require_internal_key)])
+app.include_router(embedding.router, prefix="/embedding", tags=["embedding"], dependencies=[Depends(require_internal_key)])
+app.include_router(scoring.router, prefix="/scoring", tags=["scoring"], dependencies=[Depends(require_internal_key)])
+app.include_router(tts.router, prefix="/tts", tags=["tts"], dependencies=[Depends(require_internal_key)])

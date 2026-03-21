@@ -1,7 +1,8 @@
+# Frontend Ingress - references only services in the 'frontend' namespace
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: avatar-platform-ingress
+  name: frontend-ingress
   namespace: frontend
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -12,8 +13,7 @@ spec:
   tls:
     - hosts:
         - app.avatar-platform.com
-        - api.avatar-platform.com
-      secretName: avatar-platform-tls
+      secretName: frontend-tls
   rules:
     - host: app.avatar-platform.com
       http:
@@ -25,6 +25,26 @@ spec:
                 name: web
                 port:
                   number: 80
+---
+# API Ingress - references only services in the 'api' namespace
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-ingress
+  namespace: api
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+spec:
+  tls:
+    - hosts:
+        - api.avatar-platform.com
+      secretName: api-tls
+  rules:
     - host: api.avatar-platform.com
       http:
         paths:
@@ -32,17 +52,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api-external
+                name: api
                 port:
                   number: 80
----
-# ExternalName service to bridge the api service from the api namespace
-# into the frontend namespace where the Ingress lives.
-apiVersion: v1
-kind: Service
-metadata:
-  name: api-external
-  namespace: frontend
-spec:
-  type: ExternalName
-  externalName: api.api.svc.cluster.local

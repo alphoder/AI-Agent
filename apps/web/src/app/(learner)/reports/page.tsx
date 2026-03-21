@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import {
@@ -258,7 +258,7 @@ function TranscriptBubble({ t }: { t: Transcript }) {
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function ReportsPage() {
+function ReportsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const sessionId = searchParams.get('session');
@@ -277,19 +277,21 @@ export default function ReportsPage() {
     if (!targetId) return;
     setDownloading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
-      const token = localStorage.getItem('access_token');
-      const res = await fetch(`${apiUrl}/sessions/${targetId}/report/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Failed to download');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `session-report-${targetId}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      // Use apiClient which handles token refresh automatically (fixes C11)
+      const res = await apiClient.get(`/sessions/${targetId}/report/pdf`);
+      const pdfUrl = res.data?.data?.url;
+      if (pdfUrl) {
+        // The API returns a signed S3 URL — fetch the actual PDF
+        const pdfRes = await fetch(pdfUrl);
+        if (!pdfRes.ok) throw new Error('Failed to download PDF');
+        const blob = await pdfRes.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `session-report-${targetId}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
       console.error('PDF download failed:', err);
     } finally {
@@ -515,5 +517,13 @@ export default function ReportsPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function ReportsPage() {
+  return (
+    <Suspense fallback={<ReportSkeleton />}>
+      <ReportsPageInner />
+    </Suspense>
   );
 }

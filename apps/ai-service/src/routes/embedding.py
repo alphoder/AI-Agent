@@ -15,6 +15,22 @@ router = APIRouter()
 
 chunker = DocumentChunker(chunk_size=512, chunk_overlap=64)
 rag: "RAGRetriever" = None  # type: ignore
+_http_client: httpx.AsyncClient | None = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Shared httpx client for connection pooling."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            base_url=settings.api_gateway_url,
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Key": settings.internal_api_key,
+            },
+            timeout=10.0,
+        )
+    return _http_client
 
 
 def get_rag() -> RAGRetriever:
@@ -49,10 +65,9 @@ async def _process_document(req: EmbeddingRequest):
         )
 
         # Download from S3
-        async with httpx.AsyncClient() as client:
-            # Get file from S3 via presigned URL or direct access
-            s3_url = f"{settings.s3_endpoint}/{settings.s3_bucket}/{req.s3_key}"
-            response = await client.get(s3_url)
+        s3_url = f"{settings.s3_endpoint}/{settings.s3_bucket}/{req.s3_key}"
+        async with httpx.AsyncClient(timeout=30.0) as s3_client:
+            response = await s3_client.get(s3_url)
             file_bytes = response.content
 
         # Extract text
@@ -125,18 +140,17 @@ async def _update_document_status(
 ):
     """Notify the API gateway of document processing status changes."""
     try:
-        async with httpx.AsyncClient() as client:
-            await client.patch(
-                f"{settings.api_gateway_url}/api/internal/documents/{document_id}/status",
-                json={
-                    "embedding_status": status,
-                    "embedding_error": error,
-                    "chunk_count": chunk_count,
-                    "total_tokens": total_tokens,
-                    "processing_started": started,
-                },
-                timeout=10.0,
-            )
+        client = get_http_client()
+        await client.patch(
+            f"/api/internal/documents/{document_id}/status",
+            json={
+                "embedding_status": status,
+                "embedding_error": error,
+                "chunk_count": chunk_count,
+                "total_tokens": total_tokens,
+                "processing_started": started,
+            },
+        )
     except Exception as e:
         logger.error("status_update_failed", document_id=document_id, error=str(e))
 

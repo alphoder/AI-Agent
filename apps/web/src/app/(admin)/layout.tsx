@@ -4,22 +4,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import AdminSidebar from '@/components/admin/sidebar';
 import AdminHeader from '@/components/admin/header';
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const base64 = token.split('.')[1];
-    if (!base64) return null;
-    const json = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
+import { decodeJwtPayload } from '@/lib/auth';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [tenantName, setTenantName] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -32,6 +23,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (!payload || payload.role !== 'admin') {
       router.replace(payload ? '/dashboard' : '/login');
       return;
+    }
+
+    // Derive a display name from the email domain (e.g. "acme.com" → "acme.com")
+    if (typeof payload.email === 'string') {
+      const domain = payload.email.split('@')[1];
+      setTenantName(domain || undefined);
     }
 
     setAuthorized(true);
@@ -87,7 +84,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Desktop sidebar */}
       <aside className="hidden lg:block w-64 shrink-0 border-r bg-muted/40">
         <div className="sticky top-0 h-screen overflow-y-auto">
-          <AdminSidebar />
+          <AdminSidebar tenantName={tenantName} />
         </div>
       </aside>
 
@@ -106,7 +103,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <AdminSidebar onNavigate={closeSidebar} />
+        <AdminSidebar onNavigate={closeSidebar} tenantName={tenantName} />
       </aside>
 
       {/* Main content area */}

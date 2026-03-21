@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { formatTime } from '@/lib/format';
 import { LIVEKIT_URL, connectToSession, toggleMicrophone, disconnectFromSession, type SessionEvent } from '@/lib/livekit';
 import type { Room } from 'livekit-client';
 import { ConnectionState } from 'livekit-client';
@@ -69,7 +70,7 @@ const ENDING_STEPS = [
   { label: 'Generating personalized feedback', icon: MessageSquare },
 ];
 
-export default function SessionPage() {
+function SessionPageInner() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -304,12 +305,16 @@ export default function SessionPage() {
       });
     }, 2500);
 
+    // Use AbortController so polling stops if component unmounts (M21 fix)
+    const abortController = new AbortController();
+
     try {
       await apiClient.post(`/sessions/${sessionData.sessionId}/end`);
 
       // Wait for scoring (up to 15s, then redirect anyway)
       let scored = false;
       for (let i = 0; i < 15; i++) {
+        if (abortController.signal.aborted) break;
         await new Promise(r => setTimeout(r, 1000));
         try {
           await apiClient.get(`/sessions/${sessionData.sessionId}/report`);
@@ -320,24 +325,33 @@ export default function SessionPage() {
 
       clearInterval(stepTimer);
 
-      if (scored) {
-        router.push(`/reports?session=${sessionData.sessionId}`);
-      } else {
-        router.push('/dashboard');
+      if (!abortController.signal.aborted) {
+        if (scored) {
+          router.push(`/reports?session=${sessionData.sessionId}`);
+        } else {
+          router.push('/dashboard');
+        }
       }
     } catch {
       clearInterval(stepTimer);
-      router.push('/dashboard');
+      if (!abortController.signal.aborted) {
+        router.push('/dashboard');
+      }
     }
+
+    return () => abortController.abort();
   }
 
-  // Idle warning/end
+  // Idle warning/end — use ref to avoid stale closure (H19 fix)
+  const endSessionRef = useRef(endSession);
+  endSessionRef.current = endSession;
+
   useEffect(() => {
     if (!sessionData) return;
     if (idleSeconds >= sessionData.sessionConfig.idleTimeoutSec) {
-      endSession();
+      endSessionRef.current();
     }
-  }, [idleSeconds]);
+  }, [idleSeconds, sessionData]);
 
   // Poll local participant audio level from LiveKit room
   useEffect(() => {
@@ -369,11 +383,6 @@ export default function SessionPage() {
   const isNearEnd = elapsed > maxDuration * 0.8;
   const isAlmostOver = elapsed > maxDuration * 0.9;
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
 
   // ─────────────────────────────────────────────
   // PREFLIGHT PHASE
@@ -799,5 +808,24 @@ export default function SessionPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function SessionLoadingFallback() {
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+        <p className="text-sm text-gray-400">Loading session...</p>
+      </div>
+    </div>
+  );
+}
+
+export default function SessionPage() {
+  return (
+    <Suspense fallback={<SessionLoadingFallback />}>
+      <SessionPageInner />
+    </Suspense>
   );
 }

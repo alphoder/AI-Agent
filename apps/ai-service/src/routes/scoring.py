@@ -16,6 +16,23 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
+# Shared httpx client for API gateway calls
+_api_client: httpx.AsyncClient | None = None
+
+
+def _get_api_client() -> httpx.AsyncClient:
+    global _api_client
+    if _api_client is None or _api_client.is_closed:
+        _api_client = httpx.AsyncClient(
+            base_url=settings.api_gateway_url,
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Key": settings.internal_api_key,
+            },
+            timeout=30.0,
+        )
+    return _api_client
+
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -73,16 +90,16 @@ async def _passback_grade(
 ) -> None:
     """Fire-and-forget LTI grade passback via the API gateway."""
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            await client.post(
-                f"{api_gateway_url}/api/lti/passback",
-                json={
-                    "session_id": session_id,
-                    "lineitem_url": lineitem_url,
-                    "score": score,
-                    "tenant_id": tenant_id,
-                },
-            )
+        client = _get_api_client()
+        await client.post(
+            "/api/lti/passback",
+            json={
+                "session_id": session_id,
+                "lineitem_url": lineitem_url,
+                "score": score,
+                "tenant_id": tenant_id,
+            },
+        )
         logger.info("lti_passback_sent", session_id=session_id)
     except Exception as exc:
         logger.error(
@@ -111,13 +128,13 @@ async def evaluate_session(
     # 1. Fetch the transcript from the API gateway
     # ------------------------------------------------------------------
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            transcript_resp = await client.get(
-                f"{api_gateway_url}/api/sessions/{session_id}/transcript",
-            )
-            transcript_resp.raise_for_status()
-            resp_body = transcript_resp.json()
-            transcript: list[dict] = resp_body.get("data", resp_body)
+        client = _get_api_client()
+        transcript_resp = await client.get(
+            f"/api/internal/sessions/{session_id}/transcript",
+        )
+        transcript_resp.raise_for_status()
+        resp_body = transcript_resp.json()
+        transcript: list[dict] = resp_body.get("data", resp_body)
     except httpx.HTTPStatusError as exc:
         logger.error(
             "transcript_fetch_failed",
@@ -183,12 +200,12 @@ async def evaluate_session(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            save_resp = await client.post(
-                f"{api_gateway_url}/api/sessions/{session_id}/score",
-                json=score_payload,
-            )
-            save_resp.raise_for_status()
+        client = _get_api_client()
+        save_resp = await client.post(
+            f"/api/internal/sessions/{session_id}/score",
+            json=score_payload,
+        )
+        save_resp.raise_for_status()
         logger.info("score_saved", session_id=session_id)
     except Exception as exc:
         # Log but don't fail the request — the caller still gets the result

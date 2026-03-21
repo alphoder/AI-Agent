@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ai-service-pdb
+  namespace: ai
+  labels:
+    app: ai-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ai-service

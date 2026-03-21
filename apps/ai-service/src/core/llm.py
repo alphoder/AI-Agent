@@ -12,6 +12,7 @@ import openai
 import structlog
 
 from src.config import settings
+from src.metrics import pipeline_errors_total
 
 logger = structlog.get_logger(__name__)
 
@@ -59,12 +60,15 @@ class LLMClient:
         ttft = None  # Time to first token
 
         try:
-            stream = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True,
+            stream = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True,
+                ),
+                timeout=30.0,  # 30s timeout for initial connection
             )
 
             buffer = ""
@@ -107,6 +111,7 @@ class LLMClient:
 
         except openai.RateLimitError:
             logger.warn("llm_rate_limited, retrying once")
+            pipeline_errors_total.labels(stage="llm_rate_limit").inc()
             await asyncio.sleep(1)
             # Retry once
             async for chunk_text in self._retry_generate(messages, temperature, max_tokens):
@@ -114,6 +119,7 @@ class LLMClient:
 
         except asyncio.TimeoutError:
             logger.error("llm_timeout")
+            pipeline_errors_total.labels(stage="llm_timeout").inc()
             yield "I apologize, I'm having a moment. Could you repeat that?"
 
     async def _retry_generate(
@@ -148,6 +154,7 @@ class LLMClient:
                 yield buffer.strip()
         except Exception as e:
             logger.error("llm_retry_failed", error=str(e))
+            pipeline_errors_total.labels(stage="llm_retry_failed").inc()
             yield "I'm experiencing technical difficulties. Let's continue in a moment."
 
     def assemble_prompt(

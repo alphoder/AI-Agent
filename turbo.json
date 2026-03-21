@@ -4,7 +4,14 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "NEXT_PUBLIC_API_URL",
+        "NEXT_PUBLIC_LIVEKIT_URL",
+        "NODE_ENV",
+        "DATABASE_URL",
+        "REDIS_URL"
+      ]
     },
     "dev": {
       "cache": false,

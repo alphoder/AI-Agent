@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-export default function SSOPage() {
+function SSOContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const tenant = searchParams.get('tenant');
@@ -72,5 +72,19 @@ export default function SSOPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SSOPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-background">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      }
+    >
+      <SSOContent />
+    </Suspense>
   );
 }

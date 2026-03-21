@@ -136,6 +136,8 @@ export class S3Service {
    * Build S3 key for tenant document files.
    */
   static documentKey(tenantId: string, personaId: string, docId: string, filename: string): string {
-    return `tenants/${tenantId}/personas/${personaId}/documents/${docId}/${filename}`;
+    // Sanitize filename to prevent path traversal (e.g., "../../../etc/passwd")
+    const sanitized = filename.replace(/[/\\]/g, '_').replace(/\.\./g, '_');
+    return `tenants/${tenantId}/personas/${personaId}/documents/${docId}/${sanitized}`;
   }
 }

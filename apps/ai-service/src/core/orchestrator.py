@@ -13,6 +13,7 @@ import time
 import asyncio
 import json
 from typing import Callable, Awaitable
+import httpx
 import redis.asyncio as aioredis
 import structlog
 
@@ -24,6 +25,7 @@ from src.core.guardrails import GuardrailsEngine
 from src.core.avatar import get_avatar_provider
 from src.metrics import (
     pipeline_latency_seconds,
+    pipeline_errors_total,
     active_sessions_gauge,
     sessions_started_total,
     sessions_ended_total,
@@ -72,9 +74,13 @@ class SessionOrchestrator:
         self.turn_number = 0
         self.avatar_session_id: str | None = None
         self._active = False
+        self._history: list[dict] = []
 
         # Latency tracking
         self._latency: dict = {}
+
+        # Shared httpx client for transcript persistence (connection pooling)
+        self._http_client: httpx.AsyncClient | None = None
 
     async def start(self):
         """Start the session: pre-warm avatar, init STT, load history, send opening message."""
@@ -90,6 +96,7 @@ class SessionOrchestrator:
             logger.info("avatar_session_created", avatar_session_id=self.avatar_session_id)
         except Exception as e:
             logger.error("avatar_prewarm_failed", error=str(e))
+            pipeline_errors_total.labels(stage="avatar_prewarm").inc()
 
         # Init Deepgram STT
         await self.stt.connect(self.session_id)
@@ -196,14 +203,15 @@ class SessionOrchestrator:
             blocked_topics=self.persona.get("guardrails", {}).get("blocked_topics", []),
         )
 
-        # 4. Stream LLM response with chunk buffering + per-chunk guardrails + avatar send
+        # 4. Buffer-then-send: collect full LLM response, run output guardrails,
+        #    THEN send to avatar. This adds ~500ms latency but guarantees the user
+        #    never hears unsafe content (fixes C4 — chunks previously streamed
+        #    before guardrail check).
         await self._append_history("learner", text)
         full_response = ""
+        chunks: list[str] = []
         llm_start = time.time()
         llm_ttft = None
-
-        if self.on_data_event:
-            await self.on_data_event("AVATAR_SPEAKING", {})
 
         async for chunk in self.llm.generate_response(
             system_prompt=system_prompt,
@@ -215,28 +223,46 @@ class SessionOrchestrator:
         ):
             if llm_ttft is None:
                 llm_ttft = (time.time() - llm_start) * 1000
-
-            # Per-chunk output guardrails
-            is_safe_output, output_violation = self.guardrails.check_output(chunk)
-            if not is_safe_output:
-                guardrail_triggers_total.labels(direction="output").inc()
-                logger.warn("output_guardrail_triggered", violation=output_violation)
-                chunk = self.guardrails.get_safe_fallback()
-
-            # Send chunk to avatar
-            await self._send_avatar_text(chunk)
+            chunks.append(chunk)
             full_response += chunk + " "
 
         llm_total = (time.time() - llm_start) * 1000
 
-        # 5. Append avatar response to history
-        await self._append_history("avatar", full_response.strip())
+        # Output guardrail: check the complete response BEFORE sending to avatar.
+        history_content = full_response.strip()
+        is_safe_output, output_violation = self.guardrails.check_output(history_content)
+        if not is_safe_output:
+            guardrail_triggers_total.labels(direction="output").inc()
+            logger.warn(
+                "output_guardrail_triggered",
+                violation=output_violation,
+                turn=self.turn_number,
+            )
+            safe_fallback = self.guardrails.get_safe_fallback()
+            history_content = safe_fallback
+            chunks = [safe_fallback]
+            if self.on_data_event:
+                await self.on_data_event("GUARDRAIL_TRIGGERED", {"violation": output_violation})
+
+        # Now send verified-safe content to avatar
+        if self.on_data_event:
+            await self.on_data_event("AVATAR_SPEAKING", {})
+
+        for chunk in chunks:
+            await self._send_avatar_text(chunk)
+
+        # 5. Append avatar response to history (safe fallback if guardrail fired)
+        await self._append_history(
+            "avatar",
+            history_content,
+            guardrail_triggered=not is_safe_output,
+        )
 
         if self.on_data_event:
             await self.on_data_event("AVATAR_IDLE", {})
             await self.on_data_event("TRANSCRIPT_FINAL", {
                 "role": "avatar",
-                "content": full_response.strip(),
+                "content": history_content,
                 "turn_number": self.turn_number,
             })
 
@@ -260,7 +286,7 @@ class SessionOrchestrator:
         pipeline_latency_seconds.labels(stage="e2e").observe(e2e_total / 1000)
 
         # 7. Persist transcript async (don't block pipeline)
-        asyncio.create_task(self._persist_transcript(text, full_response.strip(), confidence))
+        asyncio.create_task(self._persist_transcript(text, history_content, confidence))
 
     async def _send_avatar_text(self, text: str):
         """Send text to avatar for lip-synced speech."""
@@ -269,6 +295,7 @@ class SessionOrchestrator:
                 await self.avatar_provider.send_text(self.avatar_session_id, text)
             except Exception as e:
                 logger.error("avatar_send_failed", error=str(e))
+                pipeline_errors_total.labels(stage="avatar_send").inc()
 
     async def _append_history(
         self, role: str, content: str, guardrail_triggered: bool = False
@@ -292,25 +319,37 @@ class SessionOrchestrator:
         await self.redis.ltrim(history_key, -10, -1)
         await self.redis.expire(history_key, 7200)  # 2hr TTL
 
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        """Lazy-init shared httpx client for connection pooling."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                base_url=settings.api_gateway_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Key": settings.internal_api_key,
+                },
+                timeout=5.0,
+            )
+        return self._http_client
+
     async def _persist_transcript(self, learner_text: str, avatar_text: str, confidence: float):
-        """Async Postgres persistence via API call."""
+        """Async Postgres persistence via API call (uses shared httpx client)."""
         try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    f"{settings.api_gateway_url}/api/internal/transcripts",
-                    json={
-                        "session_id": self.session_id,
-                        "turn_number": self.turn_number,
-                        "learner_content": learner_text,
-                        "avatar_content": avatar_text,
-                        "stt_confidence": confidence,
-                        "latency": self._latency,
-                    },
-                    timeout=5.0,
-                )
+            client = await self._get_http_client()
+            await client.post(
+                "/api/internal/transcripts",
+                json={
+                    "session_id": self.session_id,
+                    "turn_number": self.turn_number,
+                    "learner_content": learner_text,
+                    "avatar_content": avatar_text,
+                    "stt_confidence": confidence,
+                    "latency": self._latency,
+                },
+            )
         except Exception as e:
             logger.error("persist_transcript_failed", error=str(e))
+            pipeline_errors_total.labels(stage="persist_transcript").inc()
 
     async def end(self):
         """End the session: close STT, close avatar, cleanup Redis."""
@@ -324,6 +363,7 @@ class SessionOrchestrator:
                 await self.avatar_provider.close_session(self.avatar_session_id)
             except Exception as e:
                 logger.error("avatar_close_failed", error=str(e))
+                pipeline_errors_total.labels(stage="avatar_close").inc()
 
         if self.on_data_event:
             await self.on_data_event("SESSION_END", {
@@ -333,6 +373,10 @@ class SessionOrchestrator:
 
         sessions_ended_total.inc()
         active_sessions_gauge.labels(tenant_id=self.tenant_id).dec()
+
+        # Close shared HTTP client
+        if self._http_client and not self._http_client.is_closed:
+            await self._http_client.aclose()
 
         await self.redis.aclose()
         logger.info("session_ended", session_id=self.session_id, turns=self.turn_number)

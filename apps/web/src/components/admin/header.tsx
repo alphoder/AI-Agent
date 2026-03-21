@@ -54,8 +54,9 @@ export default function AdminHeader({ onToggleSidebar }: AdminHeaderProps) {
   }
 
   // User type may have display_name (snake_case from DB) or displayName (camelCase from API transform)
-  const displayName = (user as Record<string, unknown>)?.displayName as string
-    || (user as Record<string, unknown>)?.display_name as string
+  const userRecord = user as unknown as Record<string, unknown> | null;
+  const displayName = (userRecord?.displayName as string)
+    || (userRecord?.display_name as string)
     || '';
 
   const initials = displayName
