@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@heygen/streaming-avatar':
+        specifier: ^2.1.0
+        version: 2.1.0
+      simli-client:
+        specifier: ^3.0.1
+        version: 3.0.1(@types/dom-mediacapture-record@1.0.22)
     devDependencies:
       prettier:
         specifier: ^3.2.5
@@ -153,6 +160,9 @@ importers:
       '@avatar-platform/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@heygen/streaming-avatar':
+        specifier: ^2.1.0
+        version: 2.1.0
       '@livekit/components-react':
         specifier: ^2.0.0
         version: 2.9.20(livekit-client@2.17.3(@types/dom-mediacapture-record@1.0.22))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(tslib@2.8.1)
@@ -183,6 +193,9 @@ importers:
       recharts:
         specifier: ^2.12.0
         version: 2.15.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      simli-client:
+        specifier: ^3.0.1
+        version: 3.0.1(@types/dom-mediacapture-record@1.0.22)
       tailwind-merge:
         specifier: ^2.3.0
         version: 2.6.1
@@ -774,6 +787,9 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
+  '@heygen/streaming-avatar@2.1.0':
+    resolution: {integrity: sha512-JMCM46KNCj9vo+unVAWk5EjtR9z7ZVRsjwpQ3/qkxxF0yRXX2hLrhJ7ZLnrxMMGT1p1iL79rUn4Y5EO6I+xtKw==}
+
   '@humanwhocodes/config-array@0.13.0':
     resolution: {integrity: sha512-DZLEEqFWQFiyK6h5YIeynKx7JlvCYWL0cImfSRXZ9l4Sg2efkFGTuFf6vzXjK1cq6IYkU+Eg/JizXw+TD2vRNw==}
     engines: {node: '>=10.10.0'}
@@ -914,6 +930,9 @@ packages:
   '@livekit/mutex@1.1.1':
     resolution: {integrity: sha512-EsshAucklmpuUAfkABPxJNhzj9v2sG7JuzFDL4ML1oJQSV14sqrpTYnsaOudMAw9yOaW53NU3QQTlUQoRs4czw==}
 
+  '@livekit/protocol@1.36.1':
+    resolution: {integrity: sha512-nN3QnITAQ5yXk7UKfotH7CRWIlEozNWeKVyFJ0/+dtSzvWP/ib+10l1DDnRYi3A1yICJOGAKFgJ5d6kmi1HCUA==}
+
   '@livekit/protocol@1.44.0':
     resolution: {integrity: sha512-/vfhDUGcUKO8Q43r6i+5FrDhl5oZjm/X3U4x2Iciqvgn5C8qbj+57YPcWSJ1kyIZm5Cm6AV2nAPjMm3ETD/iyg==}
 
@@ -1022,6 +1041,36 @@ packages:
     resolution: {integrity: sha512-akea+6bHYBBfA9uQqSYmlJXn61cTa+jbO87xVLCWbTqbWadRVmhxlXATaOjOgcBaWU4ePo0wB41KMFv3o35IXA==}
     engines: {node: '>=18'}
     hasBin: true
+
+  '@protobufjs/aspromise@1.1.2':
+    resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
+
+  '@protobufjs/base64@1.1.2':
+    resolution: {integrity: sha512-AZkcAA5vnN/v4PDqKyMR5lx7hZttPDgClv83E//FMNhR2TMcLUhfRUBHCmSl0oi9zMgDDqRUJkSxO3wm85+XLg==}
+
+  '@protobufjs/codegen@2.0.4':
+    resolution: {integrity: sha512-YyFaikqM5sH0ziFZCN3xDC7zeGaB/d0IUb9CATugHWbd1FRFwWwt4ld4OYMPWu5a3Xe01mGAULCdqhMlPl29Jg==}
+
+  '@protobufjs/eventemitter@1.1.0':
+    resolution: {integrity: sha512-j9ednRT81vYJ9OfVuXG6ERSTdEL1xVsNgqpkxMsbIabzSo3goCjDIveeGv5d03om39ML71RdmrGNjG5SReBP/Q==}
+
+  '@protobufjs/fetch@1.1.0':
+    resolution: {integrity: sha512-lljVXpqXebpsijW71PZaCYeIcE5on1w5DlQy5WH6GLbFryLUrBD4932W/E2BSpfRJWseIL4v/KPgBFxDOIdKpQ==}
+
+  '@protobufjs/float@1.0.2':
+    resolution: {integrity: sha512-Ddb+kVXlXst9d+R9PfTIxh1EdNkgoRe5tOX6t01f1lYWOvJnSPDBlG241QLzcyPdoNTsblLUdujGSE4RzrTZGQ==}
+
+  '@protobufjs/inquire@1.1.0':
+    resolution: {integrity: sha512-kdSefcPdruJiFMVSbn801t4vFK7KB/5gd2fYvrxhuJYg8ILrmn9SKSX2tZdV6V+ksulWqS7aXjBcRXl3wHoD9Q==}
+
+  '@protobufjs/path@1.1.2':
+    resolution: {integrity: sha512-6JOcJ5Tm08dOHAbdR3GrvP+yUUfkjG5ePsHYczMFLq3ZmMkAD98cDgcT2iA1lJ9NVwFd4tH/iSSoe44YWkltEA==}
+
+  '@protobufjs/pool@1.1.0':
+    resolution: {integrity: sha512-0kELaGSIDBKvcgS4zkjz1PeddatrjYcmMWOlAuAPwAeccUrPHdUqo/J6LiymHHEiJT5NrF1UVwxY14f+fy4WQw==}
+
+  '@protobufjs/utf8@1.1.0':
+    resolution: {integrity: sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw==}
 
   '@puppeteer/browsers@2.3.0':
     resolution: {integrity: sha512-ioXoq9gPxkss4MYhD+SFaU9p1IHFUX0ILAWFPyjGaBdjLsYAlZw6j1iLA0N/m12uVHLFDfSYNF7EQccjinIMDA==}
@@ -3267,6 +3316,9 @@ packages:
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
 
+  livekit-client@2.11.3:
+    resolution: {integrity: sha512-WEyn3PMi/nBA096VvNN8ZHqfoJ/+s0klCPdQzzYtyBT7A5B0zHfzDy5YgaxXD817LxJEKjpVFwgQ4ddNmTAL4A==}
+
   livekit-client@2.17.3:
     resolution: {integrity: sha512-htwsAL/BMylY/zwdcT/z00U789csbi9DldSW7DO+5tz7Q15pwu++E1X+ZdtZDfkmlysfQLLibdcqlyg9FY7veQ==}
     peerDependencies:
@@ -3330,6 +3382,9 @@ packages:
   loglevel@1.9.2:
     resolution: {integrity: sha512-HgMmCqIJSAKqo68l0rS2AanEWfkxaZ5wNiEFb5ggm08lDs9Xl2KxBlX3PTcaD2chBM1gXAYf491/M2Rv8Jwayg==}
     engines: {node: '>= 0.6.0'}
+
+  long@5.3.2:
+    resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
 
   loose-envify@1.4.0:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
@@ -3884,6 +3939,10 @@ packages:
   prop-types@15.8.1:
     resolution: {integrity: sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==}
 
+  protobufjs@7.5.0:
+    resolution: {integrity: sha512-Z2E/kOY1QjoMlCytmexzYfDm/w5fKAiRwpSzGtdnXW1zC88Z2yXazHHrOtwCzn+7wSxyE8PYM4rvVcMphF9sOA==}
+    engines: {node: '>=12.0.0'}
+
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
     engines: {node: '>= 0.10'}
@@ -4165,6 +4224,9 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
+  simli-client@3.0.1:
+    resolution: {integrity: sha512-4TWccj4pTZqojFNVj8HLaDZ3d44knebmLC9T6GYOz61ttZSoUM/Ogmmyr5SOs/63nc/V52VWvqysCul2x5x5zw==}
+
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
 
@@ -4400,6 +4462,9 @@ packages:
     peerDependencies:
       typescript: '>=4.8.4'
 
+  ts-debounce@4.0.0:
+    resolution: {integrity: sha512-+1iDGY6NmOGidq7i7xZGA4cm8DAa6fqdYcvO5Z6yBevH++Bdo9Qt/mN0TzHUgcCcKv1gmh9+W5dHqz8pMWbCbg==}
+
   ts-interface-checker@0.1.13:
     resolution: {integrity: sha512-Y/arvbn+rrz3JCKl9C4kVNfTfSm2/mEp5FSz5EsZSANGPSlQrpRI5M4PKF+mJnE52jOO90PnPSc3Ur3bTQw0gA==}
 
@@ -4616,6 +4681,9 @@ packages:
   webrtc-adapter@9.0.4:
     resolution: {integrity: sha512-5ZZY1+lGq8LEKuDlg9M2RPJHlH3R7OVwyHqMcUsLKCgd9Wvf+QrFTCItkXXYPmrJn8H6gRLXbSgxLLdexiqHxw==}
     engines: {node: '>=6.0.0', npm: '>=3.10.0'}
+
+  webrtc-issue-detector@1.16.3:
+    resolution: {integrity: sha512-VDBeCa1ZfZaErynTfs/YgziSLtSXF9INXP6ciCtgBJI95pzT+CaRUvi1DmDFpyGuRvuox9CQCdjShl+qiIFfkw==}
 
   which-boxed-primitive@1.1.1:
     resolution: {integrity: sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA==}
@@ -5544,6 +5612,12 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
+  '@heygen/streaming-avatar@2.1.0':
+    dependencies:
+      livekit-client: 2.11.3
+      protobufjs: 7.5.0
+      webrtc-issue-detector: 1.16.3
+
   '@humanwhocodes/config-array@0.13.0':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
@@ -5787,6 +5861,10 @@ snapshots:
 
   '@livekit/mutex@1.1.1': {}
 
+  '@livekit/protocol@1.36.1':
+    dependencies:
+      '@bufbuild/protobuf': 1.10.1
+
   '@livekit/protocol@1.44.0':
     dependencies:
       '@bufbuild/protobuf': 1.10.1
@@ -5886,6 +5964,29 @@ snapshots:
   '@playwright/test@1.58.2':
     dependencies:
       playwright: 1.58.2
+
+  '@protobufjs/aspromise@1.1.2': {}
+
+  '@protobufjs/base64@1.1.2': {}
+
+  '@protobufjs/codegen@2.0.4': {}
+
+  '@protobufjs/eventemitter@1.1.0': {}
+
+  '@protobufjs/fetch@1.1.0':
+    dependencies:
+      '@protobufjs/aspromise': 1.1.2
+      '@protobufjs/inquire': 1.1.0
+
+  '@protobufjs/float@1.0.2': {}
+
+  '@protobufjs/inquire@1.1.0': {}
+
+  '@protobufjs/path@1.1.2': {}
+
+  '@protobufjs/pool@1.1.0': {}
+
+  '@protobufjs/utf8@1.1.0': {}
 
   '@puppeteer/browsers@2.3.0':
     dependencies:
@@ -8719,6 +8820,18 @@ snapshots:
 
   lines-and-columns@1.2.4: {}
 
+  livekit-client@2.11.3:
+    dependencies:
+      '@livekit/mutex': 1.1.1
+      '@livekit/protocol': 1.36.1
+      events: 3.3.0
+      loglevel: 1.9.2
+      sdp-transform: 2.15.0
+      ts-debounce: 4.0.0
+      tslib: 2.8.1
+      typed-emitter: 2.1.0
+      webrtc-adapter: 9.0.4
+
   livekit-client@2.17.3(@types/dom-mediacapture-record@1.0.22):
     dependencies:
       '@livekit/mutex': 1.1.1
@@ -8776,6 +8889,8 @@ snapshots:
   loglevel@1.9.1: {}
 
   loglevel@1.9.2: {}
+
+  long@5.3.2: {}
 
   loose-envify@1.4.0:
     dependencies:
@@ -9303,6 +9418,21 @@ snapshots:
       object-assign: 4.1.1
       react-is: 16.13.1
 
+  protobufjs@7.5.0:
+    dependencies:
+      '@protobufjs/aspromise': 1.1.2
+      '@protobufjs/base64': 1.1.2
+      '@protobufjs/codegen': 2.0.4
+      '@protobufjs/eventemitter': 1.1.0
+      '@protobufjs/fetch': 1.1.0
+      '@protobufjs/float': 1.0.2
+      '@protobufjs/inquire': 1.1.0
+      '@protobufjs/path': 1.1.2
+      '@protobufjs/pool': 1.1.0
+      '@protobufjs/utf8': 1.1.0
+      '@types/node': 20.19.37
+      long: 5.3.2
+
   proxy-addr@2.0.7:
     dependencies:
       forwarded: 0.2.0
@@ -9660,6 +9790,12 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
+  simli-client@3.0.1(@types/dom-mediacapture-record@1.0.22):
+    dependencies:
+      livekit-client: 2.17.3(@types/dom-mediacapture-record@1.0.22)
+    transitivePeerDependencies:
+      - '@types/dom-mediacapture-record'
+
   sisteransi@1.0.5: {}
 
   slash@3.0.0: {}
@@ -9955,6 +10091,8 @@ snapshots:
     dependencies:
       typescript: 5.9.3
 
+  ts-debounce@4.0.0: {}
+
   ts-interface-checker@0.1.13: {}
 
   ts-jest@29.4.6(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@20.19.37)(ts-node@10.9.2(@types/node@20.19.37)(typescript@5.9.3)))(typescript@5.9.3):
@@ -10200,6 +10338,8 @@ snapshots:
   webrtc-adapter@9.0.4:
     dependencies:
       sdp: 3.2.1
+
+  webrtc-issue-detector@1.16.3: {}
 
   which-boxed-primitive@1.1.1:
     dependencies:

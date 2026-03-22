@@ -18,5 +18,9 @@
     "prettier": "^3.2.5",
     "turbo": "^2.0.0",
     "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@heygen/streaming-avatar": "^2.1.0",
+    "simli-client": "^3.0.1"
   }
 }

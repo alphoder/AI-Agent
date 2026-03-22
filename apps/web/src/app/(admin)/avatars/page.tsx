@@ -10,6 +10,7 @@ interface Avatar {
   provider: string;
   thumbnail_url: string | null;
   source_image_url: string;
+  image_url: string | null;
   status: 'active' | 'inactive' | 'processing' | 'failed';
   created_at: string;
 }
@@ -119,12 +120,12 @@ export default function AvatarsPage() {
               onClick={() => router.push(`/avatars/${avatar.id}`)}
               className="border rounded-lg overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
             >
-              <div className="aspect-square bg-muted flex items-center justify-center">
-                {avatar.thumbnail_url ? (
+              <div className="aspect-[4/5] bg-muted flex items-center justify-center">
+                {(avatar.image_url || avatar.thumbnail_url) ? (
                   <img
-                    src={avatar.thumbnail_url}
+                    src={avatar.image_url || avatar.thumbnail_url || ''}
                     alt={avatar.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover object-top"
                   />
                 ) : (
                   <div className="text-4xl text-muted-foreground">

@@ -54,8 +54,9 @@ class Settings(BaseSettings):
     metrics_allowed_cidrs: list[str] = ["127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
     class Config:
-        env_file = ".env"
+        env_file = ("../../.env", ".env")  # Load root .env first, then local override
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore vars not defined in Settings (NODE_ENV, DATABASE_URL, etc.)
 
 
 settings = Settings()

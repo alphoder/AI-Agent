@@ -11,6 +11,7 @@ interface AvatarDetail {
   provider_avatar_id: string | null;
   source_image_url: string;
   thumbnail_url: string | null;
+  image_url: string | null;
   status: string;
   config: Record<string, unknown>;
   created_at: string;
@@ -107,8 +108,8 @@ export default function AvatarDetailPage() {
       <div className="border rounded-lg p-6">
         <div className="flex items-start gap-6">
           <div className="w-48 h-48 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-            {avatar.thumbnail_url ? (
-              <img src={avatar.thumbnail_url} alt={avatar.name} className="w-full h-full object-cover" />
+            {(avatar.image_url || avatar.thumbnail_url) ? (
+              <img src={avatar.image_url || avatar.thumbnail_url || ''} alt={avatar.name} className="w-full h-full object-cover" />
             ) : (
               <div className="text-6xl text-muted-foreground">{avatar.name.charAt(0)}</div>
             )}
@@ -159,6 +160,13 @@ export default function AvatarDetailPage() {
             </dl>
 
             <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => router.push(`/avatars/${avatar.id}/test`)}
+                disabled={avatar.status !== 'active'}
+                className="rounded-md bg-primary text-primary-foreground px-5 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+              >
+                Test Avatar
+              </button>
               <button
                 onClick={handleRegenerate}
                 disabled={avatar.status === 'processing'}

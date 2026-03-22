@@ -9,7 +9,7 @@ import structlog
 
 from src.config import settings
 from src.metrics import metrics_endpoint
-from src.routes import avatar as avatar_routes, embedding, scoring, session, tts
+from src.routes import avatar as avatar_routes, embedding, scoring, session, tts, test_chat
 
 logger = structlog.get_logger(__name__)
 
@@ -141,3 +141,5 @@ app.include_router(session.router, prefix="/session", tags=["session"], dependen
 app.include_router(embedding.router, prefix="/embedding", tags=["embedding"], dependencies=[Depends(require_internal_key)])
 app.include_router(scoring.router, prefix="/scoring", tags=["scoring"], dependencies=[Depends(require_internal_key)])
 app.include_router(tts.router, prefix="/tts", tags=["tts"], dependencies=[Depends(require_internal_key)])
+# Test chat WebSocket — no internal key required (used directly by admin frontend)
+app.include_router(test_chat.router, tags=["test-chat"])

@@ -176,9 +176,30 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response, next: Next
 
     const total = parseInt(countResult.rows[0].count);
 
+    // Generate signed URLs for avatars with S3 source images
+    const avatarsWithUrls = await Promise.all(
+      dataResult.rows.map(async (avatar: any) => {
+        const src = avatar.source_image_url;
+        if (src && src.includes('/') && !src.startsWith('http')) {
+          // S3 key — generate signed URL
+          try {
+            avatar.image_url = await S3Service.getSignedUrl(src);
+          } catch {
+            avatar.image_url = null;
+          }
+        } else if (src && src.startsWith('http')) {
+          avatar.image_url = avatar.thumbnail_url || src;
+        } else {
+          // Not an S3 key and not HTTP — use thumbnail or null
+          avatar.image_url = avatar.thumbnail_url || null;
+        }
+        return avatar;
+      }),
+    );
+
     res.json({
       success: true,
-      data: dataResult.rows,
+      data: avatarsWithUrls,
       meta: {
         page,
         limit,
@@ -211,7 +232,23 @@ router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, r
       });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    const avatar = result.rows[0];
+
+    // Generate signed URL for S3-stored source image
+    const src = avatar.source_image_url;
+    if (src && src.includes('/') && !src.startsWith('http')) {
+      try {
+        avatar.image_url = await S3Service.getSignedUrl(src);
+      } catch {
+        avatar.image_url = null;
+      }
+    } else if (src && src.startsWith('http')) {
+      avatar.image_url = avatar.thumbnail_url || src;
+    } else {
+      avatar.image_url = avatar.thumbnail_url || null;
+    }
+
+    res.json({ success: true, data: avatar });
   } catch (err) {
     next(err);
   }
@@ -445,5 +482,99 @@ router.post(
     }
   }),
 );
+
+/**
+ * POST /api/avatars/:id/test-session
+ * Create a HeyGen streaming avatar session token for quick testing (admin only).
+ * Returns a session token that the frontend uses with the HeyGen Streaming Avatar SDK.
+ */
+router.post('/:id/test-session', validateUuidParam(), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.user!.tid;
+
+    const result = await db.tenantQuery(
+      tenantId,
+      `SELECT id, name, provider, provider_avatar_id, config, status
+       FROM avatars WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Avatar not found' } });
+    }
+
+    const avatar = result.rows[0];
+    if (avatar.status !== 'active') {
+      return res.status(400).json({ success: false, error: { code: 'AVATAR_NOT_ACTIVE', message: 'Avatar must be active to test' } });
+    }
+
+    const avatarConfig = typeof avatar.config === 'string' ? JSON.parse(avatar.config) : (avatar.config || {});
+
+    if (avatar.provider === 'simli') {
+      // --- SIMLI COMPOSE (audio-in → lip-sync video) ---
+      const simliApiKey = envConfig.SIMLI_API_KEY;
+      if (!simliApiKey) {
+        return res.status(500).json({ success: false, error: { code: 'NO_SIMLI_KEY', message: 'Simli API key not configured' } });
+      }
+
+      let faceId = avatar.provider_avatar_id || '';
+      if (!faceId || faceId.startsWith('dev-')) {
+        faceId = 'tmp_s3_dg_eo';  // Default Simli demo face
+      }
+
+      res.json({
+        success: true,
+        data: {
+          provider: 'simli',
+          simliApiKey,
+          faceId,
+          avatarName: avatar.name,
+          voiceId: avatarConfig.voice || 'nova',
+          // AI service WebSocket URL for the conversation pipeline
+          wsUrl: `ws://localhost:8000/ws/test-chat`,
+        },
+      });
+
+    } else {
+      // --- HEYGEN ---
+      const heygenApiKey = envConfig.HEYGEN_API_KEY;
+      if (!heygenApiKey) {
+        return res.status(500).json({ success: false, error: { code: 'NO_HEYGEN_KEY', message: 'HeyGen API key not configured' } });
+      }
+
+      // Get HeyGen session token
+      const tokenRes = await fetch('https://api.heygen.com/v1/streaming.create_token', {
+        method: 'POST',
+        headers: { 'x-api-key': heygenApiKey, 'Content-Type': 'application/json' },
+      });
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        logger.error({ status: tokenRes.status, body: errText }, 'HeyGen token request failed');
+        return res.status(502).json({ success: false, error: { code: 'HEYGEN_TOKEN_ERROR', message: 'Failed to get HeyGen session token' } });
+      }
+
+      const tokenData = await tokenRes.json() as { data: { token: string } };
+
+      let heygenAvatarId = avatar.provider_avatar_id || avatarConfig.heygenAvatarId || '';
+      if (!heygenAvatarId || heygenAvatarId.startsWith('dev-') || heygenAvatarId === 'default') {
+        heygenAvatarId = 'Wayne_20240711';  // Default HeyGen public avatar
+      }
+
+      res.json({
+        success: true,
+        data: {
+          provider: 'heygen',
+          sessionToken: tokenData.data.token,
+          heygenAvatarId,
+          avatarName: avatar.name,
+          voiceId: avatarConfig.voice || null,
+        },
+      });
+    }
+  } catch (err) {
+    next(err);
+  }
+}));
 
 export const avatarRoutes: Router = router;
