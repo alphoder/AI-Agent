@@ -106,33 +106,19 @@ router.post(
         });
       }
 
-      // 1:1 validation — check avatar is not already linked to another persona
-      const linkedCheck = await db.tenantQuery(
-        tenantId,
-        `SELECT id, name FROM personas WHERE avatar_id = $1 AND deleted_at IS NULL`,
-        [avatar_id],
-      );
-
-      if (linkedCheck.rows.length > 0) {
-        return res.status(409).json({
-          success: false,
-          error: {
-            code: 'AVATAR_ALREADY_LINKED',
-            message: `Avatar is already linked to persona "${linkedCheck.rows[0].name}" (${linkedCheck.rows[0].id})`,
-          },
-        });
-      }
+      // Many-to-one: multiple personas can share the same avatar
+      const { voice_config } = req.body;
 
       const result = await db.tenantQuery(
         tenantId,
         `INSERT INTO personas (
            tenant_id, name, description, avatar_id, system_prompt,
-           guardrails, rag_enabled, temperature, created_by
+           guardrails, rag_enabled, temperature, voice_config, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, name, description, avatar_id, system_prompt,
-                   guardrails, rag_enabled, temperature, created_by,
-                   created_at, updated_at`,
+                   guardrails, rag_enabled, temperature, voice_config,
+                   created_by, created_at, updated_at`,
         [
           tenantId,
           name.trim(),
@@ -142,6 +128,7 @@ router.post(
           JSON.stringify(guardrails || {}),
           rag_enabled ?? false,
           temperature ?? 0.7,
+          JSON.stringify(voice_config || {}),
           userId,
         ],
       );
@@ -171,7 +158,7 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response, next: Next
       db.tenantQuery(
         tenantId,
         `SELECT p.id, p.name, p.description, p.avatar_id, p.system_prompt,
-                p.guardrails, p.rag_enabled, p.temperature,
+                p.guardrails, p.rag_enabled, p.temperature, p.voice_config,
                 p.created_by, p.created_at, p.updated_at,
                 a.name AS avatar_name, a.provider AS avatar_provider,
                 a.status AS avatar_status, a.thumbnail_url AS avatar_thumbnail_url
@@ -215,7 +202,7 @@ router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, r
     const result = await db.tenantQuery(
       req.user!.tid,
       `SELECT p.id, p.name, p.description, p.avatar_id, p.system_prompt,
-              p.guardrails, p.rag_enabled, p.temperature,
+              p.guardrails, p.rag_enabled, p.temperature, p.voice_config,
               p.created_by, p.created_at, p.updated_at,
               a.name AS avatar_name, a.provider AS avatar_provider,
               a.provider_avatar_id, a.source_image_url AS avatar_source_image_url,
@@ -242,83 +229,66 @@ router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, r
 
 /**
  * PATCH /api/personas/:id
- * Update persona fields: name, description, system_prompt, guardrails,
- * rag_enabled, temperature.
+ * Update persona fields including voice_config and avatar_id (admin only).
  */
-router.patch(
-  '/:id',
-  validateUuidParam(),
-  rbac('admin'),
-  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const { name, description, system_prompt, guardrails, rag_enabled, temperature } = req.body;
-      const updates: string[] = [];
-      const params: unknown[] = [];
-      let paramIdx = 1;
+router.patch('/:id', validateUuidParam(), rbac('admin'), wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.user!.tid;
+    const personaId = req.params.id;
 
-      if (name !== undefined) {
-        updates.push(`name = $${paramIdx++}`);
-        params.push(name.trim());
-      }
-      if (description !== undefined) {
-        updates.push(`description = $${paramIdx++}`);
-        params.push(description?.trim() || null);
-      }
-      if (system_prompt !== undefined) {
-        updates.push(`system_prompt = $${paramIdx++}`);
-        params.push(system_prompt.trim());
-      }
-      if (guardrails !== undefined) {
-        updates.push(`guardrails = $${paramIdx++}`);
-        params.push(JSON.stringify(guardrails));
-      }
-      if (rag_enabled !== undefined) {
-        updates.push(`rag_enabled = $${paramIdx++}`);
-        params.push(rag_enabled);
-      }
-      if (temperature !== undefined) {
-        if (typeof temperature !== 'number' || temperature < 0 || temperature > 2) {
-          return res.status(400).json({
-            success: false,
-            error: { code: 'INVALID_TEMPERATURE', message: 'Temperature must be a number between 0 and 2' },
-          });
-        }
-        updates.push(`temperature = $${paramIdx++}`);
-        params.push(temperature);
-      }
-
-      if (updates.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'NO_UPDATES', message: 'No fields to update' },
-        });
-      }
-
-      updates.push(`updated_at = NOW()`);
-
-      params.push(req.params.id);
-      const result = await db.tenantQuery(
-        req.user!.tid,
-        `UPDATE personas SET ${updates.join(', ')}
-         WHERE id = $${paramIdx} AND deleted_at IS NULL
-         RETURNING id, name, description, avatar_id, system_prompt,
-                   guardrails, rag_enabled, temperature, updated_at`,
-        params,
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'Persona not found' },
-        });
-      }
-
-      res.json({ success: true, data: result.rows[0] });
-    } catch (err) {
-      next(err);
+    // Check persona exists
+    const existing = await db.tenantQuery(
+      tenantId,
+      `SELECT id FROM personas WHERE id = $1 AND deleted_at IS NULL`,
+      [personaId],
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Persona not found' } });
     }
-  }),
-);
+
+    const { name, description, avatar_id, system_prompt, guardrails, rag_enabled, temperature, voice_config } = req.body;
+
+    // Build dynamic SET clause
+    const sets: string[] = [];
+    const params: unknown[] = [tenantId];
+    let idx = 2;
+
+    if (name !== undefined) { sets.push(`name = $${idx++}`); params.push(name.trim()); }
+    if (description !== undefined) { sets.push(`description = $${idx++}`); params.push(description?.trim() || null); }
+    if (avatar_id !== undefined) {
+      // Verify avatar exists
+      const avatarCheck = await db.tenantQuery(tenantId, `SELECT id FROM avatars WHERE id = $1 AND deleted_at IS NULL`, [avatar_id]);
+      if (avatarCheck.rows.length === 0) {
+        return res.status(404).json({ success: false, error: { code: 'AVATAR_NOT_FOUND', message: 'Avatar not found' } });
+      }
+      sets.push(`avatar_id = $${idx++}`); params.push(avatar_id);
+    }
+    if (system_prompt !== undefined) { sets.push(`system_prompt = $${idx++}`); params.push(system_prompt.trim()); }
+    if (guardrails !== undefined) { sets.push(`guardrails = $${idx++}`); params.push(JSON.stringify(guardrails)); }
+    if (rag_enabled !== undefined) { sets.push(`rag_enabled = $${idx++}`); params.push(rag_enabled); }
+    if (temperature !== undefined) { sets.push(`temperature = $${idx++}`); params.push(temperature); }
+    if (voice_config !== undefined) { sets.push(`voice_config = $${idx++}`); params.push(JSON.stringify(voice_config)); }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ success: false, error: { code: 'NO_FIELDS', message: 'No fields to update' } });
+    }
+
+    sets.push('updated_at = NOW()');
+
+    const result = await db.tenantQuery(
+      tenantId,
+      `UPDATE personas SET ${sets.join(', ')}
+       WHERE id = $${idx} AND tenant_id = $1 AND deleted_at IS NULL
+       RETURNING id, name, description, avatar_id, system_prompt, guardrails,
+                 rag_enabled, temperature, voice_config, created_at, updated_at`,
+      [...params, personaId],
+    );
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}));
 
 /**
  * DELETE /api/personas/:id

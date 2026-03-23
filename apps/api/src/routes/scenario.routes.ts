@@ -172,13 +172,43 @@ router.post(
         ],
       );
 
+      const scenarioId = result.rows[0].id;
+
+      // Insert avatar options for this scenario
+      const { avatar_ids } = req.body;
+      if (Array.isArray(avatar_ids) && avatar_ids.length > 0) {
+        for (let i = 0; i < avatar_ids.length; i++) {
+          await db.tenantQuery(
+            tenantId,
+            `INSERT INTO scenario_avatars (scenario_id, avatar_id, is_default)
+             VALUES ($1, $2, $3) ON CONFLICT (scenario_id, avatar_id) DO NOTHING`,
+            [scenarioId, avatar_ids[i], i === 0],
+          );
+        }
+      } else {
+        // Auto-add the persona's linked avatar as default
+        const personaAvatar = await db.tenantQuery(
+          tenantId,
+          `SELECT avatar_id FROM personas WHERE id = $1 AND avatar_id IS NOT NULL`,
+          [persona_id],
+        );
+        if (personaAvatar.rows.length > 0) {
+          await db.tenantQuery(
+            tenantId,
+            `INSERT INTO scenario_avatars (scenario_id, avatar_id, is_default)
+             VALUES ($1, $2, true) ON CONFLICT DO NOTHING`,
+            [scenarioId, personaAvatar.rows[0].avatar_id],
+          );
+        }
+      }
+
       // Fire-and-forget audit log
       auditLog({
         tenantId,
         userId,
         action: 'scenario.create',
         resourceType: 'scenario',
-        resourceId: result.rows[0].id,
+        resourceId: scenarioId,
         details: { title: title.trim() },
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
