@@ -161,7 +161,15 @@ export default function PersonaDetailPage() {
           )}
         </div>
         <div>
-          <h1 className="text-2xl font-bold">{persona.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold">{persona.name}</h1>
+            <button
+              onClick={() => router.push(`/personas/${params.id}/edit`)}
+              className="text-sm text-primary hover:underline"
+            >
+              Edit
+            </button>
+          </div>
           <p className="text-sm text-muted-foreground">{persona.description || 'No description'}</p>
         </div>
       </div>

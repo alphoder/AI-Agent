@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import { HelpHint } from '@/components/ui/help-hint';
 
-interface PersonaOption { id: string; name: string; avatar_thumbnail_url: string | null; }
+interface PersonaOption { id: string; name: string; avatar_id?: string; avatar_thumbnail_url: string | null; }
+interface AvatarOption { id: string; name: string; thumbnail_url: string | null; status: string; }
 interface RubricLevel { score: number; label: string; description: string; }
 interface RubricCriterion { name: string; description: string; weight: number; levels: RubricLevel[]; }
 
@@ -18,9 +19,11 @@ const DEFAULT_LEVELS: RubricLevel[] = [
 export default function CreateScenarioPage() {
   const router = useRouter();
   const [personas, setPersonas] = useState<PersonaOption[]>([]);
+  const [avatars, setAvatars] = useState<AvatarOption[]>([]);
   const [tab, setTab] = useState<'basics' | 'context' | 'rubric' | 'settings'>('basics');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [selectedAvatarIds, setSelectedAvatarIds] = useState<string[]>([]);
 
   // Form
   const [title, setTitle] = useState('');
@@ -39,7 +42,24 @@ export default function CreateScenarioPage() {
 
   useEffect(() => {
     apiClient.get('/personas', { params: { limit: 100 } }).then(({ data }) => setPersonas(data.data));
+    apiClient.get('/avatars', { params: { status: 'active', limit: 100 } }).then(({ data }) => setAvatars(data.data));
   }, []);
+
+  // Auto-select persona's linked avatar when persona changes
+  useEffect(() => {
+    if (personaId) {
+      const persona = personas.find((p) => p.id === personaId);
+      if (persona?.avatar_id && !selectedAvatarIds.includes(persona.avatar_id)) {
+        setSelectedAvatarIds((prev) => [...new Set([...prev, persona.avatar_id!])]);
+      }
+    }
+  }, [personaId, personas]);
+
+  const toggleAvatar = (id: string) => {
+    setSelectedAvatarIds((prev) =>
+      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
+    );
+  };
 
   const totalWeight = criteria.reduce((sum, c) => sum + c.weight, 0);
 
@@ -74,6 +94,7 @@ export default function CreateScenarioPage() {
         scoring_rubric: criteria, difficulty_level: difficulty,
         tags: tags.split(',').map(t => t.trim()).filter(Boolean),
         max_duration_sec: maxDuration, max_turns: maxTurns,
+        avatar_ids: selectedAvatarIds.length > 0 ? selectedAvatarIds : undefined,
       });
       router.push('/scenarios');
     } catch (err: any) {
@@ -109,6 +130,62 @@ export default function CreateScenarioPage() {
               <option value="">Select a persona...</option>
               {personas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select></div>
+          {/* Available Avatars multi-select */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Available Avatars</label>
+            <p className="text-xs text-muted-foreground mb-3">Select which avatars learners can choose from for this scenario. The persona&apos;s linked avatar is auto-selected.</p>
+            {avatars.length === 0 ? (
+              <div className="text-center py-6 border-2 border-dashed rounded-lg text-sm text-muted-foreground">
+                No active avatars found
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {avatars.map((a) => {
+                  const isSelected = selectedAvatarIds.includes(a.id);
+                  const isLinked = personas.find((p) => p.id === personaId)?.avatar_id === a.id;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => toggleAvatar(a.id)}
+                      className={`relative rounded-lg border p-3 text-left transition-all ${
+                        isSelected
+                          ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                          : 'border-input hover:border-primary/50 hover:bg-muted/30'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                          {a.thumbnail_url ? (
+                            <img src={a.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-lg font-medium text-muted-foreground">{a.name.charAt(0)}</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{a.name}</p>
+                          {isLinked && <p className="text-xs text-primary">Persona avatar</p>}
+                        </div>
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                          isSelected ? 'border-primary bg-primary' : 'border-input'
+                        }`}>
+                          {isSelected && (
+                            <svg className="w-3 h-3 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {selectedAvatarIds.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-2">{selectedAvatarIds.length} avatar{selectedAvatarIds.length !== 1 ? 's' : ''} selected</p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-sm font-medium mb-1">Difficulty</label>
               <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}

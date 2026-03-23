@@ -53,3 +53,4 @@ k8s/secrets/
 
 # Turbo
 .turbo/
+.vercel
