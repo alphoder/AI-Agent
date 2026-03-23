@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-4o-mini"  # GROQ_SWAP: use gpt-4o for quality, gpt-4o-mini for speed
 
     # Groq (GROQ_SWAP: free LLM alternative)
     groq_api_key: str = ""
