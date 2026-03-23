@@ -32,16 +32,48 @@ import {
 
 type Phase = 'preflight' | 'session' | 'ending';
 
+// Simli Compose types — dynamically imported
+type SimliClientType = import('simli-client').SimliClient;
+
+interface AvatarConfig {
+  provider: 'simli' | 'heygen';
+  providerAvatarId: string;
+  avatarName: string;
+  simliApiKey: string;
+  wsUrl: string;
+}
+
 interface SessionConfig {
   sessionId: string;
   livekitToken: string;
   livekitUrl: string;
+  avatarConfig?: AvatarConfig;
   sessionConfig: {
     maxDurationSec: number;
     idleTimeoutSec: number;
     scenarioTitle: string;
     maxTurns: number;
+    openingMessage?: string;
   };
+}
+
+// Helper: Float32Array to PCM16 Int16Array
+function float32ToPcm16(float32: Float32Array): Int16Array {
+  const pcm16 = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32[i]));
+    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return pcm16;
+}
+
+// Helper: Uint8Array to base64
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 interface TranscriptEntry {
@@ -102,12 +134,23 @@ function SessionPageInner() {
   // Ending state
   const [endingStep, setEndingStep] = useState(0);
 
+  // Active provider: 'livekit' (default) or 'simli'
+  const [activeProvider, setActiveProvider] = useState<'livekit' | 'simli'>('livekit');
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const idleRef = useRef<NodeJS.Timeout | null>(null);
   const audioLevelRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef<Room | null>(null);
   const turnCountRef = useRef(0);
+
+  // Simli-specific refs
+  const simliVideoRef = useRef<HTMLVideoElement>(null);
+  const simliAudioRef = useRef<HTMLAudioElement>(null);
+  const simliClientRef = useRef<SimliClientType | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const simliMicStreamRef = useRef<MediaStream | null>(null);
+  const simliAudioContextRef = useRef<AudioContext | null>(null);
 
   // Preflight checks
   useEffect(() => {
@@ -167,6 +210,192 @@ function SessionPageInner() {
 
   const allPreflightPassed = Object.values(preflight).every(v => v === 'pass');
 
+  // Start Simli Compose connection as fallback when avatarConfig is present
+  async function startSimliSession(config: SessionConfig) {
+    const avatarConfig = config.avatarConfig!;
+
+    // Dynamic import to avoid SSR issues
+    const { SimliClient, generateSimliSessionToken, generateIceServers } = await import('simli-client');
+
+    if (!simliVideoRef.current || !simliAudioRef.current) {
+      throw new Error('Simli video/audio elements not ready');
+    }
+
+    // Generate Simli session token
+    const tokenData = await generateSimliSessionToken({
+      apiKey: avatarConfig.simliApiKey,
+      config: {
+        faceId: avatarConfig.providerAvatarId,
+        handleSilence: true,
+        maxSessionLength: 1800,
+        maxIdleTime: 120,
+      },
+    });
+
+    // Get ICE servers (optional, works without on localhost)
+    let iceServers: RTCIceServer[] | null = null;
+    try {
+      iceServers = await generateIceServers(avatarConfig.simliApiKey);
+    } catch {
+      // Proceed without
+    }
+
+    // Create SimliClient
+    const simliClient = new SimliClient(
+      tokenData.session_token,
+      simliVideoRef.current,
+      simliAudioRef.current,
+      iceServers,
+    );
+    simliClientRef.current = simliClient;
+
+    simliClient.on('start', () => {
+      setConnectionStatus('connected');
+    });
+
+    simliClient.on('error', (detail: string) => {
+      console.error('Simli error:', detail);
+      setConnectionStatus('disconnected');
+    });
+
+    simliClient.on('speaking', () => setAvatarSpeaking(true));
+    simliClient.on('silent', () => setAvatarSpeaking(false));
+
+    await simliClient.start();
+
+    // Connect WebSocket to AI service conversation pipeline
+    const ws = new WebSocket(avatarConfig.wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: 'config',
+        avatar_name: avatarConfig.avatarName,
+        session_id: config.sessionId,
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        setIdleSeconds(0); // Reset idle on any WS message
+
+        if (msg.type === 'transcript_interim') {
+          setInterimText(msg.text || '');
+        } else if (msg.type === 'transcript') {
+          // Final user transcript
+          if (msg.text?.trim()) {
+            turnCountRef.current += 1;
+            setTranscripts(prev => [...prev, {
+              role: 'learner',
+              content: msg.text,
+              turn_number: turnCountRef.current,
+              timestamp: Date.now(),
+            }]);
+            setInterimText('');
+          }
+        } else if (msg.type === 'response_text') {
+          // Avatar response text
+          turnCountRef.current += 1;
+          setTranscripts(prev => [...prev, {
+            role: 'avatar',
+            content: msg.text,
+            turn_number: turnCountRef.current,
+            timestamp: Date.now(),
+          }]);
+          setAvatarSpeaking(true);
+        } else if (msg.type === 'audio') {
+          // Decode base64 PCM16 and send to SimliClient for lip-sync
+          const binaryString = atob(msg.data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          if (simliClientRef.current) {
+            simliClientRef.current.sendAudioData(bytes);
+          }
+        } else if (msg.type === 'audio_end') {
+          setAvatarSpeaking(false);
+        } else if (msg.type === 'session_end') {
+          endSession();
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    };
+
+    ws.onerror = () => {
+      console.error('WebSocket to AI service failed');
+      setConnectionStatus('disconnected');
+    };
+
+    ws.onclose = () => {
+      // Only mark disconnected if session is still active
+      if (phase === 'session') {
+        setConnectionStatus('disconnected');
+      }
+    };
+
+    // Get mic access and stream audio to WebSocket for real-time STT
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
+    });
+    simliMicStreamRef.current = stream;
+
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    simliAudioContextRef.current = audioContext;
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    processor.onaudioprocess = (e) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const float32 = e.inputBuffer.getChannelData(0);
+      const pcm16 = float32ToPcm16(float32);
+      const b64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
+      ws.send(JSON.stringify({ type: 'audio', data: b64 }));
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    setIsMicOn(true);
+    setConnectionStatus('connected');
+
+    // If there's an opening message, add it to transcript
+    if (config.sessionConfig.openingMessage) {
+      turnCountRef.current += 1;
+      setTranscripts(prev => [...prev, {
+        role: 'avatar',
+        content: config.sessionConfig.openingMessage!,
+        turn_number: turnCountRef.current,
+        timestamp: Date.now(),
+      }]);
+    }
+  }
+
+  // Cleanup Simli resources
+  function cleanupSimli() {
+    if (simliClientRef.current) {
+      simliClientRef.current.stop();
+      simliClientRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (simliMicStreamRef.current) {
+      simliMicStreamRef.current.getTracks().forEach(t => t.stop());
+      simliMicStreamRef.current = null;
+    }
+    if (simliAudioContextRef.current) {
+      simliAudioContextRef.current.close().catch(() => {});
+      simliAudioContextRef.current = null;
+    }
+    if (simliVideoRef.current) {
+      simliVideoRef.current.srcObject = null;
+    }
+  }
+
   // Start session
   async function startSession() {
     if (!assignmentId) {
@@ -181,87 +410,21 @@ function SessionPageInner() {
       setPhase('session');
       setConnectionStatus('connecting');
 
-      // Connect to LiveKit room
-      try {
-        const room = await connectToSession({
-          url: config.livekitUrl || LIVEKIT_URL,
-          token: config.livekitToken,
-          onVideoTrack: (track) => {
-            setAvatarVideoTrack(track);
-          },
-          onAudioTrack: () => {
-            // Audio auto-plays via livekit.ts
-          },
-          onSessionEvent: (event: SessionEvent) => {
-            setIdleSeconds(0); // Reset idle on any event
-
-            switch (event.type) {
-              case 'TRANSCRIPT_INTERIM':
-                setInterimText(event.text || '');
-                break;
-              case 'TRANSCRIPT_FINAL':
-                if (event.text?.trim()) {
-                  turnCountRef.current += 1;
-                  setTranscripts(prev => [...prev, {
-                    role: 'learner',
-                    content: event.text!,
-                    turn_number: turnCountRef.current,
-                    timestamp: Date.now(),
-                  }]);
-                  setInterimText('');
-                }
-                break;
-              case 'AVATAR_SPEAKING':
-                setAvatarSpeaking(true);
-                if (event.text?.trim()) {
-                  turnCountRef.current += 1;
-                  setTranscripts(prev => [...prev, {
-                    role: 'avatar',
-                    content: event.text!,
-                    turn_number: turnCountRef.current,
-                    timestamp: Date.now(),
-                  }]);
-                }
-                break;
-              case 'AVATAR_IDLE':
-                setAvatarSpeaking(false);
-                break;
-              case 'SESSION_WARNING':
-                // Show warning toast handled by idleSeconds
-                break;
-              case 'SESSION_END':
-                endSession();
-                break;
-              case 'GUARDRAIL_TRIGGERED':
-                // Could show a toast here
-                break;
-            }
-          },
-          onConnectionStateChange: (state: ConnectionState) => {
-            switch (state) {
-              case ConnectionState.Connected:
-                setConnectionStatus('connected');
-                break;
-              case ConnectionState.Reconnecting:
-                setConnectionStatus('reconnecting');
-                break;
-              case ConnectionState.Disconnected:
-                setConnectionStatus('disconnected');
-                break;
-              default:
-                setConnectionStatus('connecting');
-            }
-          },
-        });
-
-        roomRef.current = room;
-        setIsMicOn(true);
-        setConnectionStatus('connected');
-      } catch (livekitErr) {
-        console.error('LiveKit connection failed:', livekitErr);
-        // Still allow session to work without LiveKit (demo mode)
-        setConnectionStatus('connected');
-        setIsMicOn(true);
+      // Check if avatarConfig is present with Simli provider — use Simli Compose path
+      if (config.avatarConfig?.provider === 'simli') {
+        setActiveProvider('simli');
+        try {
+          await startSimliSession(config);
+        } catch (simliErr) {
+          console.error('Simli connection failed, falling back to LiveKit:', simliErr);
+          // Fall back to LiveKit path
+          setActiveProvider('livekit');
+          await connectLiveKit(config);
+        }
+      } else {
+        // Default: LiveKit path
+        setActiveProvider('livekit');
+        await connectLiveKit(config);
       }
 
       // Start timer
@@ -275,6 +438,91 @@ function SessionPageInner() {
       }, 1000);
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Failed to start session');
+    }
+  }
+
+  // LiveKit connection (original path)
+  async function connectLiveKit(config: SessionConfig) {
+    try {
+      const room = await connectToSession({
+        url: config.livekitUrl || LIVEKIT_URL,
+        token: config.livekitToken,
+        onVideoTrack: (track) => {
+          setAvatarVideoTrack(track);
+        },
+        onAudioTrack: () => {
+          // Audio auto-plays via livekit.ts
+        },
+        onSessionEvent: (event: SessionEvent) => {
+          setIdleSeconds(0); // Reset idle on any event
+
+          switch (event.type) {
+            case 'TRANSCRIPT_INTERIM':
+              setInterimText(event.text || '');
+              break;
+            case 'TRANSCRIPT_FINAL':
+              if (event.text?.trim()) {
+                turnCountRef.current += 1;
+                setTranscripts(prev => [...prev, {
+                  role: 'learner',
+                  content: event.text!,
+                  turn_number: turnCountRef.current,
+                  timestamp: Date.now(),
+                }]);
+                setInterimText('');
+              }
+              break;
+            case 'AVATAR_SPEAKING':
+              setAvatarSpeaking(true);
+              if (event.text?.trim()) {
+                turnCountRef.current += 1;
+                setTranscripts(prev => [...prev, {
+                  role: 'avatar',
+                  content: event.text!,
+                  turn_number: turnCountRef.current,
+                  timestamp: Date.now(),
+                }]);
+              }
+              break;
+            case 'AVATAR_IDLE':
+              setAvatarSpeaking(false);
+              break;
+            case 'SESSION_WARNING':
+              // Show warning toast handled by idleSeconds
+              break;
+            case 'SESSION_END':
+              endSession();
+              break;
+            case 'GUARDRAIL_TRIGGERED':
+              // Could show a toast here
+              break;
+          }
+        },
+        onConnectionStateChange: (state: ConnectionState) => {
+          switch (state) {
+            case ConnectionState.Connected:
+              setConnectionStatus('connected');
+              break;
+            case ConnectionState.Reconnecting:
+              setConnectionStatus('reconnecting');
+              break;
+            case ConnectionState.Disconnected:
+              setConnectionStatus('disconnected');
+              break;
+            default:
+              setConnectionStatus('connecting');
+          }
+        },
+      });
+
+      roomRef.current = room;
+      setIsMicOn(true);
+      setConnectionStatus('connected');
+    } catch (livekitErr) {
+      console.error('LiveKit connection failed:', livekitErr);
+      // Still allow session to work without LiveKit (demo mode)
+      setConnectionStatus('connected');
+      setIsMicOn(true);
     }
   }
 
@@ -294,6 +542,9 @@ function SessionPageInner() {
       disconnectFromSession(roomRef.current);
       roomRef.current = null;
     }
+
+    // Cleanup Simli resources
+    cleanupSimli();
 
     // Animate through ending steps
     const stepTimer = setInterval(() => {
@@ -354,25 +605,29 @@ function SessionPageInner() {
     }
   }, [idleSeconds, sessionData]);
 
-  // Poll local participant audio level from LiveKit room
+  // Poll local participant audio level from LiveKit room or Simli mic stream
   useEffect(() => {
     if (phase !== 'session') return;
 
     audioLevelRef.current = setInterval(() => {
-      const room = roomRef.current;
-      if (room && isMicOn) {
-        // LiveKit exposes audioLevel on LocalParticipant (0-1)
-        const level = (room.localParticipant as any).audioLevel ?? 0;
-        setSessionAudioLevel(level);
+      if (activeProvider === 'livekit') {
+        const room = roomRef.current;
+        if (room && isMicOn) {
+          const level = (room.localParticipant as any).audioLevel ?? 0;
+          setSessionAudioLevel(level);
+        } else {
+          setSessionAudioLevel(0);
+        }
       } else {
-        setSessionAudioLevel(0);
+        // For Simli, just show a basic level based on mic state
+        setSessionAudioLevel(isMicOn ? 0.3 : 0);
       }
     }, 50); // ~20fps for smooth visualization
 
     return () => {
       if (audioLevelRef.current) clearInterval(audioLevelRef.current);
     };
-  }, [phase, isMicOn]);
+  }, [phase, isMicOn, activeProvider]);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -683,12 +938,71 @@ function SessionPageInner() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col items-center justify-center p-4 gap-4 relative">
-        {/* Avatar video */}
-        <VideoPanel
-          videoTrack={avatarVideoTrack}
-          avatarSpeaking={avatarSpeaking}
-          connectionStatus={connectionStatus}
-        />
+        {/* Avatar video — Simli Compose mode */}
+        {activeProvider === 'simli' ? (
+          <div className="w-full max-w-2xl relative group">
+            {/* Glow ring when speaking */}
+            {avatarSpeaking && (
+              <div className="absolute -inset-1 bg-gradient-to-r from-blue-500/20 via-indigo-500/20 to-blue-500/20 rounded-[20px] blur-md animate-pulse" />
+            )}
+            <div
+              className={`relative w-full aspect-video rounded-2xl overflow-hidden transition-all duration-300 ${
+                avatarSpeaking
+                  ? 'ring-2 ring-blue-500/40 ring-offset-2 ring-offset-gray-950'
+                  : 'ring-1 ring-gray-800'
+              }`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-gray-800 via-gray-850 to-gray-900" />
+              <video
+                ref={simliVideoRef}
+                autoPlay
+                playsInline
+                className={`relative w-full h-full object-cover ${connectionStatus === 'connected' ? '' : 'hidden'}`}
+              />
+              <audio ref={simliAudioRef} autoPlay className="hidden" />
+
+              {connectionStatus !== 'connected' && (
+                <div className="relative inset-0 flex flex-col items-center justify-center w-full h-full gap-3">
+                  <div className="w-20 h-20 rounded-full bg-gray-700/50 flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+                  </div>
+                  <p className="text-sm text-gray-400 font-medium">Connecting to avatar...</p>
+                </div>
+              )}
+
+              {/* Speaking indicator */}
+              {avatarSpeaking && (
+                <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5">
+                  <div className="flex items-end gap-[3px] h-3.5">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="w-[3px] bg-blue-400 rounded-full animate-session-eq-bar"
+                        style={{
+                          animationDelay: `${i * 120}ms`,
+                          animationDuration: '0.8s',
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-xs text-blue-300 font-medium">Speaking</span>
+                </div>
+              )}
+
+              {/* Vignette */}
+              <div className="absolute inset-0 pointer-events-none rounded-2xl" style={{
+                background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.3) 100%)',
+              }} />
+            </div>
+          </div>
+        ) : (
+          /* Avatar video — LiveKit mode */
+          <VideoPanel
+            videoTrack={avatarVideoTrack}
+            avatarSpeaking={avatarSpeaking}
+            connectionStatus={connectionStatus}
+          />
+        )}
 
         {/* Transcript */}
         <TranscriptPanel
@@ -739,8 +1053,12 @@ function SessionPageInner() {
                 onClick={async () => {
                   setConnectionStatus('reconnecting');
                   try {
-                    if (roomRef.current) {
-                      // Attempt to reconnect the existing room
+                    if (activeProvider === 'simli' && sessionData?.avatarConfig) {
+                      // Cleanup old Simli resources and reconnect
+                      cleanupSimli();
+                      await startSimliSession(sessionData);
+                    } else if (roomRef.current) {
+                      // Attempt to reconnect the existing LiveKit room
                       await roomRef.current.connect(
                         sessionData?.livekitUrl || LIVEKIT_URL,
                         sessionData?.livekitToken || '',
@@ -783,7 +1101,16 @@ function SessionPageInner() {
           const newState = !isMicOn;
           setIsMicOn(newState);
           setIdleSeconds(0);
-          if (roomRef.current) {
+          if (activeProvider === 'simli') {
+            // Toggle mic track enabled state for Simli WebSocket streaming
+            if (simliMicStreamRef.current) {
+              const track = simliMicStreamRef.current.getAudioTracks()[0];
+              if (track) {
+                track.enabled = newState;
+                wsRef.current?.send(JSON.stringify({ type: newState ? 'mic_on' : 'mic_off' }));
+              }
+            }
+          } else if (roomRef.current) {
             await toggleMicrophone(roomRef.current, newState);
           }
         }}
