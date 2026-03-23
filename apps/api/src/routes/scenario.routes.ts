@@ -332,7 +332,12 @@ router.get(
                   s.opening_context, s.opening_message, s.tags,
                   p.name AS persona_name, p.description AS persona_description,
                   a.thumbnail_url AS persona_thumbnail_url,
-                  (SELECT sess.id FROM sessions sess WHERE sess.assignment_id = sa.id ORDER BY sess.created_at DESC LIMIT 1) AS latest_session_id
+                  a.provider AS avatar_provider,
+                  a.provider_avatar_id,
+                  (SELECT sess.id FROM sessions sess WHERE sess.assignment_id = sa.id ORDER BY sess.created_at DESC LIMIT 1) AS latest_session_id,
+                  (SELECT json_agg(json_build_object('id', av.id, 'name', av.name, 'thumbnail_url', av.thumbnail_url, 'provider', av.provider))
+                   FROM scenario_avatars sav JOIN avatars av ON sav.avatar_id = av.id AND av.deleted_at IS NULL
+                   WHERE sav.scenario_id = s.id) AS available_avatars
            FROM scenario_assignments sa
            JOIN scenarios s ON sa.scenario_id = s.id AND s.deleted_at IS NULL
            LEFT JOIN personas p ON s.persona_id = p.id AND p.deleted_at IS NULL

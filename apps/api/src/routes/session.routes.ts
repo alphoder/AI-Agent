@@ -48,7 +48,7 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
               s.objective, s.opening_context, s.opening_message, s.scoring_rubric,
               p.system_prompt, p.guardrails, p.rag_enabled, p.rag_top_k,
               p.rag_similarity_threshold, p.temperature, p.avatar_id, p.name as persona_name,
-              a.provider, a.provider_avatar_id,
+              a.provider, a.provider_avatar_id, a.name as avatar_name,
               t.max_concurrent_sessions, t.session_duration_limit_sec, t.idle_timeout_sec,
               t.avatar_provider
        FROM scenario_assignments sa
@@ -205,18 +205,29 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
       userAgent: req.get('user-agent'),
     });
 
+    // Include Simli/avatar config for direct WebRTC fallback
+    const avatarConfig = {
+      provider: row.avatar_provider || 'simli',
+      providerAvatarId: row.provider_avatar_id,
+      avatarName: row.avatar_name || row.persona_name,
+      simliApiKey: config.SIMLI_API_KEY || '',
+      wsUrl: `ws://localhost:8000/ws/test-chat`,  // AI service WebSocket for conversation
+    };
+
     res.status(201).json({
       success: true,
       data: {
         sessionId,
         livekitToken,
         livekitUrl,
+        avatarConfig,
         sessionConfig: {
           maxDurationSec: row.session_duration_limit_sec,
           idleTimeoutSec: row.idle_timeout_sec,
           scenarioTitle: row.title,
           personaName: row.persona_name,
           maxTurns: row.max_turns,
+          openingMessage: row.opening_message,
         },
       },
     });
