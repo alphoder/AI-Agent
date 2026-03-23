@@ -315,17 +315,22 @@ async def _process_response(
                     "role": "assistant",
                 })
 
-                # Generate and send TTS for this sentence
+                # Stream TTS audio for this sentence (first chunk in ~200ms)
                 try:
-                    audio_bytes = await tts.synthesize(sentence)
-                    if audio_bytes:
-                        chunk_size = 8192
-                        for i in range(0, len(audio_bytes), chunk_size):
-                            audio_chunk = audio_bytes[i:i + chunk_size]
+                    if hasattr(tts, 'synthesize_streaming'):
+                        async for audio_chunk in tts.synthesize_streaming(sentence):
                             await websocket.send_json({
                                 "type": "audio",
                                 "data": base64.b64encode(audio_chunk).decode("ascii"),
                             })
+                    else:
+                        audio_bytes = await tts.synthesize(sentence)
+                        if audio_bytes:
+                            for i in range(0, len(audio_bytes), 8192):
+                                await websocket.send_json({
+                                    "type": "audio",
+                                    "data": base64.b64encode(audio_bytes[i:i+8192]).decode("ascii"),
+                                })
                 except Exception as tts_err:
                     logger.warn("test_chat.tts_chunk_error", error=str(tts_err))
 
@@ -338,15 +343,20 @@ async def _process_response(
                 "role": "assistant",
             })
             try:
-                audio_bytes = await tts.synthesize(remainder)
-                if audio_bytes:
-                    chunk_size = 8192
-                    for i in range(0, len(audio_bytes), chunk_size):
-                        audio_chunk = audio_bytes[i:i + chunk_size]
+                if hasattr(tts, 'synthesize_streaming'):
+                    async for audio_chunk in tts.synthesize_streaming(remainder):
                         await websocket.send_json({
                             "type": "audio",
                             "data": base64.b64encode(audio_chunk).decode("ascii"),
                         })
+                else:
+                    audio_bytes = await tts.synthesize(remainder)
+                    if audio_bytes:
+                        for i in range(0, len(audio_bytes), 8192):
+                            await websocket.send_json({
+                                "type": "audio",
+                                "data": base64.b64encode(audio_bytes[i:i+8192]).decode("ascii"),
+                            })
             except Exception as tts_err:
                 logger.warn("test_chat.tts_remainder_error", error=str(tts_err))
 

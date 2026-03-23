@@ -49,7 +49,7 @@ class DeepgramTTSClient:
                     "Authorization": f"Token {self.api_key}",
                     "Content-Type": "application/json",
                 },
-                timeout=15.0,
+                timeout=5.0,  # Deepgram Aura responds in <200ms typically
             )
         return self._client
 
@@ -74,6 +74,28 @@ class DeepgramTTSClient:
         except Exception as e:
             logger.error("deepgram_tts_error", error=str(e), text=text[:50])
             return b""
+
+    async def synthesize_streaming(self, text: str):
+        """Stream PCM16 audio chunks as they arrive from Deepgram.
+
+        Yields bytes chunks instead of waiting for full response.
+        First chunk arrives in ~200ms vs ~3s for full response.
+        """
+        if not text.strip():
+            return
+
+        try:
+            async with self.client.stream(
+                "POST",
+                f"/speak?model={self.model}&encoding=linear16&sample_rate=16000",
+                json={"text": text},
+            ) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+        except Exception as e:
+            logger.error("deepgram_tts_stream_error", error=str(e), text=text[:50])
 
     async def close(self):
         if self._client:
@@ -124,6 +146,28 @@ class OpenAITTSClient:
         except Exception as e:
             logger.error("openai_tts_error", error=str(e), text=text[:50])
             return b""
+
+    async def synthesize_streaming(self, text: str):
+        """Stream PCM audio chunks from OpenAI TTS."""
+        if not text.strip():
+            return
+        try:
+            async with self.client.stream(
+                "POST",
+                "/audio/speech",
+                json={
+                    "model": "tts-1",
+                    "input": text,
+                    "voice": self.voice,
+                    "response_format": "pcm",
+                },
+            ) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+        except Exception as e:
+            logger.error("openai_tts_stream_error", error=str(e), text=text[:50])
 
     async def close(self):
         if self._client:
