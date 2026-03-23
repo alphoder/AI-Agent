@@ -8,12 +8,21 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # GROQ_SWAP: LLM/TTS provider selection (set to "openai" to revert)
+    llm_provider: str = "openai"  # "openai" or "groq"
+    tts_provider: str = "openai"  # "openai" or "deepgram"
+
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
 
-    # Deepgram
+    # Groq (GROQ_SWAP: free LLM alternative)
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+
+    # Deepgram (STT + TTS when tts_provider=deepgram)
     deepgram_api_key: str = ""
+    deepgram_tts_model: str = "aura-asteria-en"  # female voice
 
     # Avatar providers
     simli_api_key: str = ""

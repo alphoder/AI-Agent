@@ -172,6 +172,13 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 **Remaining:** C1 (localStorage tokens), C7/C8, H3/H7-H11, M1/M5/M7-M10/M14-M19/M22-M24/M26-M27/M30-M31
 - See `PROJECT_REVIEW_V4.md` for full inventory
 
+## LLM/TTS Provider Swap (GROQ_SWAP)
+- Currently using **Groq** (free) for LLM and **Deepgram Aura** (free) for TTS
+- Set `LLM_PROVIDER=openai` and `TTS_PROVIDER=openai` in `.env` to revert to OpenAI
+- All swap points marked with `# GROQ_SWAP` comment in code
+- See `OPENAI_TO_GROQ_CHANGES.txt` for full change log
+- Files changed: `config.py`, `core/llm.py`, `core/tts.py` (new), `core/orchestrator.py`
+
 ## File Structure
 - `apps/web/src/components/ui/` - Reusable primitives (Button, Card, Input, etc.)
 - `apps/web/src/components/layout/` - Shell, Nav, Sidebar

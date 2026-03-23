@@ -87,14 +87,26 @@ class ScoringEngine:
     """Evaluate training sessions against rubric criteria."""
 
     def __init__(self, api_key: str, model: str = "gpt-4o"):
-        self.api_key = api_key
-        self.model = model
+        # GROQ_SWAP: Use Groq for scoring when configured
+        from src.config import settings
+        if settings.llm_provider == "groq" and settings.groq_api_key:
+            self.api_key = settings.groq_api_key
+            self.model = settings.groq_model
+            self._base_url = "https://api.groq.com/openai/v1"
+        else:
+            self.api_key = api_key
+            self.model = model
+            self._base_url = None
         self._client: AsyncOpenAI | None = None
 
     @property
     def client(self) -> AsyncOpenAI:
         if self._client is None:
-            self._client = AsyncOpenAI(api_key=self.api_key)
+            # GROQ_SWAP: Route to Groq or OpenAI based on config
+            if self._base_url:
+                self._client = AsyncOpenAI(api_key=self.api_key, base_url=self._base_url)
+            else:
+                self._client = AsyncOpenAI(api_key=self.api_key)
         return self._client
 
     async def evaluate(

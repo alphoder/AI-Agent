@@ -1,134 +1,228 @@
-"""WebSocket endpoint for avatar test chat.
+"""WebSocket endpoint for avatar test chat — real-time conversation mode.
 
-Lightweight pipeline: browser audio → Deepgram STT → GPT-4o → OpenAI TTS → PCM16 audio back.
-The browser forwards the TTS audio to SimliClient for lip-sync rendering.
+GROQ_SWAP: Uses LLMClient (Groq or OpenAI) + TTSClient (Deepgram or OpenAI).
+Pipeline: streaming mic audio → Deepgram streaming STT → LLM → TTS → audio back.
+
+The browser streams raw PCM16 audio continuously. Deepgram detects speech
+boundaries (endpointing) and emits final transcripts. Each final transcript
+triggers the LLM → TTS pipeline. The result is a natural, real-time conversation.
 """
 import asyncio
-import io
 import json
-import struct
+import base64
 from typing import Optional
 
 import httpx
+import websockets
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from openai import AsyncOpenAI
 
 from src.config import settings
+from src.core.llm import LLMClient
+from src.core.tts import get_tts_client
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
-# Reuse OpenAI client
-_openai_client: Optional[AsyncOpenAI] = None
+_llm_client: Optional[LLMClient] = None
+_tts_client = None
 
 
-def get_openai() -> AsyncOpenAI:
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
-    return _openai_client
+def get_llm() -> LLMClient:
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = LLMClient()
+    return _llm_client
+
+
+def get_tts():
+    global _tts_client
+    if _tts_client is None:
+        _tts_client = get_tts_client()
+    return _tts_client
 
 
 @router.websocket("/ws/test-chat")
 async def test_chat_ws(websocket: WebSocket):
-    """WebSocket for test chat pipeline.
+    """Real-time voice conversation via WebSocket.
 
     Protocol:
-    - Client sends JSON: {"type": "config", "avatar_name": "Coach", "system_prompt": "..."}
-    - Client sends JSON: {"type": "audio", "data": "<base64 PCM16 16kHz>"}
-    - Client sends JSON: {"type": "text", "text": "user message"}
-    - Server sends JSON: {"type": "transcript", "text": "...", "role": "user"}
-    - Server sends JSON: {"type": "response_text", "text": "...", "role": "assistant"}
-    - Server sends JSON: {"type": "audio", "data": "<base64 PCM16 16kHz>"}
-    - Server sends JSON: {"type": "audio_end"}
-    - Server sends JSON: {"type": "error", "message": "..."}
+    Client → Server:
+      {"type": "config", "avatar_name": "Coach"}     — configure session
+      {"type": "audio", "data": "<base64 PCM16>"}    — streaming mic audio chunks
+      {"type": "text", "text": "hello"}               — text input (bypasses STT)
+      {"type": "mic_off"}                              — stop listening
+      {"type": "mic_on"}                               — resume listening
+
+    Server → Client:
+      {"type": "transcript_interim", "text": "..."}   — partial STT result
+      {"type": "transcript", "text": "...", "role": "user"}  — final STT result
+      {"type": "response_text", "text": "...", "role": "assistant"}
+      {"type": "audio", "data": "<base64 PCM16>"}    — TTS audio chunk
+      {"type": "audio_end"}                            — end of TTS audio
+      {"type": "listening"}                            — STT connected, ready
+      {"type": "error", "message": "..."}
     """
     await websocket.accept()
     logger.info("test_chat.connected")
 
     system_prompt = "You are a helpful AI training coach. Keep responses brief (1-2 sentences). Be natural and conversational."
     conversation_history: list[dict] = []
+    llm = get_llm()
+    tts = get_tts()
     deepgram_ws = None
-    transcript_buffer = ""
-    openai = get_openai()
+    processing_lock = asyncio.Lock()
+    mic_active = True
 
-    # Deepgram streaming connection
-    deepgram_url = f"wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&punctuate=true&interim_results=false&endpointing=300"
+    async def connect_deepgram():
+        """Open streaming Deepgram STT WebSocket."""
+        url = (
+            "wss://api.deepgram.com/v1/listen"
+            "?encoding=linear16&sample_rate=16000&channels=1"
+            "&model=nova-2&language=en&punctuate=true"
+            "&interim_results=true&endpointing=500"
+            "&vad_events=true&utterance_end_ms=1500"
+        )
+        headers = {"Authorization": f"Token {settings.deepgram_api_key}"}
+        ws = await websockets.connect(url, additional_headers=headers)
+        logger.info("test_chat.deepgram_connected")
+        return ws
+
+    async def deepgram_receiver(dg_ws):
+        """Listen for Deepgram STT results and trigger LLM pipeline."""
+        nonlocal conversation_history
+        try:
+            async for raw_msg in dg_ws:
+                data = json.loads(raw_msg)
+                msg_type = data.get("type")
+
+                if msg_type == "Results":
+                    channel = data.get("channel", {})
+                    alternatives = channel.get("alternatives", [])
+                    if not alternatives:
+                        continue
+
+                    transcript = alternatives[0].get("transcript", "").strip()
+                    is_final = data.get("is_final", False)
+                    speech_final = data.get("speech_final", False)
+
+                    if not transcript:
+                        continue
+
+                    if not is_final:
+                        # Interim result — show typing indicator
+                        await websocket.send_json({
+                            "type": "transcript_interim",
+                            "text": transcript,
+                        })
+                    elif speech_final or is_final:
+                        # Final transcript — trigger LLM response
+                        logger.info("test_chat.user_said", text=transcript[:80])
+                        await websocket.send_json({
+                            "type": "transcript",
+                            "text": transcript,
+                            "role": "user",
+                        })
+
+                        # Process response (with lock to prevent overlapping)
+                        async with processing_lock:
+                            await _process_response(
+                                websocket, llm, tts,
+                                system_prompt, conversation_history,
+                                transcript,
+                            )
+
+                elif msg_type == "UtteranceEnd":
+                    # Deepgram detected end of utterance
+                    pass
+
+        except websockets.ConnectionClosed:
+            logger.info("test_chat.deepgram_closed")
+        except Exception as e:
+            logger.error("test_chat.deepgram_receiver_error", error=str(e))
 
     try:
+        # Connect to Deepgram streaming STT
+        deepgram_ws = await connect_deepgram()
+        await websocket.send_json({"type": "listening"})
+
+        # Start receiver task
+        receiver_task = asyncio.create_task(deepgram_receiver(deepgram_ws))
+
         while True:
             raw = await websocket.receive_text()
             msg = json.loads(raw)
             msg_type = msg.get("type")
 
             if msg_type == "config":
-                # Update system prompt
                 avatar_name = msg.get("avatar_name", "Coach")
                 custom_prompt = msg.get("system_prompt")
                 if custom_prompt:
                     system_prompt = custom_prompt
                 else:
-                    system_prompt = f"You are {avatar_name}, an AI training coach. Have a natural conversation. Keep responses to 1-2 sentences. Be helpful, friendly, and professional."
+                    system_prompt = (
+                        f"You are {avatar_name}, an AI training coach. "
+                        "Have a natural conversation. Keep responses to 1-2 sentences. "
+                        "Be helpful, friendly, and professional."
+                    )
                 conversation_history.clear()
                 logger.info("test_chat.configured", avatar_name=avatar_name)
 
+            elif msg_type == "audio":
+                # Stream raw PCM16 audio to Deepgram
+                if mic_active and deepgram_ws and deepgram_ws.state.name == "OPEN":
+                    audio_bytes = base64.b64decode(msg.get("data", ""))
+                    if audio_bytes:
+                        await deepgram_ws.send(audio_bytes)
+
             elif msg_type == "text":
-                # Direct text input — skip STT
                 user_text = msg.get("text", "").strip()
                 if not user_text:
                     continue
-
-                await websocket.send_json({"type": "transcript", "text": user_text, "role": "user"})
-
-                # Run LLM + TTS pipeline
-                await _process_response(websocket, openai, system_prompt, conversation_history, user_text)
-
-            elif msg_type == "audio":
-                # Audio chunk from browser mic — use Deepgram STT
-                import base64
-                audio_data = base64.b64decode(msg.get("data", ""))
-
-                if not audio_data:
-                    continue
-
-                # For simplicity in test mode, use Whisper API instead of streaming Deepgram
-                # (Deepgram streaming requires maintaining a persistent WebSocket which adds complexity)
-                # Buffer audio and transcribe when we get a pause signal
-                # Actually, let's use OpenAI Whisper for simplicity
-                pass  # Audio handled by audio_complete
-
-            elif msg_type == "audio_complete":
-                # Full audio recording from browser — transcribe with Whisper
-                import base64
-                audio_data = base64.b64decode(msg.get("data", ""))
-
-                if len(audio_data) < 3200:  # Less than 0.1s of audio
-                    continue
-
-                try:
-                    # Convert PCM16 to WAV for Whisper
-                    wav_buffer = _pcm16_to_wav(audio_data, sample_rate=16000)
-
-                    # Transcribe with Whisper
-                    transcript = await openai.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=("audio.wav", wav_buffer, "audio/wav"),
-                        language="en",
+                await websocket.send_json({
+                    "type": "transcript",
+                    "text": user_text,
+                    "role": "user",
+                })
+                async with processing_lock:
+                    await _process_response(
+                        websocket, llm, tts,
+                        system_prompt, conversation_history,
+                        user_text,
                     )
 
-                    user_text = transcript.text.strip()
+            elif msg_type == "mic_off":
+                mic_active = False
+
+            elif msg_type == "mic_on":
+                mic_active = True
+
+            elif msg_type == "audio_complete":
+                # Legacy push-to-talk: transcribe full recording via REST
+                audio_data = base64.b64decode(msg.get("data", ""))
+                if len(audio_data) < 3200:
+                    continue
+                try:
+                    user_text = await _transcribe_audio_rest(audio_data)
                     if not user_text:
                         continue
-
-                    await websocket.send_json({"type": "transcript", "text": user_text, "role": "user"})
-
-                    # Run LLM + TTS pipeline
-                    await _process_response(websocket, openai, system_prompt, conversation_history, user_text)
-
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": user_text,
+                        "role": "user",
+                    })
+                    async with processing_lock:
+                        await _process_response(
+                            websocket, llm, tts,
+                            system_prompt, conversation_history,
+                            user_text,
+                        )
                 except Exception as e:
                     logger.error("test_chat.stt_error", error=str(e))
-                    await websocket.send_json({"type": "error", "message": f"Speech recognition failed: {str(e)}"})
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Speech recognition failed: {str(e)}",
+                    })
 
     except WebSocketDisconnect:
         logger.info("test_chat.disconnected")
@@ -138,119 +232,88 @@ async def test_chat_ws(websocket: WebSocket):
             await websocket.send_json({"type": "error", "message": str(e)})
         except Exception:
             pass
+    finally:
+        if deepgram_ws and deepgram_ws.state.name == "OPEN":
+            await deepgram_ws.close()
+
+
+async def _transcribe_audio_rest(pcm_data: bytes) -> str:
+    """Fallback: transcribe via Deepgram REST API (for push-to-talk mode)."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            "https://api.deepgram.com/v1/listen?model=nova-2&language=en&punctuate=true",
+            headers={
+                "Authorization": f"Token {settings.deepgram_api_key}",
+                "Content-Type": "audio/raw;encoding=linear16;sample_rate=16000;channels=1",
+            },
+            content=pcm_data,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    alternatives = (
+        data.get("results", {})
+        .get("channels", [{}])[0]
+        .get("alternatives", [{}])
+    )
+    if alternatives:
+        return alternatives[0].get("transcript", "").strip()
+    return ""
 
 
 async def _process_response(
     websocket: WebSocket,
-    openai: AsyncOpenAI,
+    llm: LLMClient,
+    tts,
     system_prompt: str,
     history: list[dict],
     user_text: str,
 ):
     """Run LLM → TTS pipeline and send audio back."""
-    import base64
-
-    # Add user message to history
     history.append({"role": "user", "content": user_text})
 
-    # Keep last 10 turns
-    messages = [{"role": "system", "content": system_prompt}] + history[-10:]
-
     try:
-        # GPT-4o response (non-streaming for simplicity — collect full response for TTS)
-        completion = await openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
+        full_response = ""
+        async for chunk in llm.generate_response(
+            system_prompt=system_prompt,
+            conversation_history=[
+                {"role": h["role"], "content": h["content"]}
+                for h in history[-10:]
+                if h["role"] in ("user", "avatar")
+            ],
+            current_utterance=user_text,
             max_tokens=150,
-            temperature=0.7,
-        )
+        ):
+            full_response += chunk + " "
 
-        assistant_text = completion.choices[0].message.content or ""
-        if not assistant_text:
+        full_response = full_response.strip()
+        if not full_response:
             return
 
-        # Add to history
-        history.append({"role": "assistant", "content": assistant_text})
+        history.append({"role": "assistant", "content": full_response})
 
-        # Send response text to browser
-        await websocket.send_json({"type": "response_text", "text": assistant_text, "role": "assistant"})
+        await websocket.send_json({
+            "type": "response_text",
+            "text": full_response,
+            "role": "assistant",
+        })
 
-        # Generate TTS audio (PCM16 format for Simli)
-        tts_response = await openai.audio.speech.create(
-            model="tts-1",
-            voice="nova",
-            input=assistant_text,
-            response_format="pcm",  # Raw PCM16 24kHz
-        )
+        audio_bytes = await tts.synthesize(full_response)
 
-        # Read all audio bytes
-        audio_bytes = tts_response.content
-
-        # Resample from 24kHz to 16kHz for Simli
-        resampled = _resample_pcm16(audio_bytes, from_rate=24000, to_rate=16000)
-
-        # Send audio in chunks (8KB each) to avoid WebSocket frame size issues
-        chunk_size = 8192
-        for i in range(0, len(resampled), chunk_size):
-            chunk = resampled[i:i + chunk_size]
-            await websocket.send_json({
-                "type": "audio",
-                "data": base64.b64encode(chunk).decode("ascii"),
-            })
+        if audio_bytes:
+            chunk_size = 8192
+            for i in range(0, len(audio_bytes), chunk_size):
+                chunk = audio_bytes[i:i + chunk_size]
+                await websocket.send_json({
+                    "type": "audio",
+                    "data": base64.b64encode(chunk).decode("ascii"),
+                })
 
         await websocket.send_json({"type": "audio_end"})
 
     except Exception as e:
         logger.error("test_chat.pipeline_error", error=str(e))
-        await websocket.send_json({"type": "error", "message": f"Response generation failed: {str(e)}"})
-
-
-def _pcm16_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int = 1) -> io.BytesIO:
-    """Convert raw PCM16 bytes to WAV format for Whisper API."""
-    buf = io.BytesIO()
-    # WAV header
-    data_size = len(pcm_data)
-    buf.write(b"RIFF")
-    buf.write(struct.pack("<I", 36 + data_size))
-    buf.write(b"WAVE")
-    buf.write(b"fmt ")
-    buf.write(struct.pack("<I", 16))  # chunk size
-    buf.write(struct.pack("<H", 1))   # PCM format
-    buf.write(struct.pack("<H", channels))
-    buf.write(struct.pack("<I", sample_rate))
-    buf.write(struct.pack("<I", sample_rate * channels * 2))  # byte rate
-    buf.write(struct.pack("<H", channels * 2))  # block align
-    buf.write(struct.pack("<H", 16))  # bits per sample
-    buf.write(b"data")
-    buf.write(struct.pack("<I", data_size))
-    buf.write(pcm_data)
-    buf.seek(0)
-    return buf
-
-
-def _resample_pcm16(data: bytes, from_rate: int, to_rate: int) -> bytes:
-    """Simple linear interpolation resample for PCM16."""
-    if from_rate == to_rate:
-        return data
-
-    # Unpack samples
-    n_samples = len(data) // 2
-    samples = struct.unpack(f"<{n_samples}h", data)
-
-    ratio = from_rate / to_rate
-    new_n = int(n_samples / ratio)
-    resampled = []
-
-    for i in range(new_n):
-        src_idx = i * ratio
-        idx = int(src_idx)
-        frac = src_idx - idx
-
-        if idx + 1 < n_samples:
-            val = samples[idx] * (1 - frac) + samples[idx + 1] * frac
-        else:
-            val = samples[min(idx, n_samples - 1)]
-
-        resampled.append(int(max(-32768, min(32767, val))))
-
-    return struct.pack(f"<{len(resampled)}h", *resampled)
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Response generation failed: {str(e)}",
+        })

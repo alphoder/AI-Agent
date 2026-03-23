@@ -21,16 +21,35 @@ SENTENCE_END = re.compile(r"[.!?]\s*$|[.!?]$")
 
 
 class LLMClient:
-    """GPT-4o streaming orchestration with chunk buffering."""
+    """LLM streaming orchestration with chunk buffering.
+
+    GROQ_SWAP: Supports both OpenAI and Groq backends via llm_provider config.
+    Groq uses the same openai SDK with a different base_url.
+    To revert: set LLM_PROVIDER=openai in .env
+    """
 
     def __init__(self):
         self._client: openai.AsyncOpenAI | None = None
-        self.model = settings.openai_model
+        # GROQ_SWAP: select model and provider based on config
+        if settings.llm_provider == "groq" and settings.groq_api_key:
+            self.model = settings.groq_model
+            self._provider = "groq"
+        else:
+            self.model = settings.openai_model
+            self._provider = "openai"
+        logger.info("llm_provider_init", provider=self._provider, model=self.model)
 
     @property
     def client(self) -> openai.AsyncOpenAI:
         if self._client is None:
-            self._client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+            # GROQ_SWAP: Groq uses openai SDK with different base_url
+            if self._provider == "groq":
+                self._client = openai.AsyncOpenAI(
+                    api_key=settings.groq_api_key,
+                    base_url="https://api.groq.com/openai/v1",
+                )
+            else:
+                self._client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
         return self._client
 
     async def generate_response(

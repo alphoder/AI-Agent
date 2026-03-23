@@ -27,6 +27,9 @@ class RAGRetriever:
 
     @property
     def openai_client(self) -> openai.AsyncOpenAI:
+        # GROQ_SWAP: Embeddings still need OpenAI (Groq has no embeddings API).
+        # This is only used for RAG document embedding, not real-time conversation.
+        # If OpenAI key has no credits, RAG silently returns empty results.
         if self._openai_client is None:
             self._openai_client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
         return self._openai_client

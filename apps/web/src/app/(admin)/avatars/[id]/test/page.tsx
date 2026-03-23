@@ -117,8 +117,24 @@ export default function AvatarTestPage() {
         ws.onmessage = (event) => {
           const msg = JSON.parse(event.data);
 
-          if (msg.type === 'transcript') {
-            setTranscript(prev => [...prev, { role: 'user', text: msg.text }]);
+          if (msg.type === 'listening') {
+            // STT connected, ready for voice
+            console.log('STT ready — speak naturally');
+          } else if (msg.type === 'transcript_interim') {
+            // Show live typing indicator (update last interim or add new)
+            setTranscript(prev => {
+              const last = prev[prev.length - 1];
+              if (last && last.role === 'interim') {
+                return [...prev.slice(0, -1), { role: 'interim', text: msg.text }];
+              }
+              return [...prev, { role: 'interim', text: msg.text }];
+            });
+          } else if (msg.type === 'transcript') {
+            // Final user transcript — remove interim and add final
+            setTranscript(prev => {
+              const filtered = prev.filter(m => m.role !== 'interim');
+              return [...filtered, { role: 'user', text: msg.text }];
+            });
           } else if (msg.type === 'response_text') {
             setTranscript(prev => [...prev, { role: 'assistant', text: msg.text }]);
             setAvatarSpeaking(true);
@@ -144,13 +160,29 @@ export default function AvatarTestPage() {
           setConnectionState('error');
         };
 
-        // Get mic access for voice mode
+        // Get mic access and start streaming audio to backend
         if (chatMode === 'voice') {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
           });
           streamRef.current = stream;
           setIsMicOn(true);
+
+          // Stream PCM16 audio to WebSocket for real-time STT
+          const audioContext = new AudioContext({ sampleRate: 16000 });
+          const source = audioContext.createMediaStreamSource(stream);
+          const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+          processor.onaudioprocess = (e) => {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            const float32 = e.inputBuffer.getChannelData(0);
+            const pcm16 = float32ToPcm16(float32);
+            const b64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
+            ws.send(JSON.stringify({ type: 'audio', data: b64 }));
+          };
+
+          source.connect(processor);
+          processor.connect(audioContext.destination);
         }
 
         setConnectionState('connected');
@@ -414,13 +446,15 @@ export default function AvatarTestPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {transcript.map((msg, i) => (
-                <div key={i} className={`text-sm ${msg.role === 'user' ? 'text-right' : ''}`}>
+                <div key={i} className={`text-sm ${msg.role === 'user' || msg.role === 'interim' ? 'text-right' : ''}`}>
                   <span className={`inline-block px-3 py-1.5 rounded-lg max-w-[90%] ${
                     msg.role === 'user' ? 'bg-primary/30 text-white' :
+                    msg.role === 'interim' ? 'bg-primary/15 text-white/50 italic' :
                     msg.role === 'system' ? 'bg-red-500/20 text-red-300' :
                     'bg-white/10 text-white/80'
                   }`}>
                     {msg.text}
+                    {msg.role === 'interim' && <span className="animate-pulse ml-1">...</span>}
                   </span>
                 </div>
               ))}
@@ -445,27 +479,46 @@ export default function AvatarTestPage() {
           )}
 
           <div className="flex items-center justify-center gap-6">
-            {/* Push-to-talk mic button (voice mode) */}
+            {/* Mic toggle (voice mode) — streaming, not push-to-talk */}
             {chatMode === 'voice' && (
-              <button
-                onMouseDown={startRecording}
-                onMouseUp={stopRecording}
-                onTouchStart={startRecording}
-                onTouchEnd={stopRecording}
-                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all select-none ${
-                  isRecording
-                    ? 'bg-red-500 scale-110 ring-4 ring-red-500/30 text-white'
-                    : 'bg-white/10 hover:bg-white/20 text-white'
-                }`}
-              >
-                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-              </button>
-            )}
-
-            {isRecording && (
-              <span className="text-red-400 text-xs animate-pulse">Recording...</span>
+              <div className="flex items-center gap-3">
+                {isMicOn && (
+                  <div className="flex items-center gap-1">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="w-1 bg-green-400 rounded-full animate-pulse"
+                        style={{ height: `${6 + i * 3}px`, animationDelay: `${i * 0.1}s` }} />
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    if (streamRef.current) {
+                      const track = streamRef.current.getAudioTracks()[0];
+                      if (track) {
+                        track.enabled = !track.enabled;
+                        setIsMicOn(track.enabled);
+                        wsRef.current?.send(JSON.stringify({ type: track.enabled ? 'mic_on' : 'mic_off' }));
+                      }
+                    }
+                  }}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                    isMicOn
+                      ? 'bg-green-500/20 ring-2 ring-green-500/40 text-green-400'
+                      : 'bg-red-500/20 ring-2 ring-red-500/40 text-red-400'
+                  }`}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {isMicOn ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                    )}
+                  </svg>
+                </button>
+                <span className={`text-xs ${isMicOn ? 'text-green-400' : 'text-red-400'}`}>
+                  {isMicOn ? 'Listening' : 'Muted'}
+                </span>
+              </div>
             )}
 
             {/* End call */}

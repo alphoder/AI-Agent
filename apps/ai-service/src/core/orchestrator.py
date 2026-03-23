@@ -20,6 +20,7 @@ import structlog
 from src.config import settings
 from src.core.stt import DeepgramSTTClient
 from src.core.llm import LLMClient
+from src.core.tts import get_tts_client  # GROQ_SWAP: TTS abstraction
 from src.core.rag import RAGRetriever
 from src.core.guardrails import GuardrailsEngine
 from src.core.avatar import get_avatar_provider
@@ -60,6 +61,7 @@ class SessionOrchestrator:
             on_transcript_final=self._on_transcript_final,
         )
         self.llm = LLMClient()
+        self.tts = get_tts_client()  # GROQ_SWAP: TTS provider based on config
         self.rag = RAGRetriever()
         self.guardrails = GuardrailsEngine(persona_config.get("guardrails", {}))
         self.avatar_provider = get_avatar_provider(
@@ -289,13 +291,30 @@ class SessionOrchestrator:
         asyncio.create_task(self._persist_transcript(text, history_content, confidence))
 
     async def _send_avatar_text(self, text: str):
-        """Send text to avatar for lip-synced speech."""
-        if self.avatar_session_id:
-            try:
+        """Send text to avatar for lip-synced speech.
+
+        GROQ_SWAP: When using Deepgram TTS, generates audio first then sends
+        audio bytes via data event (for Simli Compose lip-sync on client).
+        Falls back to avatar provider's send_text() for provider-managed TTS.
+        """
+        if not text.strip():
+            return
+
+        try:
+            # GROQ_SWAP: Generate TTS audio and send via data event
+            audio_bytes = await self.tts.synthesize(text)
+            if audio_bytes and self.on_data_event:
+                import base64
+                await self.on_data_event("TTS_AUDIO", {
+                    "data": base64.b64encode(audio_bytes).decode(),
+                    "text": text,
+                })
+            elif self.avatar_session_id:
+                # Fallback: send text directly to avatar provider
                 await self.avatar_provider.send_text(self.avatar_session_id, text)
-            except Exception as e:
-                logger.error("avatar_send_failed", error=str(e))
-                pipeline_errors_total.labels(stage="avatar_send").inc()
+        except Exception as e:
+            logger.error("avatar_send_failed", error=str(e))
+            pipeline_errors_total.labels(stage="avatar_send").inc()
 
     async def _append_history(
         self, role: str, content: str, guardrail_triggered: bool = False
