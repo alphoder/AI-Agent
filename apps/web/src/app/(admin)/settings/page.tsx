@@ -76,7 +76,8 @@ export default function SettingsPage() {
   async function loadSettings() {
     try {
       const { data } = await apiClient.get('/auth/me');
-      const tenantId = data.data?.tenantId;
+      // API returns snake_case from Postgres; accept both shapes for safety
+      const tenantId = data.data?.tenant_id ?? data.data?.tenantId;
       if (tenantId) {
         const res = await apiClient.get(`/tenants/${tenantId}/settings`);
         const data = res.data.data;
