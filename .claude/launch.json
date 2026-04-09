@@ -12,6 +12,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@avatar-platform/api", "dev"],
       "port": 4000
+    },
+    {
+      "name": "ai",
+      "runtimeExecutable": "apps/ai-service/.venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "apps/ai-service"],
+      "port": 8000
     }
   ]
 }

@@ -93,13 +93,14 @@ function LoginPageInner() {
       localStorage.setItem('access_token', token);
       document.cookie = `access_token=${token}; path=/; max-age=900; samesite=strict`;
 
-      if (redirectTo) {
-        router.push(redirectTo);
-      } else if (data.data.user?.role === 'admin') {
-        router.push('/overview');
-      } else {
-        router.push('/dashboard');
-      }
+      // Use hard navigation to avoid Next.js router cache serving the stale
+      // "middleware redirect to /login" response that was cached before we had a token.
+      const dest = redirectTo
+        ? redirectTo
+        : data.data.user?.role === 'admin'
+        ? '/overview'
+        : '/dashboard';
+      window.location.href = dest;
     } catch (err) {
       setError('Failed to connect to API');
     } finally {

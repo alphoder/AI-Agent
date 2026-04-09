@@ -160,12 +160,16 @@ export default function AdminOverviewPage() {
           apiClient.get('/sessions?limit=10&sort=started_at:desc'),
         ]);
 
-        // Extract counts from pagination metadata or array length
+        // API returns { success, data: [...], meta: { total } } — read meta.total, not data.length
         const avatarCount = avatarsRes.status === 'fulfilled'
-          ? (avatarsRes.value.data.data?.pagination?.total ?? avatarsRes.value.data.data?.length ?? 0)
+          ? (avatarsRes.value.data.meta?.total
+              ?? avatarsRes.value.data.data?.pagination?.total
+              ?? (Array.isArray(avatarsRes.value.data.data) ? avatarsRes.value.data.data.length : 0))
           : 0;
         const personaCount = personasRes.status === 'fulfilled'
-          ? (personasRes.value.data.data?.pagination?.total ?? personasRes.value.data.data?.length ?? 0)
+          ? (personasRes.value.data.meta?.total
+              ?? personasRes.value.data.data?.pagination?.total
+              ?? (Array.isArray(personasRes.value.data.data) ? personasRes.value.data.data.length : 0))
           : 0;
 
         const scenarioData = scenariosRes.status === 'fulfilled'
@@ -181,10 +185,14 @@ export default function AdminOverviewPage() {
         const activeSessions = sessionList.filter((s: RecentSession) => s.status === 'active' || s.status === 'in_progress').length;
         const completedSessions = sessionList.filter((s: RecentSession) => s.status === 'completed' || s.status === 'ended').length;
 
+        const scenarioCount = scenariosRes.status === 'fulfilled'
+          ? (scenariosRes.value.data.meta?.total ?? scenarioList.length)
+          : 0;
+
         setStats({
           avatars: avatarCount,
           personas: personaCount,
-          scenarios: scenarioList.length,
+          scenarios: scenarioCount,
           activeSessions,
           completedSessions,
           totalLearners: 0, // Would need a dedicated endpoint
