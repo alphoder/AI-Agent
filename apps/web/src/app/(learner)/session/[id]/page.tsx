@@ -112,6 +112,8 @@ function SessionPageInner() {
   const [phase, setPhase] = useState<Phase>('preflight');
   const [sessionData, setSessionData] = useState<SessionConfig | null>(null);
   const [error, setError] = useState('');
+  const [starting, setStarting] = useState(false);
+  const [startProgress, setStartProgress] = useState(0);
 
   // Preflight state
   const [preflight, setPreflight] = useState<PreflightState>({
@@ -403,6 +405,19 @@ function SessionPageInner() {
       return;
     }
 
+    // Drive an in-button progress bar so the user has clear feedback while
+    // we provision the session, fetch the LiveKit/Simli config, and connect.
+    setError('');
+    setStarting(true);
+    setStartProgress(5);
+    const progressTimers: ReturnType<typeof setTimeout>[] = [];
+    // Slow march up to 90% — the real work happens in parallel; we cap at 90
+    // until the connection actually completes, then jump to 100.
+    const steps = [12, 24, 36, 48, 60, 72, 82, 90];
+    steps.forEach((p, i) => {
+      progressTimers.push(setTimeout(() => setStartProgress(p), 150 + i * 220));
+    });
+
     try {
       const { data } = await apiClient.post('/sessions', { assignment_id: assignmentId });
       const config = data.data as SessionConfig;
@@ -436,7 +451,13 @@ function SessionPageInner() {
       idleRef.current = setInterval(() => {
         setIdleSeconds(s => s + 1);
       }, 1000);
+
+      progressTimers.forEach(clearTimeout);
+      setStartProgress(100);
     } catch (err: any) {
+      progressTimers.forEach(clearTimeout);
+      setStarting(false);
+      setStartProgress(0);
       setError(err.response?.data?.error?.message || 'Failed to start session');
     }
   }
@@ -777,28 +798,59 @@ function SessionPageInner() {
               </div>
             )}
 
-            {/* Start button */}
+            {/* Start button (doubles as progress bar while connecting) */}
             <div className="px-8 pb-8">
               <button
                 onClick={startSession}
-                disabled={!allPreflightPassed}
-                className={`w-full flex items-center justify-center gap-2.5 rounded-xl px-6 py-3.5 text-sm font-semibold transition-all duration-200 ${
-                  allPreflightPassed
+                disabled={!allPreflightPassed || starting}
+                className={`relative w-full overflow-hidden flex items-center justify-center gap-2.5 rounded-xl px-6 py-3.5 text-sm font-semibold transition-all duration-200 ${
+                  starting
+                    ? 'bg-slate-100 text-white shadow-lg shadow-blue-500/25 cursor-wait'
+                    : allPreflightPassed
                     ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30 hover:brightness-110 active:scale-[0.98]'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                 }`}
               >
-                {allPreflightPassed ? (
-                  <>
-                    <Play className="w-4 h-4" />
-                    Start Training
-                  </>
-                ) : (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Waiting for checks...
-                  </>
+                {/* Progress fill — slides left→right inside the button */}
+                {starting && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-indigo-600 transition-[width] duration-500 ease-out"
+                    style={{ width: `${startProgress}%` }}
+                  />
                 )}
+
+                <span className="relative z-10 flex items-center gap-2.5">
+                  {starting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>
+                        {startProgress < 25
+                          ? 'Connecting to AI service'
+                          : startProgress < 50
+                          ? 'Loading persona & voice'
+                          : startProgress < 80
+                          ? 'Establishing live audio'
+                          : startProgress < 100
+                          ? 'Almost ready'
+                          : 'Ready'}
+                      </span>
+                      <span className="ml-1 font-mono tabular-nums text-white/90">
+                        {startProgress}%
+                      </span>
+                    </>
+                  ) : allPreflightPassed ? (
+                    <>
+                      <Play className="w-4 h-4" />
+                      Start Training
+                    </>
+                  ) : (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Waiting for checks...
+                    </>
+                  )}
+                </span>
               </button>
             </div>
           </div>

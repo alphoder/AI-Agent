@@ -326,8 +326,6 @@ export default function LearnerDashboardPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [greeting, setGreeting] = useState('Welcome back');
   const [isClient, setIsClient] = useState(false);
-  const [starting, setStarting] = useState<{ scenarioName: string } | null>(null);
-  const [startProgress, setStartProgress] = useState(0);
 
   // Hydration-safe: read localStorage only on client mount
   useEffect(() => {
@@ -366,26 +364,9 @@ export default function LearnerDashboardPage() {
   function handleAction(a: Assignment, action: string) {
     switch (action) {
       case 'start':
-      case 'retry': {
-        const dest = `/session/${a.scenario_id}?assignment=${a.assignment_id}`;
-        // Show overlay with sliding progress while the voice chat interface
-        // (LiveKit room, mic permissions, AI service warm-up) loads.
-        setStarting({ scenarioName: a.title || 'Training session' });
-        setStartProgress(0);
-        // Start prefetch in parallel.
-        try { router.prefetch(dest); } catch { /* best effort */ }
-        // Animate to 92% over ~1.6s (real load happens behind the curtain),
-        // then push the route. Final 92→100% on actual unmount.
-        const steps = [8, 22, 38, 55, 70, 82, 92];
-        steps.forEach((p, i) => {
-          setTimeout(() => setStartProgress(p), 120 + i * 200);
-        });
-        setTimeout(() => {
-          setStartProgress(100);
-          router.push(dest);
-        }, 120 + steps.length * 200 + 150);
+      case 'retry':
+        router.push(`/session/${a.scenario_id}?assignment=${a.assignment_id}`);
         break;
-      }
       case 'report':
         router.push(`/reports?session=${(a as any).latest_session_id || a.assignment_id}`);
         break;
@@ -457,54 +438,6 @@ export default function LearnerDashboardPage() {
         </div>
       )}
 
-      {/* ── Session loading overlay ── */}
-      {starting && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm animate-[fadeIn_200ms_ease-out]">
-          <div className="w-full max-w-md mx-4 rounded-2xl border border-border/50 bg-card shadow-2xl p-7">
-            <div className="flex items-center gap-3 mb-1">
-              <div className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-500 opacity-60" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-indigo-500" />
-              </div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
-                Preparing session
-              </p>
-            </div>
-            <h3 className="text-lg font-semibold tracking-tight text-foreground mb-1 truncate">
-              {starting.scenarioName}
-            </h3>
-            <p className="text-sm text-muted-foreground mb-5">
-              Warming up the avatar and voice interface…
-            </p>
-            <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 transition-[width] duration-500 ease-out"
-                style={{ width: `${startProgress}%` }}
-              />
-            </div>
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {startProgress < 30
-                  ? 'Connecting to AI service'
-                  : startProgress < 60
-                  ? 'Loading persona & voice'
-                  : startProgress < 90
-                  ? 'Establishing live audio'
-                  : 'Almost ready'}
-              </span>
-              <span className="font-mono font-medium tabular-nums text-foreground">
-                {startProgress}%
-              </span>
-            </div>
-          </div>
-          <style jsx>{`
-            @keyframes fadeIn {
-              from { opacity: 0; }
-              to { opacity: 1; }
-            }
-          `}</style>
-        </div>
-      )}
     </div>
   );
 }
