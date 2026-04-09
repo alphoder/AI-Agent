@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, Drama, ClipboardList, BarChart3, Settings, LayoutDashboard } from 'lucide-react';
+import { Users, Drama, ClipboardList, BarChart3, Settings, LayoutDashboard, GraduationCap } from 'lucide-react';
 import { LogoMark } from '@/components/ui/logo-mark';
 
 const navItems = [
   { href: '/overview', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/learners', label: 'Learners', icon: GraduationCap },
   { href: '/avatars', label: 'Avatars', icon: Users },
   { href: '/personas', label: 'Personas', icon: Drama },
   { href: '/scenarios', label: 'Scenarios', icon: ClipboardList },

@@ -15,6 +15,7 @@ import {
   Plus,
   ArrowRight,
   BarChart3,
+  GraduationCap,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -153,11 +154,12 @@ export default function AdminOverviewPage() {
     async function load() {
       try {
         // Fetch all data in parallel
-        const [avatarsRes, personasRes, scenariosRes, sessionsRes] = await Promise.allSettled([
+        const [avatarsRes, personasRes, scenariosRes, sessionsRes, learnersRes] = await Promise.allSettled([
           apiClient.get('/avatars?page=1&limit=1'),
           apiClient.get('/personas?page=1&limit=1'),
           apiClient.get('/scenarios'),
           apiClient.get('/sessions?limit=10&sort=started_at:desc'),
+          apiClient.get('/users?role=learner&limit=1'),
         ]);
 
         // API returns { success, data: [...], meta: { total } } — read meta.total, not data.length
@@ -189,13 +191,17 @@ export default function AdminOverviewPage() {
           ? (scenariosRes.value.data.meta?.total ?? scenarioList.length)
           : 0;
 
+        const learnerCount = learnersRes.status === 'fulfilled'
+          ? (learnersRes.value.data.meta?.total ?? 0)
+          : 0;
+
         setStats({
           avatars: avatarCount,
           personas: personaCount,
           scenarios: scenarioCount,
           activeSessions,
           completedSessions,
-          totalLearners: 0, // Would need a dedicated endpoint
+          totalLearners: learnerCount,
         });
 
         setScenarios(scenarioList.slice(0, 5).map((s: Record<string, unknown>) => ({
@@ -237,11 +243,12 @@ export default function AdminOverviewPage() {
 
       {/* Stats Grid */}
       {loading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => <StatSkeleton key={i} />)}
         </div>
       ) : stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <StatCard icon={GraduationCap} label="Learners" value={stats.totalLearners} accent="bg-indigo-500" href="/learners" />
           <StatCard icon={Users} label="Avatars" value={stats.avatars} accent="bg-blue-500" href="/avatars" />
           <StatCard icon={Drama} label="Personas" value={stats.personas} accent="bg-violet-500" href="/personas" />
           <StatCard icon={ClipboardList} label="Scenarios" value={stats.scenarios} accent="bg-emerald-500" href="/scenarios" />

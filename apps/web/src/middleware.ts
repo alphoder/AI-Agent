@@ -20,6 +20,7 @@ const STATIC_EXTENSIONS = /\.(ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|otf|c
 // Admin-only route prefixes (these map to the (admin) route group)
 const ADMIN_PREFIXES = [
   '/overview',
+  '/learners',
   '/avatars',
   '/personas',
   '/scenarios',

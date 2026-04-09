@@ -335,13 +335,7 @@ function ReportsPageInner() {
   if (!report) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-12"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Dashboard
-        </button>
+      
         <div className="flex flex-col items-center justify-center py-20">
           <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-5">
             <Target className="w-8 h-8 text-muted-foreground/50" />
