@@ -15,7 +15,32 @@ const DEFAULT_LEVELS: RubricLevel[] = [
   { score: 5, label: 'Excellent', description: '' },
 ];
 
-type TabKey = 'basics' | 'context' | 'rubric' | 'settings';
+type TabKey = 'basics' | 'context' | 'rubric' | 'settings' | 'learners';
+
+interface AssignmentRow {
+  assignment_id: string;
+  user_id: string;
+  email: string;
+  display_name: string;
+  status: 'assigned' | 'in_progress' | 'completed';
+  due_date: string | null;
+  assigned_at: string;
+  latest_session_id: string | null;
+  latest_score: number | null;
+}
+
+interface LearnerRow {
+  id: string;
+  email: string;
+  display_name: string;
+  is_active: boolean;
+}
+
+const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  assigned:    { bg: 'bg-slate-100',  text: 'text-slate-600',  label: 'Not Started' },
+  in_progress: { bg: 'bg-blue-50',    text: 'text-blue-700',   label: 'In Progress' },
+  completed:   { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Completed' },
+};
 
 export default function EditScenarioPage() {
   const router = useRouter();
@@ -47,6 +72,121 @@ export default function EditScenarioPage() {
   const [criteria, setCriteria] = useState<RubricCriterion[]>([
     { name: '', description: '', weight: 100, levels: [...DEFAULT_LEVELS] },
   ]);
+
+  // Learners tab state
+  const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
+  const [allLearners, setAllLearners] = useState<LearnerRow[]>([]);
+  const [learnersLoading, setLearnersLoading] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedLearnerIds, setSelectedLearnerIds] = useState<Set<string>>(new Set());
+  const [assignDueDate, setAssignDueDate] = useState('');
+  const [assignSaving, setAssignSaving] = useState(false);
+  const [assignError, setAssignError] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [learnerSearch, setLearnerSearch] = useState('');
+
+  const loadAssignments = useCallback(async () => {
+    setLearnersLoading(true);
+    try {
+      const [assignRes, usersRes] = await Promise.all([
+        apiClient.get(`/scenarios/${scenarioId}/assignments`),
+        apiClient.get('/users', { params: { role: 'learner', limit: 200 } }),
+      ]);
+      setAssignments(assignRes.data.data || []);
+      setAllLearners(usersRes.data.data || []);
+    } catch (err) {
+      console.error('Failed to load assignments:', err);
+    } finally {
+      setLearnersLoading(false);
+    }
+  }, [scenarioId]);
+
+  async function handleUnassign(userId: string, displayName: string) {
+    if (!confirm(`Unassign ${displayName} from this scenario?`)) return;
+    try {
+      await apiClient.delete(`/scenarios/${scenarioId}/assign/${userId}`);
+      await loadAssignments();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+        || 'Failed to unassign';
+      alert(msg);
+    }
+  }
+
+  function openAssignModal() {
+    setSelectedLearnerIds(new Set());
+    setAssignDueDate('');
+    setAssignError('');
+    setInviteEmail('');
+    setInviteName('');
+    setLearnerSearch('');
+    setShowAssignModal(true);
+  }
+
+  function toggleLearner(userId: string) {
+    setSelectedLearnerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }
+
+  async function handleInviteLearner() {
+    if (!inviteEmail.trim()) {
+      setAssignError('Email is required to invite');
+      return;
+    }
+    setInviteSaving(true);
+    setAssignError('');
+    try {
+      const res = await apiClient.post('/users/invite', {
+        email: inviteEmail.trim(),
+        display_name: inviteName.trim() || undefined,
+      });
+      const newUser = res.data.data as LearnerRow;
+      // Add to list and pre-select
+      setAllLearners((prev) => {
+        const exists = prev.find((u) => u.id === newUser.id);
+        return exists ? prev : [...prev, newUser].sort((a, b) => a.display_name.localeCompare(b.display_name));
+      });
+      setSelectedLearnerIds((prev) => new Set(prev).add(newUser.id));
+      setInviteEmail('');
+      setInviteName('');
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+        || 'Failed to invite learner';
+      setAssignError(msg);
+    } finally {
+      setInviteSaving(false);
+    }
+  }
+
+  async function handleSaveAssignments() {
+    const userIds = Array.from(selectedLearnerIds);
+    if (userIds.length === 0) {
+      setAssignError('Select at least one learner');
+      return;
+    }
+    setAssignSaving(true);
+    setAssignError('');
+    try {
+      await apiClient.post(`/scenarios/${scenarioId}/assign`, {
+        user_ids: userIds,
+        due_date: assignDueDate ? new Date(assignDueDate).toISOString() : undefined,
+      });
+      setShowAssignModal(false);
+      await loadAssignments();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+        || 'Failed to assign learners';
+      setAssignError(msg);
+    } finally {
+      setAssignSaving(false);
+    }
+  }
 
   const loadScenario = useCallback(async () => {
     setFetchLoading(true);
@@ -244,9 +384,17 @@ export default function EditScenarioPage() {
       {error && <div className="mb-4 p-3 rounded bg-destructive/10 text-destructive text-sm">{error}</div>}
 
       <div className="flex gap-2 border-b mb-6">
-        {(['basics', 'context', 'rubric', 'settings'] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors ${tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>{t}</button>
+        {(['basics', 'context', 'rubric', 'settings', 'learners'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => {
+              setTab(t);
+              if (t === 'learners') loadAssignments();
+            }}
+            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors ${tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            {t === 'learners' ? `Learners${assignments.length ? ` (${assignments.length})` : ''}` : t}
+          </button>
         ))}
       </div>
 
@@ -405,6 +553,87 @@ export default function EditScenarioPage() {
         </div>
       )}
 
+      {tab === 'learners' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Assigned Learners</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Manage which learners can train on this scenario.
+              </p>
+            </div>
+            <button
+              onClick={openAssignModal}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              + Assign learners
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+            {learnersLoading ? (
+              <div className="p-10 text-center text-sm text-muted-foreground">Loading…</div>
+            ) : assignments.length === 0 ? (
+              <div className="p-10 text-center">
+                <div className="mx-auto w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-muted-foreground/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium">No learners assigned yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Click &quot;Assign learners&quot; to get started</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-muted/30">
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Learner</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Due</th>
+                    <th className="px-5 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">Score</th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignments.map((a) => {
+                    const sc = STATUS_STYLE[a.status] ?? STATUS_STYLE.assigned;
+                    return (
+                      <tr key={a.assignment_id} className="border-t border-border/40 hover:bg-muted/20 transition-colors group">
+                        <td className="px-5 py-3">
+                          <div>
+                            <p className="text-sm font-medium">{a.display_name}</p>
+                            <p className="text-xs text-muted-foreground">{a.email}</p>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium ${sc.bg} ${sc.text}`}>
+                            {sc.label}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-sm text-muted-foreground">
+                          {a.due_date ? new Date(a.due_date).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-center text-sm tabular-nums">
+                          {a.latest_score != null ? `${Math.round(a.latest_score)}%` : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            onClick={() => handleUnassign(a.user_id, a.display_name)}
+                            className="text-xs text-destructive hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            Unassign
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end gap-3 mt-8">
         <button onClick={() => router.push('/scenarios')} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors">Cancel</button>
         <button onClick={handleSubmit} disabled={submitting || !title || !personaId || !objective || totalWeight !== 100}
@@ -412,6 +641,151 @@ export default function EditScenarioPage() {
           {submitting ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
+
+      {/* Assign learners modal */}
+      {showAssignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50" onClick={() => !assignSaving && setShowAssignModal(false)} />
+          <div className="relative bg-background border rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-border/50">
+              <h2 className="text-lg font-semibold">Assign learners to scenario</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Pick existing learners or invite a new one by email.</p>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
+              {/* Search */}
+              <div>
+                <input
+                  type="text"
+                  value={learnerSearch}
+                  onChange={(e) => setLearnerSearch(e.target.value)}
+                  placeholder="Search by name or email…"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Existing learners list */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                  Existing learners ({allLearners.length})
+                </p>
+                <div className="border border-border/50 rounded-lg max-h-56 overflow-y-auto">
+                  {allLearners.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-muted-foreground">
+                      No learners in your tenant yet. Invite one below.
+                    </div>
+                  ) : (
+                    allLearners
+                      .filter((u) => {
+                        if (!learnerSearch.trim()) return true;
+                        const q = learnerSearch.toLowerCase();
+                        return u.email.toLowerCase().includes(q) || u.display_name.toLowerCase().includes(q);
+                      })
+                      .map((u) => {
+                        const alreadyAssigned = assignments.some((a) => a.user_id === u.id);
+                        const selected = selectedLearnerIds.has(u.id);
+                        return (
+                          <label
+                            key={u.id}
+                            className={`flex items-center gap-3 px-4 py-2.5 border-b border-border/30 last:border-0 cursor-pointer transition-colors ${
+                              alreadyAssigned ? 'bg-muted/30 opacity-70' : selected ? 'bg-primary/5' : 'hover:bg-muted/30'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={alreadyAssigned || selected}
+                              disabled={alreadyAssigned}
+                              onChange={() => !alreadyAssigned && toggleLearner(u.id)}
+                              className="h-4 w-4 rounded border-input"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{u.display_name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                            </div>
+                            {alreadyAssigned && (
+                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                                Assigned
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+              {/* Invite new learner */}
+              <div className="border-t border-border/50 pt-4">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                  Invite new learner
+                </p>
+                <div className="space-y-2">
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="learner@company.com"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    placeholder="Display name (optional)"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={handleInviteLearner}
+                    disabled={inviteSaving || !inviteEmail.trim()}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {inviteSaving ? 'Inviting…' : 'Invite & select'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Due date */}
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
+                  Due date (optional)
+                </label>
+                <input
+                  type="date"
+                  value={assignDueDate}
+                  onChange={(e) => setAssignDueDate(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+              </div>
+
+              {assignError && (
+                <div className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2">{assignError}</div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                {selectedLearnerIds.size} selected
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowAssignModal(false)}
+                  disabled={assignSaving}
+                  className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveAssignments}
+                  disabled={assignSaving || selectedLearnerIds.size === 0}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {assignSaving ? 'Assigning…' : `Assign ${selectedLearnerIds.size || ''}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation dialog */}
       {showDeleteDialog && (

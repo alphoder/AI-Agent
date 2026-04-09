@@ -720,6 +720,63 @@ router.delete(
 );
 
 // ---------------------------------------------------------------------------
+// GET /api/scenarios/:id/assignments – List learners assigned to a scenario (admin)
+// Returns assignment rows with joined user info + latest session id.
+// ---------------------------------------------------------------------------
+router.get(
+  '/:id/assignments',
+  validateUuidParam(),
+  rbac('admin'),
+  wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.user!.tid;
+      const scenarioId = req.params.id;
+
+      // Ensure the scenario belongs to this tenant before listing
+      const scenarioCheck = await db.tenantQuery(
+        tenantId,
+        `SELECT id FROM scenarios WHERE id = $1 AND deleted_at IS NULL`,
+        [scenarioId],
+      );
+      if (scenarioCheck.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Scenario not found' },
+        });
+      }
+
+      const result = await db.tenantQuery(
+        tenantId,
+        `SELECT sa.id AS assignment_id,
+                sa.user_id,
+                sa.status,
+                sa.due_date,
+                sa.assigned_by,
+                sa.created_at AS assigned_at,
+                u.email,
+                u.display_name,
+                (SELECT sess.id FROM sessions sess
+                   WHERE sess.assignment_id = sa.id
+                   ORDER BY sess.created_at DESC LIMIT 1) AS latest_session_id,
+                (SELECT ss.overall_score FROM session_scores ss
+                   JOIN sessions sess2 ON sess2.id = ss.session_id
+                   WHERE sess2.assignment_id = sa.id
+                   ORDER BY sess2.created_at DESC LIMIT 1) AS latest_score
+         FROM scenario_assignments sa
+         JOIN users u ON u.id = sa.user_id
+         WHERE sa.scenario_id = $1 AND u.deleted_at IS NULL
+         ORDER BY u.display_name ASC`,
+        [scenarioId],
+      );
+
+      res.json({ success: true, data: result.rows, meta: { total: result.rows.length } });
+    } catch (err) {
+      next(err);
+    }
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // POST /api/scenarios/:id/assign – Bulk assign learners (admin only)
 // ---------------------------------------------------------------------------
 router.post(

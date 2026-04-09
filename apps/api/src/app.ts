@@ -18,6 +18,7 @@ import { analyticsRoutes } from './routes/analytics.routes';
 import { ltiRoutes } from './routes/lti.routes';
 import { tenantRoutes } from './routes/tenant.routes';
 import { internalRoutes } from './routes/internal.routes';
+import { usersRoutes } from './routes/users.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -110,6 +111,7 @@ export function createApp(): express.Express {
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/lti', ltiRoutes);
   app.use('/api/tenants', tenantRoutes);
+  app.use('/api/users', usersRoutes);
   app.use('/api/internal', internalRoutes);
 
   // 404 catch-all
