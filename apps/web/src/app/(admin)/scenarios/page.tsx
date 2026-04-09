@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { Plus, ClipboardList, Edit2 } from 'lucide-react';
 
 interface Scenario {
   id: string;
@@ -17,17 +18,94 @@ interface Scenario {
   created_at: string;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-800',
-  active: 'bg-green-100 text-green-800',
-  archived: 'bg-orange-100 text-orange-800',
+const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+  draft:    { bg: 'bg-slate-100',   text: 'text-slate-600',   dot: 'bg-slate-400',   label: 'Draft' },
+  active:   { bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Active' },
+  archived: { bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-500',   label: 'Archived' },
 };
 
-const DIFFICULTY_COLORS: Record<string, string> = {
-  beginner: 'bg-blue-100 text-blue-800',
-  intermediate: 'bg-yellow-100 text-yellow-800',
-  advanced: 'bg-red-100 text-red-800',
+const DIFFICULTY_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
+  beginner:     { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'Beginner' },
+  intermediate: { bg: 'bg-violet-50',  text: 'text-violet-700',  label: 'Intermediate' },
+  advanced:     { bg: 'bg-rose-50',    text: 'text-rose-700',    label: 'Advanced' },
 };
+
+/* ── Skeleton ── */
+function TableRowSkeleton() {
+  return (
+    <tr className="border-b border-border/40">
+      <td className="px-5 py-3.5">
+        <div className="flex items-center gap-3 animate-pulse">
+          <div className="w-9 h-9 rounded-full bg-muted flex-shrink-0" />
+          <div className="space-y-1.5">
+            <div className="h-3.5 w-36 rounded bg-muted" />
+            <div className="h-3 w-24 rounded bg-muted" />
+          </div>
+        </div>
+      </td>
+      <td className="px-5 py-3.5"><div className="h-5 w-16 rounded-full bg-muted animate-pulse" /></td>
+      <td className="px-5 py-3.5"><div className="h-5 w-20 rounded-full bg-muted animate-pulse" /></td>
+      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-8 rounded bg-muted animate-pulse mx-auto" /></td>
+      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-8 rounded bg-muted animate-pulse mx-auto" /></td>
+      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-12 rounded bg-muted animate-pulse mx-auto" /></td>
+      <td className="px-5 py-3.5 text-right"><div className="h-3.5 w-20 rounded bg-muted animate-pulse ml-auto" /></td>
+      <td className="px-5 py-3.5 text-right"><div className="h-7 w-12 rounded-lg bg-muted animate-pulse ml-auto" /></td>
+    </tr>
+  );
+}
+
+/* ── Badge ── */
+function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.draft;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium capitalize ${cfg.bg} ${cfg.text}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+      {cfg.label}
+    </span>
+  );
+}
+
+function DifficultyBadge({ level }: { level: string }) {
+  const cfg = DIFFICULTY_CONFIG[level] ?? DIFFICULTY_CONFIG.beginner;
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium capitalize ${cfg.bg} ${cfg.text}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+/* ── Score cell ── */
+function ScoreCell({ score }: { score: number | null }) {
+  if (score == null) return <span className="text-muted-foreground/40">—</span>;
+  const color = score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-rose-600';
+  return <span className={`font-semibold ${color}`}>{Math.round(score)}%</span>;
+}
+
+/* ── Empty state ── */
+function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
+  return (
+    <tr>
+      <td colSpan={8}>
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+            <ClipboardList className="w-8 h-8 text-muted-foreground/40" />
+          </div>
+          <h3 className="text-sm font-semibold mb-1.5">No scenarios found</h3>
+          <p className="text-xs text-muted-foreground text-center max-w-xs mb-4">
+            Scenarios define the training context, objectives, and scoring rubric.
+          </p>
+          <button
+            onClick={onCreateClick}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Create Scenario
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 export default function ScenariosPage() {
   const router = useRouter();
@@ -36,7 +114,8 @@ export default function ScenariosPage() {
   const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
-    async function fetch() {
+    setLoading(true);
+    async function load() {
       try {
         const params: Record<string, string> = {};
         if (statusFilter !== 'all') params.status = statusFilter;
@@ -48,126 +127,153 @@ export default function ScenariosPage() {
         setLoading(false);
       }
     }
-    fetch();
+    load();
   }, [statusFilter]);
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Scenarios</h1>
-        <button onClick={() => router.push('/scenarios/create')}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+    <div className="space-y-6">
+      {/* Page header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Scenarios</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Training scenarios with objectives, rubrics and assigned learners.
+          </p>
+        </div>
+        <button
+          onClick={() => router.push('/scenarios/create')}
+          className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors self-start sm:self-auto"
+        >
+          <Plus className="w-4 h-4" />
           Create Scenario
         </button>
       </div>
 
-      <div className="flex gap-2 mb-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-1.5">
         {['all', 'draft', 'active', 'archived'].map((s) => (
-          <button key={s} onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1 rounded text-sm capitalize ${statusFilter === s ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-medium capitalize transition-all duration-150 ${
+              statusFilter === s
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'bg-card border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+            }`}
+          >
             {s}
           </button>
         ))}
       </div>
 
-      {loading ? (
-        <div className="border rounded-lg overflow-hidden animate-pulse">
-          <table className="w-full">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left text-sm font-medium p-3">Scenario</th>
-                <th className="text-left text-sm font-medium p-3">Status</th>
-                <th className="text-left text-sm font-medium p-3">Difficulty</th>
-                <th className="text-center text-sm font-medium p-3">Assigned</th>
-                <th className="text-center text-sm font-medium p-3">Completed</th>
-                <th className="text-center text-sm font-medium p-3">Avg Score</th>
-                <th className="text-right text-sm font-medium p-3">Created</th>
-                <th className="text-right text-sm font-medium p-3"></th>
+      {/* Table */}
+      <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/50 bg-muted/30">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                  Scenario
+                </th>
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                  Status
+                </th>
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                  Difficulty
+                </th>
+                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                  Assigned
+                </th>
+                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                  Completed
+                </th>
+                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                  Avg Score
+                </th>
+                <th className="text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                  Created
+                </th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <tr key={i} className="border-t">
-                  <td className="p-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-muted flex-shrink-0" />
-                      <div className="space-y-1.5">
-                        <div className="h-3.5 w-32 rounded bg-muted" />
-                        <div className="h-3 w-20 rounded bg-muted" />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="p-3"><div className="h-5 w-14 rounded bg-muted" /></td>
-                  <td className="p-3"><div className="h-5 w-20 rounded bg-muted" /></td>
-                  <td className="p-3"><div className="h-3 w-8 rounded bg-muted mx-auto" /></td>
-                  <td className="p-3"><div className="h-3 w-8 rounded bg-muted mx-auto" /></td>
-                  <td className="p-3"><div className="h-3 w-10 rounded bg-muted mx-auto" /></td>
-                  <td className="p-3"><div className="h-3 w-20 rounded bg-muted ml-auto" /></td>
-                  <td className="p-3"><div className="h-6 w-10 rounded bg-muted ml-auto" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left text-sm font-medium p-3">Scenario</th>
-                <th className="text-left text-sm font-medium p-3">Status</th>
-                <th className="text-left text-sm font-medium p-3">Difficulty</th>
-                <th className="text-center text-sm font-medium p-3">Assigned</th>
-                <th className="text-center text-sm font-medium p-3">Completed</th>
-                <th className="text-center text-sm font-medium p-3">Avg Score</th>
-                <th className="text-right text-sm font-medium p-3">Created</th>
-                <th className="text-right text-sm font-medium p-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {scenarios.map((s) => (
-                <tr key={s.id} onClick={() => router.push(`/scenarios/${s.id}/edit`)}
-                  className="border-t cursor-pointer hover:bg-muted/30">
-                  <td className="p-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                        {s.avatar_thumbnail_url ? (
-                          <img src={s.avatar_thumbnail_url} alt="" className="w-full h-full object-cover" />
-                        ) : <span className="text-xs">{s.persona_name?.charAt(0)}</span>}
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{s.title}</p>
-                        <p className="text-xs text-muted-foreground">{s.persona_name}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_COLORS[s.status]}`}>{s.status}</span>
-                  </td>
-                  <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${DIFFICULTY_COLORS[s.difficulty_level]}`}>{s.difficulty_level}</span>
-                  </td>
-                  <td className="p-3 text-center text-sm">{s.assignment_count}</td>
-                  <td className="p-3 text-center text-sm">{s.completed_count}</td>
-                  <td className="p-3 text-center text-sm">{s.avg_score != null ? `${Math.round(s.avg_score)}%` : '-'}</td>
-                  <td className="p-3 text-right text-sm text-muted-foreground">{new Date(s.created_at).toLocaleDateString()}</td>
-                  <td className="p-3 text-right">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); router.push(`/scenarios/${s.id}/edit`); }}
-                      className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-muted transition-colors"
+              {loading
+                ? Array.from({ length: 6 }).map((_, i) => <TableRowSkeleton key={i} />)
+                : scenarios.length === 0
+                  ? <EmptyState onCreateClick={() => router.push('/scenarios/create')} />
+                  : scenarios.map((s) => (
+                    <tr
+                      key={s.id}
+                      onClick={() => router.push(`/scenarios/${s.id}/edit`)}
+                      className="border-b border-border/40 last:border-0 cursor-pointer hover:bg-muted/30 transition-colors group"
                     >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {scenarios.length === 0 && (
-                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No scenarios found</td></tr>
-              )}
+                      {/* Scenario info */}
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center overflow-hidden flex-shrink-0">
+                            {s.avatar_thumbnail_url ? (
+                              <img src={s.avatar_thumbnail_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-xs font-bold text-slate-500">
+                                {s.persona_name?.charAt(0)?.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-foreground truncate max-w-[220px] group-hover:text-primary transition-colors">
+                              {s.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{s.persona_name}</p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-5 py-3.5">
+                        <StatusBadge status={s.status} />
+                      </td>
+
+                      {/* Difficulty */}
+                      <td className="px-5 py-3.5">
+                        <DifficultyBadge level={s.difficulty_level} />
+                      </td>
+
+                      {/* Assigned */}
+                      <td className="px-5 py-3.5 text-center text-sm tabular-nums">
+                        {s.assignment_count}
+                      </td>
+
+                      {/* Completed */}
+                      <td className="px-5 py-3.5 text-center text-sm tabular-nums">
+                        {s.completed_count}
+                      </td>
+
+                      {/* Avg Score */}
+                      <td className="px-5 py-3.5 text-center text-sm tabular-nums">
+                        <ScoreCell score={s.avg_score} />
+                      </td>
+
+                      {/* Created */}
+                      <td className="px-5 py-3.5 text-right text-xs text-muted-foreground tabular-nums">
+                        {new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+
+                      {/* Edit */}
+                      <td className="px-5 py-3.5 text-right">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); router.push(`/scenarios/${s.id}/edit`); }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted hover:border-primary/30 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
     </div>
   );
 }

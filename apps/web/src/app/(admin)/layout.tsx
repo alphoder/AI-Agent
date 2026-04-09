@@ -50,18 +50,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return (
       <div className="flex min-h-screen bg-background">
         {/* Sidebar skeleton */}
-        <aside className="hidden lg:block w-64 border-r bg-muted/40">
+        <aside className="hidden lg:block w-64 bg-slate-900">
           <div className="animate-pulse space-y-4 p-5 pt-6">
             <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-muted" />
+              <div className="h-9 w-9 rounded-xl bg-slate-700" />
               <div className="space-y-1.5 flex-1">
-                <div className="h-3.5 w-3/4 rounded bg-muted" />
-                <div className="h-2.5 w-1/2 rounded bg-muted" />
+                <div className="h-3.5 w-3/4 rounded bg-slate-700" />
+                <div className="h-2.5 w-1/2 rounded bg-slate-700" />
               </div>
             </div>
             <div className="pt-4 space-y-2">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-9 w-full rounded-lg bg-muted" />
+                <div key={i} className="h-9 w-full rounded-lg bg-slate-800" />
               ))}
             </div>
           </div>
@@ -82,7 +82,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex min-h-screen bg-background">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:block w-64 shrink-0 border-r bg-muted/40">
+      <aside className="hidden lg:block w-64 shrink-0">
         <div className="sticky top-0 h-screen overflow-y-auto">
           <AdminSidebar tenantName={tenantName} />
         </div>
@@ -99,7 +99,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* Mobile sidebar drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 border-r bg-background shadow-xl transition-transform duration-300 ease-in-out lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 shadow-xl transition-transform duration-300 ease-in-out lg:hidden ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

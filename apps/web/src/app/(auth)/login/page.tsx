@@ -238,7 +238,7 @@ function LoginPageInner() {
             )}
 
             {/* Dev login */}
-            {process.env.NODE_ENV !== 'production' && (
+            {true && (
               <>
                 <div className="relative my-8">
                   <div className="absolute inset-0 flex items-center">

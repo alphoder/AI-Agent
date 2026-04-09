@@ -169,7 +169,7 @@ export default function AdminOverviewPage() {
           : 0;
 
         const scenarioData = scenariosRes.status === 'fulfilled'
-          ? (avatarsRes.value.data.data?.scenarios ?? scenariosRes.value.data.data?.scenarios ?? scenariosRes.value.data.data ?? [])
+          ? (scenariosRes.value.data.data?.scenarios ?? scenariosRes.value.data.data ?? [])
           : [];
         const scenarioList = Array.isArray(scenarioData) ? scenarioData : [];
 

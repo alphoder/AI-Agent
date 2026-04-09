@@ -1,0 +1,142 @@
+services:
+  # AI Service - Python FastAPI backend for LLM, TTS, and avatar generation
+  - type: web
+    name: avatar-ai
+    runtime: python
+    pythonVersion: 3.11
+    rootDir: apps/ai-service
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Database
+      - key: DATABASE_URL
+        sync: false
+      # Redis
+      - key: REDIS_URL
+        sync: false
+      # JWT Keys
+      - key: JWT_PRIVATE_KEY
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      # AI Providers (use Groq for free tier)
+      - key: LLM_PROVIDER
+        value: groq
+      - key: TTS_PROVIDER
+        value: deepgram
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      # Avatar Providers
+      - key: SIMLI_API_KEY
+        sync: false
+      - key: HEYGEN_API_KEY
+        sync: false
+      # Vector DB
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        value: avatar-platform
+      # LiveKit
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: LIVEKIT_URL
+        sync: false
+      # S3 / Storage
+      - key: S3_BUCKET
+        value: avatar-platform
+      - key: S3_REGION
+        value: us-east-1
+      - key: S3_ENDPOINT
+        value: http://localhost:9000
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      # API Gateway
+      - key: API_GATEWAY_URL
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+    plan: free
+    healthCheckPath: /health/ready
+    healthCheckStartupTimeout: 300
+
+  # API Service - Node.js Express backend for LMS operations
+  - type: web
+    name: avatar-api
+    runtime: node
+    nodeVersion: 20
+    rootDir: apps/api
+    buildCommand: npm install && npm run build
+    startCommand: node dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: LOG_LEVEL
+        value: info
+      # Database
+      - key: DATABASE_URL
+        sync: false
+      # Redis
+      - key: REDIS_URL
+        sync: false
+      # JWT Keys
+      - key: JWT_PRIVATE_KEY
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      # CORS & URLs
+      - key: CORS_ORIGINS
+        sync: false
+      # AI Service URL (set this after AI service deploys)
+      - key: AI_SERVICE_URL
+        sync: false
+      # S3
+      - key: S3_BUCKET
+        value: avatar-platform
+      - key: S3_REGION
+        value: us-east-1
+      - key: S3_ENDPOINT
+        value: http://localhost:9000
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      # LiveKit
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: LIVEKIT_URL
+        sync: false
+      # LTI
+      - key: LTI_ISSUER
+        value: avatar-training-platform
+      - key: LTI_KEYSET_URL
+        sync: false
+      # Internal
+      - key: INTERNAL_API_KEY
+        sync: false
+    plan: free
+    healthCheckPath: /health
+    healthCheckStartupTimeout: 300
+    dependencies:
+      - avatar-ai
+
+  # Frontend - Next.js hosted on Vercel (configure in Vercel dashboard instead)
+  # This is noted here for completeness, but Vercel deployment is handled separately
+  # via the Vercel dashboard (https://vercel.com/new)

@@ -5,15 +5,80 @@ You are a senior full-stack engineer building a production-grade, multi-tenant A
 
 ## Design Standards
 - **UI Framework**: Next.js 14 App Router + Tailwind CSS + shadcn/ui patterns
-- **Design Language**: Clean, modern SaaS aesthetic. Think Linear, Vercel, Notion
-- **Typography**: Clear hierarchy. Large bold headings, readable body text, proper spacing
-- **Colors**: Use CSS variables from globals.css. Primary blue, semantic colors for status
+- **Design Language**: Premium enterprise LMS aesthetic. Think Docebo, TalentLMS, Cornerstone — clean, trustworthy, data-forward
+- **Typography**: Clear hierarchy. Large bold headings, readable body text, proper spacing. Page titles: `text-2xl font-bold tracking-tight`, section headers: `text-sm font-semibold`
+- **Colors**: See Premium Color System below. Use CSS variables; never hardcode hex values
 - **Spacing**: Generous padding. Never cramped. min 16px padding on cards, 24px+ on pages
-- **Animations**: Subtle transitions on hover/focus. No jarring layout shifts
+- **Animations**: Subtle transitions on hover/focus. No jarring layout shifts. Cards: `hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300`
 - **Responsiveness**: Mobile-first. Every page works on 375px through 1440px+
-- **Empty States**: Always designed, never just text. Include illustration or icon + CTA
-- **Loading States**: Skeleton loaders, never bare spinners
+- **Empty States**: Always designed, never just text. Include icon + message + CTA button. Pattern: `w-16/20 h-16/20 rounded-2xl bg-muted/50` icon container
+- **Loading States**: Skeleton loaders ONLY — never bare spinners. Match exact shape of real content
 - **Error States**: Friendly messages with retry actions, never raw error codes
+
+## Premium Color System (Updated 2026-03-25)
+### CSS Variables (globals.css)
+- `--background`: HSL(220, 33%, 97%) — subtle cool blue-tint, not stark white (premium feel)
+- `--card`: HSL(0, 0%, 100%) — pure white for contrast against background
+- `--primary`: HSL(243, 75%, 59%) — indigo-600 (#4F46E5), sophisticated and modern
+- `--muted`: HSL(220, 16%, 93%) — light cool gray for muted areas
+- `--border`: HSL(220, 16%, 90%) — subtle cool border
+- `--radius`: 0.5rem
+
+### Admin Layout
+- **Sidebar**: Dark navy (`bg-slate-900`) — premium enterprise LMS look (Cornerstone, Docebo)
+- **Sidebar active state**: `bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/20`
+- **Sidebar inactive**: `text-slate-400 hover:bg-slate-800 hover:text-white`
+- **Header**: White/transparent backdrop with `backdrop-blur-lg` — stays light against dark sidebar
+- **Main content**: Uses `--background` CSS variable (light cool tint)
+
+### Semantic Colors (always use these — never hardcode)
+- Success/Active: `bg-emerald-50 text-emerald-700` with `bg-emerald-500` dot
+- Warning/Processing: `bg-amber-50 text-amber-700` with `bg-amber-500` dot
+- Error/Failed: `bg-rose-50 text-rose-700` with `bg-rose-500` dot
+- Info: `bg-blue-50 text-blue-700` with `bg-blue-500` dot
+- Neutral/Draft: `bg-slate-100 text-slate-600` with `bg-slate-400` dot
+- RAG/Knowledge: `bg-indigo-50 text-indigo-700`
+
+### Status Badge Pattern
+Always use pill badges with colored dot: `inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium`
+
+### Page Header Pattern
+```tsx
+<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+  <div>
+    <h1 className="text-2xl font-bold tracking-tight text-foreground">Page Title</h1>
+    <p className="text-sm text-muted-foreground mt-0.5">Subtitle describing the page.</p>
+  </div>
+  <PrimaryActionButton />
+</div>
+```
+
+### Filter Tabs Pattern (pill buttons, not border-bottom)
+```tsx
+<div className="flex flex-wrap gap-1.5">
+  {tabs.map(tab => (
+    <button className={active ? 'bg-primary text-primary-foreground shadow-sm rounded-full px-3.5 py-1.5 text-xs font-medium' : 'bg-card border border-border text-muted-foreground ...'}>
+```
+
+### Table Pattern
+- Container: `rounded-2xl border border-border/50 bg-card overflow-hidden`
+- Header row: `bg-muted/30` with `text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3`
+- Data rows: `border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors`
+- Edit buttons: `opacity-0 group-hover:opacity-100` (revealed on hover)
+
+### Card Pattern (for grids)
+- `rounded-2xl border border-border/50 bg-card hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 group`
+
+### Stat Card Pattern
+- Icon container: `w-12 h-12 rounded-xl bg-{color}-500 shadow-sm flex items-center justify-center`
+- Value: `text-2xl font-bold tracking-tight`
+- Label: `text-xs font-medium text-muted-foreground uppercase tracking-wider`
+
+### Chart Colors
+- Primary line/bar: `hsl(243 75% 59%)` (indigo — matches CSS primary)
+- Grid lines: `hsl(220 16% 90%)` (matches --border)
+- Axis labels: `hsl(215 16% 47%)` (matches --muted-foreground)
+- Tooltip: `borderRadius: '12px'`, `border: '1px solid hsl(220 16% 90%)'`
 
 ## Code Standards
 - **MANDATORY**: After EVERY code change, re-read this CLAUDE.md file and update it if needed
