@@ -273,10 +273,12 @@ function LoginPageInner() {
           </span>
         </div>
 
-        {/* Description blurb — appears below the title in ready phase */}
+        {/* Description blurb — fades in only after the title finishes sliding */}
         <div
-          className={`absolute left-12 right-12 top-1/2 z-20 max-w-md transition-opacity duration-700 ${
-            phase === 'ready' ? 'opacity-100 delay-[700ms]' : 'opacity-0'
+          className={`absolute left-12 right-12 top-1/2 z-20 max-w-md transition-opacity duration-500 ${
+            phase === 'ready'
+              ? 'opacity-100 delay-[1150ms]'
+              : 'opacity-0 delay-0'
           }`}
           style={{ transform: 'translateY(72px)' }}
         >
@@ -288,8 +290,10 @@ function LoginPageInner() {
 
         {/* Bottom stat row */}
         <div
-          className={`absolute bottom-12 left-12 z-20 max-w-sm transition-opacity duration-700 ${
-            phase === 'ready' ? 'opacity-100 delay-500' : 'opacity-0'
+          className={`absolute bottom-12 left-12 z-20 max-w-sm transition-opacity duration-500 ${
+            phase === 'ready'
+              ? 'opacity-100 delay-[1300ms]'
+              : 'opacity-0 delay-0'
           }`}
         >
           <div className="flex items-center gap-3">
@@ -316,18 +320,12 @@ function LoginPageInner() {
         style={{ transitionDuration: `${SLIDE_DURATION_MS}ms` }}
       >
         {phase === 'success' ? (
-          <div className="text-center animate-[fadeUp_700ms_ease-out]">
-            <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-white/40">
-              Signed in
-            </p>
-            <h1 className="whitespace-nowrap text-6xl font-bold leading-[1.1] tracking-tight text-white sm:text-7xl">
-              Welcome,{' '}
-              <span className="text-white/50">
-                {welcomeRole === 'admin' ? 'admin' : 'learner'}
-              </span>
-              <span className="text-white">.</span>
-            </h1>
-          </div>
+          <h1 className="whitespace-nowrap text-5xl font-bold leading-[1.15] tracking-tight text-white sm:text-6xl md:text-7xl animate-[fadeUp_700ms_ease-out]">
+            Welcome,{' '}
+            <span className="text-white/60">
+              {welcomeRole === 'admin' ? 'admin' : 'learner'}.
+            </span>
+          </h1>
         ) : (
           <h1
             className={`${titleSize} whitespace-nowrap text-left font-bold leading-[1.1] tracking-tight text-white transition-[font-size] ease-[cubic-bezier(0.65,0,0.35,1)]`}

@@ -92,18 +92,12 @@ export function WelcomeCurtain() {
       <div className="absolute -left-20 -top-20 h-[400px] w-[400px] rounded-full bg-[hsl(var(--primary))] opacity-20 blur-[120px]" />
       <div className="absolute -bottom-32 -right-32 h-[500px] w-[500px] rounded-full bg-[hsl(var(--primary))] opacity-10 blur-[120px]" />
 
-      <div className="relative z-10 text-center">
-        <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-white/40">
-          Signed in
-        </p>
-        <h1 className="whitespace-nowrap text-6xl font-bold leading-[1.1] tracking-tight text-white sm:text-7xl">
-          Welcome,{' '}
-          <span className="text-white/50">
-            {payload.role === 'admin' ? 'admin' : 'learner'}
-          </span>
-          <span className="text-white">.</span>
-        </h1>
-      </div>
+      <h1 className="relative z-10 whitespace-nowrap text-5xl font-bold leading-[1.15] tracking-tight text-white sm:text-6xl md:text-7xl">
+        Welcome,{' '}
+        <span className="text-white/60">
+          {payload.role === 'admin' ? 'admin' : 'learner'}.
+        </span>
+      </h1>
     </div>
   );
 }
