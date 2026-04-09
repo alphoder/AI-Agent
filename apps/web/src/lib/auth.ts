@@ -17,7 +17,7 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | null 
 export function setAccessToken(token: string): void {
   localStorage.setItem('access_token', token);
   // Also set as cookie so Next.js middleware can read it for SSR route protection
-  document.cookie = `access_token=${token}; path=/; max-age=900; samesite=strict`;
+  document.cookie = `access_token=${token}; path=/; max-age=900; samesite=lax`;
 }
 
 export function clearAccessToken(): void {
