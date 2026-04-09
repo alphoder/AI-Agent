@@ -116,7 +116,9 @@ router.post('/sso/callback', async (req: Request, res: Response, next: NextFunct
  */
 router.post('/dev-login', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (process.env.NODE_ENV === 'production') {
+    // Dev-login is disabled in production unless explicitly opted-in via ALLOW_DEV_LOGIN=true.
+    // This is safe ONLY for demo/staging deployments. Never enable on real customer data.
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEV_LOGIN !== 'true') {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
     }
 
