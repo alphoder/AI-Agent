@@ -413,9 +413,11 @@ function SessionPageInner() {
     const progressTimers: ReturnType<typeof setTimeout>[] = [];
     // Slow march up to 90% — the real work happens in parallel; we cap at 90
     // until the connection actually completes, then jump to 100.
-    const steps = [12, 24, 36, 48, 60, 72, 82, 90];
+    // Slow steady march — paced for a real connection that takes several
+    // seconds. Caps at 90% until the connection actually completes.
+    const steps = [8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 86, 90];
     steps.forEach((p, i) => {
-      progressTimers.push(setTimeout(() => setStartProgress(p), 150 + i * 220));
+      progressTimers.push(setTimeout(() => setStartProgress(p), 300 + i * 700));
     });
 
     try {
