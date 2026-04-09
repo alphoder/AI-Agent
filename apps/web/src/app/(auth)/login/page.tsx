@@ -47,9 +47,9 @@ function ArrowRightIcon() {
 
 const LINE_1 = 'Train with AI.';
 const LINE_2 = 'Perform in reality.';
-const TYPE_SPEED_MS = 130;
+const TYPE_SPEED_MS = 85;
 const SLIDE_DURATION_MS = 1100;
-const WELCOME_HOLD_MS = 1600;
+const WELCOME_HOLD_MS = 1800;
 
 type Phase = 'typing' | 'ready' | 'success';
 
@@ -195,17 +195,14 @@ function LoginPageInner() {
   // Form panel slides in from the right, then back out on success.
   const formTransform = phase === 'ready' ? 'translate-x-0' : 'translate-x-full';
 
-  // Hero title classes — animates from huge centered to compact left-aligned.
-  // The wrapper is absolutely positioned in the branding panel.
-  const titleWrapperBase =
-    'absolute z-20 transition-all ease-[cubic-bezier(0.65,0,0.35,1)]';
-  const titleWrapper =
-    phase === 'typing'
-      ? 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(900px,90%)] text-center'
-      : phase === 'ready'
-      ? 'left-12 top-1/2 -translate-y-1/2 max-w-md text-left lg:left-12'
-      : // success → re-center, slightly above middle
-        'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(900px,90%)] text-center';
+  // Hero title — fixed positioning so the branding panel resize never reflows
+  // it, and text is always left-aligned + nowrap so the typewriter doesn't
+  // visually jitter as characters are appended.
+  const titlePos =
+    phase === 'ready'
+      ? 'left-12 top-1/2 -translate-y-1/2'
+      : // typing & success → centered in viewport
+        'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2';
 
   const titleSize =
     phase === 'ready'
@@ -250,52 +247,6 @@ function LoginPageInner() {
           </span>
         </div>
 
-        {/* Hero title — animates from centered+huge to left+compact */}
-        <div
-          className={`${titleWrapperBase} ${titleWrapper}`}
-          style={{ transitionDuration: `${SLIDE_DURATION_MS}ms` }}
-        >
-          {phase === 'success' ? (
-            <h1
-              className={`${titleSize} font-bold leading-[1.15] tracking-tight text-white animate-[fadeUp_700ms_ease-out]`}
-            >
-              Welcome,{' '}
-              <span className="text-white/60">
-                {welcomeRole === 'admin' ? 'admin' : 'learner'}.
-              </span>
-            </h1>
-          ) : (
-            <>
-              <h1
-                className={`${titleSize} font-bold leading-[1.15] tracking-tight text-white transition-all ease-[cubic-bezier(0.65,0,0.35,1)]`}
-                style={{ transitionDuration: `${SLIDE_DURATION_MS}ms` }}
-              >
-                <span>
-                  {typed1}
-                  {showCaret1 && (
-                    <span className="ml-1 inline-block h-[0.9em] w-[3px] translate-y-[0.1em] bg-white/80 animate-pulse" />
-                  )}
-                </span>
-                <br />
-                <span className="text-white/60">
-                  {typed2}
-                  {showCaret2 && (
-                    <span className="ml-1 inline-block h-[0.9em] w-[3px] translate-y-[0.1em] bg-white/40 animate-pulse" />
-                  )}
-                </span>
-              </h1>
-              <p
-                className={`mt-5 text-base leading-relaxed text-white/40 transition-opacity duration-700 ${
-                  phase === 'ready' ? 'opacity-100 delay-500' : 'opacity-0'
-                }`}
-              >
-                Practice high-stakes conversations with AI-powered avatars.
-                Get instant feedback, build confidence, and master every scenario.
-              </p>
-            </>
-          )}
-        </div>
-
         {/* Bottom stat row */}
         <div
           className={`absolute bottom-12 left-12 z-20 max-w-sm transition-opacity duration-700 ${
@@ -318,6 +269,46 @@ function LoginPageInner() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Hero title (fixed, animates position + size only) ── */}
+      <div
+        className={`pointer-events-none fixed z-30 transition-all ease-[cubic-bezier(0.65,0,0.35,1)] ${titlePos}`}
+        style={{ transitionDuration: `${SLIDE_DURATION_MS}ms` }}
+      >
+        {phase === 'success' ? (
+          <div className="text-center animate-[fadeUp_700ms_ease-out]">
+            <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-white/40">
+              Signed in
+            </p>
+            <h1 className="whitespace-nowrap text-6xl font-bold leading-[1.1] tracking-tight text-white sm:text-7xl">
+              Welcome,{' '}
+              <span className="text-white/50">
+                {welcomeRole === 'admin' ? 'admin' : 'learner'}
+              </span>
+              <span className="text-white">.</span>
+            </h1>
+          </div>
+        ) : (
+          <h1
+            className={`${titleSize} whitespace-nowrap text-left font-bold leading-[1.1] tracking-tight text-white transition-[font-size] ease-[cubic-bezier(0.65,0,0.35,1)]`}
+            style={{ transitionDuration: `${SLIDE_DURATION_MS}ms` }}
+          >
+            <span className="inline-block">
+              {typed1}
+              {showCaret1 && (
+                <span className="ml-1 inline-block h-[0.85em] w-[3px] translate-y-[0.12em] bg-white/80 animate-pulse align-baseline" />
+              )}
+            </span>
+            <br />
+            <span className="inline-block text-white/60">
+              {typed2}
+              {showCaret2 && (
+                <span className="ml-1 inline-block h-[0.85em] w-[3px] translate-y-[0.12em] bg-white/40 animate-pulse align-baseline" />
+              )}
+            </span>
+          </h1>
+        )}
       </div>
 
       {/* ── Form panel (slides in from right) ── */}
@@ -459,11 +450,11 @@ function LoginPageInner() {
         @keyframes fadeUp {
           from {
             opacity: 0;
-            transform: translate(-50%, calc(-50% + 12px));
+            transform: translateY(14px);
           }
           to {
             opacity: 1;
-            transform: translate(-50%, -50%);
+            transform: translateY(0);
           }
         }
       `}</style>
