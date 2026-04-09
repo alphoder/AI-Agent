@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { LogoMark } from '@/components/ui/logo-mark';
 
 function BuildingIcon() {
@@ -66,6 +66,7 @@ function LoginPageInner() {
   const [error, setError] = useState('');
   const [devEmail, setDevEmail] = useState('');
   const [devLoading, setDevLoading] = useState(false);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get('redirect');
   const safeRedirect = isSafeRedirect(redirectParam) ? redirectParam : null;
@@ -119,14 +120,21 @@ function LoginPageInner() {
     };
   }, []);
 
-  // ── Success → navigate after welcome animation ──
+  // ── Success → hand off to the WelcomeCurtain on the destination route ──
+  // The login page paints the welcome immediately; we then router.push to the
+  // destination, which mounts behind the WelcomeCurtain (which reads
+  // sessionStorage and continues showing the welcome). The curtain then slides
+  // off to the right, revealing the destination — which has been loading the
+  // whole time.
   useEffect(() => {
     if (phase !== 'success' || !pendingDest.current) return;
+    const dest = pendingDest.current;
+    // Tiny delay so the success paint lands first, then navigate.
     const t = setTimeout(() => {
-      window.location.href = pendingDest.current!;
-    }, WELCOME_HOLD_MS);
+      router.push(dest);
+    }, 120);
     return () => clearTimeout(t);
-  }, [phase]);
+  }, [phase, router]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,6 +181,24 @@ function LoginPageInner() {
       const dest =
         safeRedirect ??
         (role === 'admin' ? '/overview' : '/dashboard');
+
+      // Start loading the destination IMMEDIATELY so it's ready by the time
+      // the welcome curtain slides away.
+      try {
+        router.prefetch(dest);
+      } catch {
+        /* prefetch is best-effort */
+      }
+
+      // Hand off welcome state to the WelcomeCurtain mounted in root layout.
+      try {
+        sessionStorage.setItem(
+          'welcome_curtain',
+          JSON.stringify({ role, ts: Date.now() }),
+        );
+      } catch {
+        /* sessionStorage may be unavailable in private mode */
+      }
 
       pendingDest.current = dest;
       setWelcomeRole(role);
@@ -245,6 +271,19 @@ function LoginPageInner() {
           <span className="text-lg font-semibold tracking-tight text-white">
             Avatar Platform
           </span>
+        </div>
+
+        {/* Description blurb — appears below the title in ready phase */}
+        <div
+          className={`absolute left-12 right-12 top-1/2 z-20 max-w-md transition-opacity duration-700 ${
+            phase === 'ready' ? 'opacity-100 delay-[700ms]' : 'opacity-0'
+          }`}
+          style={{ transform: 'translateY(72px)' }}
+        >
+          <p className="text-base leading-relaxed text-white/40">
+            Practice high-stakes conversations with AI-powered avatars.
+            Get instant feedback, build confidence, and master every scenario.
+          </p>
         </div>
 
         {/* Bottom stat row */}
