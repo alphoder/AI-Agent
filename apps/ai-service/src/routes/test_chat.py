@@ -75,13 +75,19 @@ async def test_chat_ws(websocket: WebSocket):
     mic_active = True
 
     async def connect_deepgram():
-        """Open streaming Deepgram STT WebSocket."""
+        """Open streaming Deepgram STT WebSocket.
+
+        endpointing=900: wait 900ms of silence before flagging interim-final
+        (was 300 — caused premature sends on natural speech pauses).
+        utterance_end_ms=1500: only emit UtteranceEnd / speech_final after
+        1.5s of continuous silence (was 1000).
+        """
         url = (
             "wss://api.deepgram.com/v1/listen"
             "?encoding=linear16&sample_rate=16000&channels=1"
-            "&model=nova-2&language=en&punctuate=true"
-            "&interim_results=true&endpointing=300"
-            "&vad_events=true&utterance_end_ms=1000"
+            "&model=nova-2&language=en&punctuate=true&smart_format=true"
+            "&interim_results=true&endpointing=900"
+            "&vad_events=true&utterance_end_ms=1500"
         )
         headers = {"Authorization": f"Token {settings.deepgram_api_key}"}
         ws = await websockets.connect(url, additional_headers=headers)
@@ -115,8 +121,11 @@ async def test_chat_ws(websocket: WebSocket):
                             "type": "transcript_interim",
                             "text": transcript,
                         })
-                    elif speech_final or is_final:
-                        # Final transcript — trigger LLM response
+                    elif speech_final:
+                        # Only trigger the LLM on a real end-of-speech marker
+                        # (speech_final is set after utterance_end_ms silence).
+                        # Ignoring bare `is_final` prevents premature sends on
+                        # mid-thought pauses.
                         logger.info("test_chat.user_said", text=transcript[:80])
                         await websocket.send_json({
                             "type": "transcript",
