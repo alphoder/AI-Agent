@@ -54,7 +54,6 @@ router.get(
         where += ` AND (LOWER(${a}email) LIKE $${params.length} OR LOWER(${a}display_name) LIKE $${params.length})`;
       }
 
-      params.push(limit);
       const selectClause = withStats
         ? `u.id, u.email, u.display_name, u.role, u.is_active, u.last_login_at, u.created_at,
            (SELECT COUNT(*)::int FROM scenario_assignments sa WHERE sa.user_id = u.id) AS assignments_total,
@@ -67,19 +66,32 @@ router.get(
            (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_session_at`
         : `id, email, display_name, role, is_active, last_login_at, created_at`;
 
-      const result = await db.tenantQuery(
-        tenantId,
-        `SELECT ${selectClause}
-         FROM users${withStats ? ' u' : ''} WHERE ${where}
-         ORDER BY ${a}display_name ASC
-         LIMIT $${params.length}`,
-        params,
-      );
+      // Run the data query and a COUNT(*) query in parallel so meta.total reflects
+      // the real number of matching users, not just the size of this page.
+      // (Dashboard calls `/users?role=learner&limit=1` just to read meta.total.)
+      const dataParams = [...params, limit];
+      const [dataResult, countResult] = await Promise.all([
+        db.tenantQuery(
+          tenantId,
+          `SELECT ${selectClause}
+           FROM users${withStats ? ' u' : ''} WHERE ${where}
+           ORDER BY ${a}display_name ASC
+           LIMIT $${dataParams.length}`,
+          dataParams,
+        ),
+        db.tenantQuery(
+          tenantId,
+          `SELECT COUNT(*)::int AS n FROM users${withStats ? ' u' : ''} WHERE ${where}`,
+          params,
+        ),
+      ]);
+
+      const total = countResult.rows[0]?.n ?? dataResult.rows.length;
 
       res.json({
         success: true,
-        data: result.rows,
-        meta: { total: result.rows.length, limit },
+        data: dataResult.rows,
+        meta: { total, count: dataResult.rows.length, limit },
       });
     } catch (err) {
       next(err);
