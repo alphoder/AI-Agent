@@ -46,16 +46,55 @@ const envSchemaRefined = envSchema.refine(
   },
 );
 
+// Normalize a PEM-style env var: strip surrounding quotes (Render stores the
+// value verbatim when pasted individually) and convert `\n` escape sequences
+// back into real newlines. Safe to call on any string.
+function normalizePem(raw: string | undefined): string | undefined {
+  if (raw == null) return raw;
+  let v = raw.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  if (v.includes('\\n')) {
+    v = v.replace(/\\n/g, '\n');
+  }
+  return v;
+}
+
 // Strip empty-string env vars so Zod defaults apply correctly
 // (dotenv sets KEY= as "" which overrides Zod .default())
 const cleanedEnv = Object.fromEntries(
-  Object.entries(process.env).map(([k, v]) => [k, v === '' ? undefined : v]),
+  Object.entries(process.env).map(([k, v]) => {
+    const value = v === '' ? undefined : v;
+    if (k === 'JWT_PRIVATE_KEY' || k === 'JWT_PUBLIC_KEY') {
+      return [k, normalizePem(value)];
+    }
+    return [k, value];
+  }),
 );
 
 const parsed = envSchemaRefined.safeParse(cleanedEnv);
 
 if (!parsed.success) {
-  console.error('Invalid environment variables:', parsed.error.flatten().fieldErrors);
+  const flat = parsed.error.flatten();
+  console.error('Invalid environment variables:');
+  console.error('  fieldErrors:', flat.fieldErrors);
+  console.error('  formErrors:', flat.formErrors);
+  // Log a redacted fingerprint of JWT_PRIVATE_KEY so we can tell if quotes/literal \n are the culprit
+  const k = process.env.JWT_PRIVATE_KEY;
+  if (k) {
+    console.error(
+      '  JWT_PRIVATE_KEY shape:',
+      JSON.stringify({
+        length: k.length,
+        first10: k.slice(0, 10),
+        last10: k.slice(-10),
+        hasEscapedNewlines: k.includes('\\n'),
+        hasRealNewlines: k.includes('\n'),
+        startsWithBegin: k.startsWith('-----BEGIN'),
+      }),
+    );
+  }
   process.exit(1);
 }
 
