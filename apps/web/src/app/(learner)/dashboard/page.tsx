@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import { HelpHint } from '@/components/ui/help-hint';
 import { getAccessToken } from '@/lib/auth';
+import { StatTile } from '@/components/ui/stat-tile';
+import { SectionCard } from '@/components/ui/section-card';
+import { RichEmptyState } from '@/components/ui/rich-empty-state';
+import { ProgressRing } from '@/components/ui/progress-ring';
 import {
   BookOpen,
   CheckCircle2,
@@ -15,10 +19,10 @@ import {
   RotateCcw,
   BarChart3,
   GraduationCap,
-  Inbox,
   Timer,
   Tag,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -104,85 +108,47 @@ function decodeUserEmail(): string | null {
   }
 }
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+function getFirstName(email: string): string {
+  const local = email.split('@')[0] || '';
+  const parts = local.split(/[._-]/).filter(Boolean);
+  const first = parts[0] || local;
+  return first.charAt(0).toUpperCase() + first.slice(1);
 }
 
 /* ------------------------------------------------------------------ */
 /*  Skeleton Components                                                */
 /* ------------------------------------------------------------------ */
 
-function StatSkeleton() {
+function HeroSkeleton() {
   return (
-    <div className="rounded-2xl border border-border/50 bg-card p-5 animate-pulse">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-muted" />
-        <div className="space-y-2 flex-1">
-          <div className="h-3 w-20 rounded bg-muted" />
-          <div className="h-6 w-12 rounded bg-muted" />
+    <div className="rounded-3xl bg-grad-learner-hero p-8 md:p-10 shadow-xl shadow-indigo-500/20 animate-pulse">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+        <div className="space-y-3 flex-1">
+          <div className="h-9 w-64 rounded bg-white/20" />
+          <div className="h-5 w-80 rounded bg-white/10" />
         </div>
+        <div className="h-[120px] w-[120px] rounded-full bg-white/10" />
       </div>
     </div>
   );
 }
 
-function CardSkeleton() {
+function AssignmentSkeleton() {
   return (
     <div className="rounded-2xl border border-border/50 bg-card overflow-hidden animate-pulse">
       <div className="p-5 space-y-4">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full bg-muted flex-shrink-0" />
+          <div className="w-11 h-11 rounded-full shimmer-bg flex-shrink-0" />
           <div className="flex-1 space-y-2">
-            <div className="h-4 w-3/4 rounded bg-muted" />
-            <div className="h-3 w-1/2 rounded bg-muted" />
+            <div className="h-4 w-3/4 rounded shimmer-bg" />
+            <div className="h-3 w-1/2 rounded shimmer-bg" />
           </div>
         </div>
         <div className="flex gap-2">
-          <div className="h-5 w-16 rounded-full bg-muted" />
-          <div className="h-5 w-20 rounded-full bg-muted" />
+          <div className="h-5 w-16 rounded-full shimmer-bg" />
+          <div className="h-5 w-20 rounded-full shimmer-bg" />
         </div>
-        <div className="space-y-2">
-          <div className="h-3 w-full rounded bg-muted" />
-          <div className="h-3 w-2/3 rounded bg-muted" />
-        </div>
-        <div className="flex gap-2 pt-1">
-          <div className="h-3 w-24 rounded bg-muted" />
-          <div className="h-3 w-20 rounded bg-muted" />
-        </div>
-        <div className="h-10 w-full rounded-xl bg-muted" />
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Stat Card                                                          */
-/* ------------------------------------------------------------------ */
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string | number;
-  accent: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-border/50 bg-card p-5 hover:shadow-md transition-shadow duration-300">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl ${accent} flex items-center justify-center`}>
-          <Icon className="w-5 h-5 text-white" />
-        </div>
-        <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
-          <p className="text-2xl font-bold tracking-tight">{value}</p>
-        </div>
+        <div className="h-10 w-full rounded-xl shimmer-bg" />
       </div>
     </div>
   );
@@ -192,19 +158,34 @@ function StatCard({
 /*  Assignment Card                                                    */
 /* ------------------------------------------------------------------ */
 
-function AssignmentCard({ assignment, onAction, isClient }: { assignment: Assignment; onAction: (action: string) => void; isClient: boolean }) {
+function AssignmentCard({
+  assignment,
+  onAction,
+  isClient,
+}: {
+  assignment: Assignment;
+  onAction: (action: string) => void;
+  isClient: boolean;
+}) {
   const a = assignment;
   const overdue = isClient ? isOverdue(a.due_date, a.assignment_status) : false;
   const diff = DIFFICULTY_STYLES[a.difficulty_level] || DIFFICULTY_STYLES.beginner;
   const statusCfg = STATUS_CONFIG[a.assignment_status] || STATUS_CONFIG.assigned;
   const gradient = getAvatarGradient(a.persona_name);
+  const isCompleted = a.assignment_status === 'completed';
+  const hasScore = isCompleted && a.overall_score != null;
 
   return (
-    <div className="group rounded-2xl border border-border/50 bg-card overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">
+    <div
+      onClick={() => onAction(isCompleted ? 'report' : 'start')}
+      className="group cursor-pointer rounded-2xl border border-border/60 bg-card overflow-hidden card-interactive"
+    >
       <div className="p-5 space-y-4">
-        {/* Header: Avatar + Title */}
+        {/* Header: Avatar + Title + Score ring */}
         <div className="flex items-start gap-3">
-          <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+          <div
+            className={`w-11 h-11 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center flex-shrink-0 shadow-sm`}
+          >
             {a.persona_thumbnail_url ? (
               <img src={a.persona_thumbnail_url} alt="" className="w-full h-full rounded-full object-cover" />
             ) : (
@@ -217,24 +198,31 @@ function AssignmentCard({ assignment, onAction, isClient }: { assignment: Assign
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">{a.persona_name}</p>
           </div>
+          {hasScore && (
+            <ProgressRing
+              value={a.overall_score!}
+              size={48}
+              stroke={5}
+              label={
+                <span className="text-[11px] font-bold tabular-nums text-foreground">
+                  {Math.round(a.overall_score!)}
+                </span>
+              }
+            />
+          )}
         </div>
 
         {/* Badges row */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Difficulty */}
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${diff.bg} ${diff.text}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${diff.dot}`} />
             {a.difficulty_level.charAt(0).toUpperCase() + a.difficulty_level.slice(1)}
           </span>
 
-          {/* Status */}
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${statusCfg.bgColor} ${statusCfg.color}`}>
-            {a.assignment_status === 'completed' && a.overall_score != null
-              ? `${Math.round(a.overall_score)}%`
-              : statusCfg.label}
+            {statusCfg.label}
           </span>
 
-          {/* Tags */}
           {a.tags?.slice(0, 2).map((tag) => (
             <span key={tag} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground">
               <Tag className="w-2.5 h-2.5" />
@@ -263,8 +251,8 @@ function AssignmentCard({ assignment, onAction, isClient }: { assignment: Assign
         </div>
 
         {/* CTA */}
-        <div className="flex gap-2 pt-1">
-          {a.assignment_status === 'completed' ? (
+        <div className="flex gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+          {isCompleted ? (
             <>
               <button
                 onClick={() => onAction('retry')}
@@ -287,30 +275,12 @@ function AssignmentCard({ assignment, onAction, isClient }: { assignment: Assign
               className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm group/btn"
             >
               <Play className="w-3.5 h-3.5 transition-transform group-hover/btn:scale-110" />
-              {a.assignment_status === 'in_progress' ? 'Resume Session' : 'Start Session'}
+              {a.assignment_status === 'in_progress' ? 'Resume' : 'Start Session'}
               <ChevronRight className="w-3.5 h-3.5 opacity-0 -ml-1 group-hover/btn:opacity-100 group-hover/btn:ml-0 transition-all" />
             </button>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Empty State                                                        */
-/* ------------------------------------------------------------------ */
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 px-6">
-      <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center mb-6">
-        <Inbox className="w-10 h-10 text-muted-foreground/50" />
-      </div>
-      <h2 className="text-lg font-semibold mb-2">No assignments yet</h2>
-      <p className="text-sm text-muted-foreground text-center max-w-sm leading-relaxed">
-        Your training scenarios will appear here once your administrator assigns them to you. Check back soon!
-      </p>
     </div>
   );
 }
@@ -323,16 +293,14 @@ export default function LearnerDashboardPage() {
   const router = useRouter();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState<string | null>(null);
-  const [greeting, setGreeting] = useState('Welcome back');
+  const [userName, setUserName] = useState<string>('there');
   const [isClient, setIsClient] = useState(false);
 
   // Hydration-safe: read localStorage only on client mount
   useEffect(() => {
     setIsClient(true);
     const email = decodeUserEmail();
-    if (email) setUserName(email.split('@')[0]);
-    setGreeting(getGreeting());
+    if (email) setUserName(getFirstName(email));
   }, []);
 
   useEffect(() => {
@@ -357,8 +325,9 @@ export default function LearnerDashboardPage() {
     const scores = assignments
       .filter((a) => a.overall_score != null)
       .map((a) => a.overall_score!);
-    const avgScore = scores.length > 0 ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length) : null;
-    return { total, completed, inProgress, avgScore };
+    const avgScore = scores.length > 0 ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length) : 0;
+    const completionPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, inProgress, avgScore, completionPct };
   }, [assignments]);
 
   function handleAction(a: Assignment, action: string) {
@@ -375,33 +344,88 @@ export default function LearnerDashboardPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Welcome Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-          {greeting}{userName ? `, ${userName}` : ''}
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Track your progress and continue your training sessions.
-        </p>
-      </div>
-
-      {/* Stats Row */}
+      {/* ── Hero ── */}
       {loading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <StatSkeleton key={i} />
-          ))}
+        <HeroSkeleton />
+      ) : (
+        <div className="rounded-3xl bg-grad-learner-hero p-8 md:p-10 text-white shadow-xl shadow-indigo-500/20 relative overflow-hidden animate-fade-in">
+          {/* Decorative blurred circles */}
+          <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
+          <div className="absolute -bottom-20 -left-10 w-56 h-56 rounded-full bg-pink-300/20 blur-3xl" />
+
+          <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+            <div className="flex-1 min-w-0">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 backdrop-blur-sm px-3 py-1 text-xs font-medium mb-4">
+                <Sparkles className="w-3.5 h-3.5" />
+                Your training space
+              </div>
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight leading-tight">
+                Welcome back, {userName}
+              </h1>
+              <p className="mt-2 text-white/80 text-base md:text-lg max-w-xl">
+                Ready for your next training session? Your progress is looking great.
+              </p>
+
+              {stats.total > 0 && (
+                <div className="mt-6 flex flex-wrap items-center gap-4 text-sm">
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 backdrop-blur-sm px-3 py-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span className="font-medium">{stats.completed} completed</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 backdrop-blur-sm px-3 py-1.5">
+                    <BookOpen className="w-4 h-4" />
+                    <span className="font-medium">{stats.total} assigned</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-shrink-0 flex items-center justify-center md:justify-end">
+              <ProgressRing
+                value={stats.completionPct}
+                size={128}
+                stroke={10}
+                color="#ffffff"
+                trackColor="rgba(255,255,255,0.25)"
+                label={
+                  <div className="text-center text-white">
+                    <div className="text-3xl font-bold leading-none">{stats.completionPct}%</div>
+                    <div className="text-[11px] font-medium uppercase tracking-wider opacity-80 mt-1">Overall</div>
+                  </div>
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stats Row ── */}
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatTile icon={GraduationCap} label="In progress" value={0} accent="assign" loading />
+          <StatTile icon={CheckCircle2} label="Completed" value={0} accent="learners" loading />
+          <StatTile icon={Trophy} label="Average score" value={0} accent="analytics" loading />
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={BookOpen} label="Total Sessions" value={stats.total} accent="bg-blue-500" />
-          <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} accent="bg-emerald-500" />
-          <StatCard icon={GraduationCap} label="In Progress" value={stats.inProgress} accent="bg-amber-500" />
-          <StatCard
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatTile
+            icon={GraduationCap}
+            label="In progress"
+            value={stats.inProgress}
+            accent="assign"
+          />
+          <StatTile
+            icon={CheckCircle2}
+            label="Completed"
+            value={stats.completed}
+            accent="learners"
+          />
+          <StatTile
             icon={Trophy}
-            label="Avg. Score"
-            value={stats.avgScore != null ? `${stats.avgScore}%` : '--'}
-            accent="bg-violet-500"
+            label="Average score"
+            value={stats.avgScore}
+            suffix={stats.avgScore > 0 ? '%' : ''}
+            accent="analytics"
           />
         </div>
       )}
@@ -409,23 +433,36 @@ export default function LearnerDashboardPage() {
       {/* Help hint */}
       {!loading && assignments.length > 0 && (
         <HelpHint variant="tip" dismissible dismissKey="learner-dashboard-tip" title="Your training assignments">
-          Each card below is a training scenario assigned by your instructor. Click &apos;Start Session&apos; to begin a live conversation with an AI avatar. Your performance will be scored against the scenario&apos;s rubric criteria.
+          Each card below is a training scenario assigned by your instructor. Click a card or &apos;Start Session&apos; to begin a live conversation with an AI avatar. Your performance will be scored against the scenario&apos;s rubric criteria.
         </HelpHint>
       )}
 
-      {/* Assignment Cards */}
+      {/* ── Assignments ── */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <CardSkeleton key={i} />
-          ))}
-        </div>
+        <SectionCard icon={BookOpen} iconTint="text-indigo-600" title="Your assignments" subtitle="Pick up where you left off">
+          <div className="p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <AssignmentSkeleton key={i} />
+            ))}
+          </div>
+        </SectionCard>
       ) : assignments.length === 0 ? (
-        <EmptyState />
+        <SectionCard icon={BookOpen} iconTint="text-indigo-600" title="Your assignments" subtitle="Pick up where you left off">
+          <RichEmptyState
+            icon={BookOpen}
+            accent="learners"
+            title="No assignments yet"
+            description="Your admin will assign you scenarios here. Check back soon!"
+          />
+        </SectionCard>
       ) : (
-        <div>
-          <h2 className="text-lg font-semibold mb-4">Your Assignments</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <SectionCard
+          icon={BookOpen}
+          iconTint="text-indigo-600"
+          title="Your assignments"
+          subtitle="Pick up where you left off"
+        >
+          <div className="p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {assignments.map((a) => (
               <AssignmentCard
                 key={a.assignment_id}
@@ -435,9 +472,8 @@ export default function LearnerDashboardPage() {
               />
             ))}
           </div>
-        </div>
+        </SectionCard>
       )}
-
     </div>
   );
 }

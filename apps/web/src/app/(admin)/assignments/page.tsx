@@ -4,9 +4,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import {
-  ClipboardList, Drama, Users, GraduationCap, Plus, Check, ArrowRight, ArrowLeft,
+  ClipboardList, ClipboardCheck, Drama, Users, GraduationCap, Plus, Check, ArrowRight, ArrowLeft,
   Search, Calendar, Trash2, X,
 } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
+import { SectionCard } from '@/components/ui/section-card';
+import { RichEmptyState } from '@/components/ui/rich-empty-state';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -140,21 +143,21 @@ export default function AssignmentsPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Assignments</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Assign scenarios to learners. Pick the persona and avatar combo they&apos;ll train with.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowWizard(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Assignment
-        </button>
-      </div>
+      <PageHeader
+        icon={ClipboardCheck}
+        accent="assign"
+        title="Assignments"
+        subtitle="Assign scenarios to learners. Pair the persona and avatar they'll train with."
+        actions={
+          <button
+            onClick={() => setShowWizard(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Assignment
+          </button>
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -195,7 +198,12 @@ export default function AssignmentsPage() {
       )}
 
       {/* Table */}
-      <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+      <SectionCard
+        icon={ClipboardCheck}
+        iconTint="text-rose-600"
+        title="All assignments"
+        subtitle="Click a row for details."
+      >
         <table className="w-full">
           <thead>
             <tr className="bg-muted/30">
@@ -215,23 +223,26 @@ export default function AssignmentsPage() {
                 <tr key={i} className="border-t border-border/40">
                   {Array.from({ length: 8 }).map((__, j) => (
                     <td key={j} className="px-5 py-4">
-                      <div className="h-4 w-24 rounded bg-muted animate-pulse" />
+                      <div className="h-4 w-24 rounded shimmer-bg" />
                     </td>
                   ))}
                 </tr>
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-10 text-center">
-                  <div className="mx-auto w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-                    <ClipboardList className="w-8 h-8 text-muted-foreground/60" />
-                  </div>
-                  <p className="text-sm font-medium">
-                    {search || statusFilter !== 'all' ? 'No assignments match your filters' : 'No assignments yet'}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {search || statusFilter !== 'all' ? 'Try a different query or filter' : 'Click “New Assignment” to get started'}
-                  </p>
+                <td colSpan={8} className="p-0">
+                  <RichEmptyState
+                    icon={ClipboardCheck}
+                    accent="assign"
+                    title={search || statusFilter !== 'all' ? 'No assignments match' : 'No assignments yet'}
+                    description={
+                      search || statusFilter !== 'all'
+                        ? 'Create a new one, or loosen your filters.'
+                        : 'Click "New Assignment" to get started'
+                    }
+                    action={{ label: 'New assignment', onClick: () => setShowWizard(true) }}
+                    compact
+                  />
                 </td>
               </tr>
             ) : (
@@ -281,7 +292,7 @@ export default function AssignmentsPage() {
             )}
           </tbody>
         </table>
-      </div>
+      </SectionCard>
 
       {/* Wizard modal */}
       {showWizard && (

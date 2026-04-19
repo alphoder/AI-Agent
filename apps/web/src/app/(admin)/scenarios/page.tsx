@@ -1,9 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import { Plus, ClipboardList, Edit2 } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
+import { SectionCard } from '@/components/ui/section-card';
+import { RichEmptyState } from '@/components/ui/rich-empty-state';
 
 interface Scenario {
   id: string;
@@ -19,14 +23,14 @@ interface Scenario {
 }
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string; label: string }> = {
-  draft:    { bg: 'bg-slate-100',   text: 'text-slate-600',   dot: 'bg-slate-400',   label: 'Draft' },
+  draft:    { bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-500',   label: 'Draft' },
   active:   { bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Active' },
-  archived: { bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-500',   label: 'Archived' },
+  archived: { bg: 'bg-slate-100',   text: 'text-slate-600',   dot: 'bg-slate-400',   label: 'Archived' },
 };
 
 const DIFFICULTY_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-  beginner:     { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'Beginner' },
-  intermediate: { bg: 'bg-violet-50',  text: 'text-violet-700',  label: 'Intermediate' },
+  beginner:     { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Beginner' },
+  intermediate: { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'Intermediate' },
   advanced:     { bg: 'bg-rose-50',    text: 'text-rose-700',    label: 'Advanced' },
 };
 
@@ -35,21 +39,21 @@ function TableRowSkeleton() {
   return (
     <tr className="border-b border-border/40">
       <td className="px-5 py-3.5">
-        <div className="flex items-center gap-3 animate-pulse">
-          <div className="w-9 h-9 rounded-full bg-muted flex-shrink-0" />
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full shimmer-bg flex-shrink-0" />
           <div className="space-y-1.5">
-            <div className="h-3.5 w-36 rounded bg-muted" />
-            <div className="h-3 w-24 rounded bg-muted" />
+            <div className="h-3.5 w-36 rounded shimmer-bg" />
+            <div className="h-3 w-24 rounded shimmer-bg" />
           </div>
         </div>
       </td>
-      <td className="px-5 py-3.5"><div className="h-5 w-16 rounded-full bg-muted animate-pulse" /></td>
-      <td className="px-5 py-3.5"><div className="h-5 w-20 rounded-full bg-muted animate-pulse" /></td>
-      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-8 rounded bg-muted animate-pulse mx-auto" /></td>
-      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-8 rounded bg-muted animate-pulse mx-auto" /></td>
-      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-12 rounded bg-muted animate-pulse mx-auto" /></td>
-      <td className="px-5 py-3.5 text-right"><div className="h-3.5 w-20 rounded bg-muted animate-pulse ml-auto" /></td>
-      <td className="px-5 py-3.5 text-right"><div className="h-7 w-12 rounded-lg bg-muted animate-pulse ml-auto" /></td>
+      <td className="px-5 py-3.5"><div className="h-5 w-16 rounded-full shimmer-bg" /></td>
+      <td className="px-5 py-3.5"><div className="h-5 w-20 rounded-full shimmer-bg" /></td>
+      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-8 rounded shimmer-bg mx-auto" /></td>
+      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-8 rounded shimmer-bg mx-auto" /></td>
+      <td className="px-5 py-3.5 text-center"><div className="h-3.5 w-12 rounded shimmer-bg mx-auto" /></td>
+      <td className="px-5 py-3.5 text-right"><div className="h-3.5 w-20 rounded shimmer-bg ml-auto" /></td>
+      <td className="px-5 py-3.5 text-right"><div className="h-7 w-12 rounded-lg shimmer-bg ml-auto" /></td>
     </tr>
   );
 }
@@ -81,32 +85,6 @@ function ScoreCell({ score }: { score: number | null }) {
   return <span className={`font-semibold ${color}`}>{Math.round(score)}%</span>;
 }
 
-/* ── Empty state ── */
-function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
-  return (
-    <tr>
-      <td colSpan={8}>
-        <div className="flex flex-col items-center justify-center py-16">
-          <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-            <ClipboardList className="w-8 h-8 text-muted-foreground/40" />
-          </div>
-          <h3 className="text-sm font-semibold mb-1.5">No scenarios found</h3>
-          <p className="text-xs text-muted-foreground text-center max-w-xs mb-4">
-            Scenarios define the training context, objectives, and scoring rubric.
-          </p>
-          <button
-            onClick={onCreateClick}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Create Scenario
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
 export default function ScenariosPage() {
   const router = useRouter();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -130,24 +108,25 @@ export default function ScenariosPage() {
     load();
   }, [statusFilter]);
 
+  const showEmpty = !loading && scenarios.length === 0;
+
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Scenarios</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Training scenarios with objectives, rubrics and assigned learners.
-          </p>
-        </div>
-        <button
-          onClick={() => router.push('/scenarios/create')}
-          className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          Create Scenario
-        </button>
-      </div>
+      <PageHeader
+        icon={ClipboardList}
+        accent="scenarios"
+        title="Scenarios"
+        subtitle="Training scenes with objectives, rubrics, and assigned learners."
+        actions={
+          <Link
+            href="/scenarios/create"
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Create scenario
+          </Link>
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-1.5">
@@ -166,41 +145,53 @@ export default function ScenariosPage() {
         ))}
       </div>
 
-      {/* Table */}
-      <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/50 bg-muted/30">
-                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
-                  Scenario
-                </th>
-                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
-                  Status
-                </th>
-                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
-                  Difficulty
-                </th>
-                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
-                  Assigned
-                </th>
-                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
-                  Completed
-                </th>
-                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
-                  Avg Score
-                </th>
-                <th className="text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
-                  Created
-                </th>
-                <th className="px-5 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {loading
-                ? Array.from({ length: 6 }).map((_, i) => <TableRowSkeleton key={i} />)
-                : scenarios.length === 0
-                  ? <EmptyState onCreateClick={() => router.push('/scenarios/create')} />
+      <SectionCard
+        icon={ClipboardList}
+        iconTint="text-amber-600"
+        title="All scenarios"
+        subtitle="Click a row to edit."
+      >
+        {showEmpty ? (
+          <RichEmptyState
+            icon={ClipboardList}
+            accent="scenarios"
+            title="No scenarios match"
+            description="Try a different filter or create a new scenario."
+            action={{ label: 'Create scenario', href: '/scenarios/create' }}
+            compact
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/30">
+                  <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                    Scenario
+                  </th>
+                  <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                    Status
+                  </th>
+                  <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                    Difficulty
+                  </th>
+                  <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                    Assigned
+                  </th>
+                  <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                    Completed
+                  </th>
+                  <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                    Avg Score
+                  </th>
+                  <th className="text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 py-3">
+                    Created
+                  </th>
+                  <th className="px-5 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {loading
+                  ? Array.from({ length: 6 }).map((_, i) => <TableRowSkeleton key={i} />)
                   : scenarios.map((s) => (
                     <tr
                       key={s.id}
@@ -210,11 +201,11 @@ export default function ScenariosPage() {
                       {/* Scenario info */}
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center overflow-hidden flex-shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-grad-scenarios flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm">
                             {s.avatar_thumbnail_url ? (
                               <img src={s.avatar_thumbnail_url} alt="" className="w-full h-full object-cover" />
                             ) : (
-                              <span className="text-xs font-bold text-slate-500">
+                              <span className="text-xs font-bold text-white">
                                 {s.persona_name?.charAt(0)?.toUpperCase()}
                               </span>
                             )}
@@ -270,10 +261,11 @@ export default function ScenariosPage() {
                       </td>
                     </tr>
                   ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
     </div>
   );
 }

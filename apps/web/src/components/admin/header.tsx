@@ -7,9 +7,12 @@ import { ChevronRight, LogOut, Menu, Shield } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 
 const PAGE_LABELS: Record<string, string> = {
+  overview: 'Dashboard',
+  learners: 'Learners',
   avatars: 'Avatars',
   personas: 'Personas',
   scenarios: 'Scenarios',
+  assignments: 'Assignments',
   analytics: 'Analytics',
   settings: 'Settings',
 };

@@ -12,6 +12,7 @@ interface UserInfo {
   email: string;
   role: string;
   initials: string;
+  displayName: string;
 }
 
 function getInitials(email: string): string {
@@ -21,6 +22,15 @@ function getInitials(email: string): string {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
   return local.slice(0, 2).toUpperCase();
+}
+
+function getDisplayName(email: string): string {
+  const local = email.split('@')[0] || '';
+  const parts = local.split(/[._-]/).filter(Boolean);
+  if (parts.length === 0) return local;
+  return parts
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ');
 }
 
 // ── Nav config ──
@@ -104,9 +114,10 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
         email: payload.email,
         role: (payload.role as string) || 'learner',
         initials: getInitials(payload.email),
+        displayName: getDisplayName(payload.email),
       });
     } else {
-      setUser({ email: 'User', role: 'learner', initials: 'U' });
+      setUser({ email: 'User', role: 'learner', initials: 'U', displayName: 'User' });
     }
   }, [router]);
 
@@ -134,43 +145,48 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       {/* ── Top navigation bar ── */}
-      <nav className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-lg">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          {/* Left: Logo */}
-          <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="flex items-center gap-2.5">
-              <LogoMark className="h-7 w-7 text-foreground" />
+      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-lg border-b border-border/50">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          {/* Left: Logo + wordmark */}
+          <div className="flex items-center gap-2.5">
+            <Link href="/dashboard" className="flex items-center gap-2.5 group">
+              <div className="relative">
+                <div className="absolute inset-0 rounded-xl bg-grad-learner-hero opacity-20 blur-md group-hover:opacity-30 transition-opacity" />
+                <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-grad-learner-hero shadow-md shadow-indigo-500/20">
+                  <LogoMark className="h-5 w-5 text-white" />
+                </div>
+              </div>
               <span className="text-[15px] font-semibold tracking-tight text-foreground">
-                Avatar
+                Avatar Platform
               </span>
             </Link>
+          </div>
 
-            {/* Desktop nav links */}
-            <div className="hidden items-center gap-1 md:flex">
-              {NAV_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
-                    isActive(item.href)
-                      ? 'bg-muted text-foreground'
-                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-              {user?.role === 'admin' && (
-                <Link
-                  href="/scenarios"
-                  className="rounded-md px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors duration-150"
-                >
-                  Admin Panel
-                </Link>
-              )}
-            </div>
+          {/* Center: Horizontal pill nav */}
+          <div className="hidden items-center gap-1 rounded-full bg-muted/60 p-1 md:flex">
+            {NAV_ITEMS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-200 ${
+                  isActive(item.href)
+                    ? 'bg-white text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+            {user?.role === 'admin' && (
+              <Link
+                href="/overview"
+                className="rounded-full px-4 py-1.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+              >
+                Admin
+              </Link>
+            )}
           </div>
 
           {/* Right: User menu + mobile toggle */}
@@ -180,29 +196,35 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
               <div ref={dropdownRef} className="relative hidden md:block">
                 <button
                   onClick={() => setDropdownOpen((v) => !v)}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors duration-150 hover:bg-muted"
+                  className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-3 transition-colors duration-150 hover:bg-muted"
                 >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[hsl(var(--foreground))] text-xs font-medium text-[hsl(var(--background))]">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-grad-learner-hero text-xs font-semibold text-white shadow-sm">
                     {user.initials}
                   </div>
+                  <span className="text-sm font-medium text-foreground max-w-[140px] truncate">
+                    {user.displayName}
+                  </span>
                   <ChevronDownIcon />
                 </button>
 
                 {/* Dropdown panel */}
                 {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-60 origin-top-right rounded-xl border border-border bg-background p-1.5 shadow-lg">
+                  <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-border/60 bg-white p-1.5 shadow-xl animate-fade-in">
                     <div className="px-3 py-2.5">
-                      <p className="truncate text-sm font-medium text-foreground">
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {user.displayName}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
                         {user.email}
                       </p>
-                      <p className="mt-0.5 text-xs capitalize text-muted-foreground">
+                      <span className="mt-1.5 inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium capitalize text-indigo-700">
                         {user.role}
-                      </p>
+                      </span>
                     </div>
-                    <div className="my-1 border-t border-border" />
+                    <div className="my-1 border-t border-border/60" />
                     <button
                       onClick={handleLogout}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
                     >
                       <LogoutIcon />
                       Sign out
@@ -225,13 +247,13 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
 
         {/* ── Mobile menu ── */}
         {mobileOpen && (
-          <div className="border-t border-border bg-background px-4 pb-4 pt-2 md:hidden">
+          <div className="border-t border-border/60 bg-white px-4 pb-4 pt-2 md:hidden">
             <div className="space-y-1">
               {NAV_ITEMS.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`block rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  className={`block rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                     isActive(item.href)
                       ? 'bg-muted text-foreground'
                       : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -242,8 +264,8 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
               ))}
               {user?.role === 'admin' && (
                 <Link
-                  href="/scenarios"
-                  className="block rounded-lg px-3 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+                  href="/overview"
+                  className="block rounded-xl px-3 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
                 >
                   Admin Panel
                 </Link>
@@ -252,23 +274,23 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
 
             {user && (
               <>
-                <div className="my-3 border-t border-border" />
+                <div className="my-3 border-t border-border/60" />
                 <div className="flex items-center gap-3 px-3 py-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[hsl(var(--foreground))] text-xs font-medium text-[hsl(var(--background))]">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-grad-learner-hero text-xs font-semibold text-white shadow-sm">
                     {user.initials}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">
-                      {user.email}
+                      {user.displayName}
                     </p>
-                    <p className="text-xs capitalize text-muted-foreground">
-                      {user.role}
+                    <p className="truncate text-xs text-muted-foreground">
+                      {user.email}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="mt-1 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <LogoutIcon />
                   Sign out
@@ -277,10 +299,10 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
             )}
           </div>
         )}
-      </nav>
+      </header>
 
       {/* ── Main content ── */}
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <main className="bg-gradient-to-b from-slate-50 via-white to-slate-50 min-h-[calc(100vh-4rem)]">
         {children}
       </main>
     </div>

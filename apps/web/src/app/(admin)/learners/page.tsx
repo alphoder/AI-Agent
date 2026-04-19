@@ -1,10 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
-import { Users, Search, TrendingUp, Clock, CheckCircle2, ArrowRight, UserPlus } from 'lucide-react';
+import {
+  Users, Search, TrendingUp, Clock, CheckCircle2, ArrowRight, UserPlus,
+  GraduationCap,
+} from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatTile } from '@/components/ui/stat-tile';
+import { SectionCard } from '@/components/ui/section-card';
+import { RichEmptyState } from '@/components/ui/rich-empty-state';
 
 interface LearnerRow {
   id: string;
@@ -21,28 +27,12 @@ interface LearnerRow {
   last_session_at: string | null;
 }
 
-function StatCard({ label, value, icon: Icon, accent }: { label: string; value: string | number; icon: React.ElementType; accent: string }) {
-  return (
-    <div className="rounded-2xl border border-border/50 bg-card p-5">
-      <div className="flex items-center gap-4">
-        <div className={`w-12 h-12 rounded-xl ${accent} flex items-center justify-center shadow-sm`}>
-          <Icon className="w-6 h-6 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
-          <p className="text-2xl font-bold tracking-tight mt-0.5">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function SkeletonRow() {
   return (
     <tr className="border-t border-border/40">
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: 7 }).map((_, i) => (
         <td key={i} className="px-5 py-4">
-          <div className="h-4 w-full max-w-[120px] rounded bg-muted animate-pulse" />
+          <div className="h-4 w-full max-w-[120px] rounded shimmer-bg" />
         </td>
       ))}
     </tr>
@@ -99,28 +89,25 @@ export default function LearnersPage() {
     const scores = learners.filter((l) => l.avg_score != null);
     const avgScore = scores.length
       ? Math.round(scores.reduce((s, l) => s + (l.avg_score || 0), 0) / scores.length)
-      : null;
+      : 0;
     return { total: learners.length, sessions, completed, avgScore };
   }, [learners]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Learners</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Reports and activity for every learner in your organization.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={GraduationCap}
+        accent="learners"
+        title="Learners"
+        subtitle="Reports and activity for every learner in your organization."
+      />
 
       {/* Overview stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total learners" value={totals.total} icon={Users} accent="bg-indigo-500" />
-        <StatCard label="Sessions completed" value={totals.sessions} icon={Clock} accent="bg-blue-500" />
-        <StatCard label="Assignments completed" value={totals.completed} icon={CheckCircle2} accent="bg-emerald-500" />
-        <StatCard label="Average score" value={totals.avgScore != null ? `${totals.avgScore}%` : '—'} icon={TrendingUp} accent="bg-amber-500" />
+        <StatTile icon={Users}         label="Total learners"         value={totals.total}     accent="learners" loading={loading} />
+        <StatTile icon={Clock}          label="Sessions completed"     value={totals.sessions}  accent="avatars"  loading={loading} />
+        <StatTile icon={CheckCircle2}   label="Assignments completed"  value={totals.completed} accent="analytics" loading={loading} />
+        <StatTile icon={TrendingUp}     label="Average score"          value={totals.avgScore}  accent="scenarios" suffix="%" loading={loading} />
       </div>
 
       {/* Toolbar */}
@@ -145,7 +132,12 @@ export default function LearnersPage() {
       )}
 
       {/* Table */}
-      <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+      <SectionCard
+        icon={GraduationCap}
+        iconTint="text-emerald-600"
+        title="All learners"
+        subtitle="Click a row to see a full report."
+      >
         <table className="w-full">
           <thead>
             <tr className="bg-muted/30">
@@ -163,16 +155,19 @@ export default function LearnersPage() {
               Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-5 py-12 text-center">
-                  <div className="mx-auto w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-                    <UserPlus className="w-8 h-8 text-muted-foreground/60" />
-                  </div>
-                  <p className="text-sm font-medium">
-                    {search ? 'No learners match your search' : 'No learners yet'}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {search ? 'Try a different query' : 'Invite learners from any scenario\u2019s Learners tab'}
-                  </p>
+                <td colSpan={7} className="p-0">
+                  <RichEmptyState
+                    icon={UserPlus}
+                    accent="learners"
+                    title={search ? 'No learners match your search' : 'No learners yet'}
+                    description={
+                      search
+                        ? 'Try a different query or clear the search to see everyone.'
+                        : 'Invite learners from any scenario\u2019s Learners tab or the Assignments page.'
+                    }
+                    action={search ? undefined : { label: 'Go to Assignments', href: '/assignments' }}
+                    compact
+                  />
                 </td>
               </tr>
             ) : (
@@ -188,8 +183,8 @@ export default function LearnersPage() {
                   >
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-200 flex items-center justify-center shrink-0">
-                          <span className="text-xs font-semibold text-indigo-700">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shrink-0">
+                          <span className="text-xs font-semibold text-emerald-700">
                             {l.display_name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
                           </span>
                         </div>
@@ -201,9 +196,7 @@ export default function LearnersPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-center text-sm tabular-nums">
-                      {l.assignments_total}
-                    </td>
+                    <td className="px-5 py-4 text-center text-sm tabular-nums">{l.assignments_total}</td>
                     <td className="px-5 py-4 text-center text-sm tabular-nums">
                       <div className="flex flex-col items-center gap-1">
                         <span>{l.assignments_completed}</span>
@@ -241,7 +234,7 @@ export default function LearnersPage() {
             )}
           </tbody>
         </table>
-      </div>
+      </SectionCard>
     </div>
   );
 }

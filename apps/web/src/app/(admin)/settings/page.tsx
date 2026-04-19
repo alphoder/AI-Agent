@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Building2, Clock, Database, KeyRound, Loader2, Monitor, Save, Shield, Users } from 'lucide-react';
+import { Building2, Clock, Database, KeyRound, Loader2, Monitor, Save, Settings, Shield, Users } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { HelpHint } from '@/components/ui/help-hint';
+import { PageHeader } from '@/components/ui/page-header';
+import { SectionCard } from '@/components/ui/section-card';
 
 interface SSOConfig {
   role_mapping?: {
@@ -164,15 +166,15 @@ export default function SettingsPage() {
     return (
       <div className="max-w-3xl space-y-6">
         <div>
-          <div className="h-8 w-40 rounded bg-muted animate-pulse" />
-          <div className="h-4 w-64 rounded bg-muted animate-pulse mt-2" />
+          <div className="h-8 w-40 rounded shimmer-bg" />
+          <div className="h-4 w-64 rounded shimmer-bg mt-2" />
         </div>
         {[1, 2, 3].map((i) => (
-          <div key={i} className="rounded-xl border bg-card p-6 animate-pulse">
-            <div className="h-5 w-48 rounded bg-muted mb-4" />
+          <div key={i} className="rounded-xl border bg-card p-6">
+            <div className="h-5 w-48 rounded shimmer-bg mb-4" />
             <div className="grid grid-cols-2 gap-4">
-              <div className="h-10 rounded bg-muted" />
-              <div className="h-10 rounded bg-muted" />
+              <div className="h-10 rounded shimmer-bg" />
+              <div className="h-10 rounded shimmer-bg" />
             </div>
           </div>
         ))}
@@ -222,24 +224,20 @@ export default function SettingsPage() {
       )}
 
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Manage your tenant configuration and session policies.
-        </p>
-      </div>
+      <PageHeader
+        icon={Settings}
+        accent="settings"
+        title="Settings"
+        subtitle="Manage tenant configuration, SSO, and session limits."
+      />
 
       {/* Tenant Information */}
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="px-6 py-4 border-b">
-          <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-base font-semibold text-foreground">Tenant Information</h2>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-            Read-only details about your organization.
-          </p>
-        </div>
+      <SectionCard
+        icon={Building2}
+        iconTint="text-slate-600"
+        title="Tenant Information"
+        subtitle="Read-only details about your organization."
+      >
         <div className="px-6 py-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
@@ -256,19 +254,15 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-      </div>
+      </SectionCard>
 
       {/* SSO Configuration */}
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="px-6 py-4 border-b">
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-base font-semibold text-foreground">Single Sign-On (SSO)</h2>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-            Connect your Identity Provider so admins and learners log in with their org credentials.
-          </p>
-        </div>
+      <SectionCard
+        icon={Shield}
+        iconTint="text-violet-600"
+        title="Single Sign-On (SSO)"
+        subtitle="Connect your Identity Provider so admins and learners log in with their org credentials."
+      >
         <div className="px-6 py-4 space-y-5">
           <HelpHint variant="info" dismissible dismissKey="sso-setup-tip" title="How SSO works">
             Configure your Identity Provider (Google, Okta, Azure AD) here. All users from your organization log in with the same SSO — admins and learners are distinguished by their IdP group membership via the Role Mapping below.
@@ -423,19 +417,15 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
-      </div>
+      </SectionCard>
 
-      {/* Session Configuration */}
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="px-6 py-4 border-b">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-base font-semibold text-foreground">Session Configuration</h2>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-            Control session limits, timeouts, and data retention policies.
-          </p>
-        </div>
+      {/* Session Limits */}
+      <SectionCard
+        icon={Clock}
+        iconTint="text-indigo-600"
+        title="Session Limits"
+        subtitle="Control session concurrency, duration, and idle timeouts."
+      >
         <div className="px-6 py-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* Max Concurrent Sessions */}
@@ -508,43 +498,17 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Data Retention */}
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1.5">
-                Data Retention
-              </label>
-              <input
-                type="number"
-                min={30}
-                max={730}
-                value={settings.data_retention_days}
-                onChange={(e) => updateField('data_retention_days', parseInt(e.target.value) || 365)}
-                className={`w-full rounded-lg border bg-background px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${
-                  errors.data_retention_days ? 'border-red-500 focus:ring-red-200 focus:border-red-500' : 'border-border'
-                }`}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {settings.data_retention_days} days ({Math.round(settings.data_retention_days / 30)} months)
-              </p>
-              {errors.data_retention_days && (
-                <p className="text-xs text-red-500 mt-0.5">{errors.data_retention_days}</p>
-              )}
-            </div>
           </div>
         </div>
-      </div>
+      </SectionCard>
 
       {/* Avatar Provider */}
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="px-6 py-4 border-b">
-          <div className="flex items-center gap-2">
-            <Monitor className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-base font-semibold text-foreground">Avatar Provider</h2>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-            Select the video avatar rendering provider for training sessions.
-          </p>
-        </div>
+      <SectionCard
+        icon={Monitor}
+        iconTint="text-blue-600"
+        title="Avatar Provider"
+        subtitle="Select the video avatar rendering provider for training sessions."
+      >
         <div className="px-6 py-4">
           <select
             value={settings.avatar_provider}
@@ -555,14 +519,46 @@ export default function SettingsPage() {
             <option value="heygen">HeyGen</option>
           </select>
         </div>
-      </div>
+      </SectionCard>
+
+      {/* Data Retention */}
+      <SectionCard
+        icon={Database}
+        iconTint="text-slate-600"
+        title="Data Retention"
+        subtitle="How long session transcripts and recordings are kept before automatic deletion."
+      >
+        <div className="px-6 py-4">
+          <div className="max-w-sm">
+            <label className="text-xs font-medium text-foreground block mb-1.5">
+              Retention Window
+            </label>
+            <input
+              type="number"
+              min={30}
+              max={730}
+              value={settings.data_retention_days}
+              onChange={(e) => updateField('data_retention_days', parseInt(e.target.value) || 365)}
+              className={`w-full rounded-lg border bg-background px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${
+                errors.data_retention_days ? 'border-red-500 focus:ring-red-200 focus:border-red-500' : 'border-border'
+              }`}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {settings.data_retention_days} days ({Math.round(settings.data_retention_days / 30)} months)
+            </p>
+            {errors.data_retention_days && (
+              <p className="text-xs text-red-500 mt-0.5">{errors.data_retention_days}</p>
+            )}
+          </div>
+        </div>
+      </SectionCard>
 
       {/* Save button */}
       <div className="flex items-center justify-end pt-2 pb-4">
         <button
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
+          className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
         >
           {saving ? (
             <>

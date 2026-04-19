@@ -4,21 +4,26 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import { HelpHint } from '@/components/ui/help-hint';
+import { PageHeader } from '@/components/ui/page-header';
+import { SectionCard } from '@/components/ui/section-card';
+import { RichEmptyState } from '@/components/ui/rich-empty-state';
+import { ProgressRing } from '@/components/ui/progress-ring';
 import {
   ArrowLeft,
   Clock,
   MessageSquare,
   Calendar,
-  TrendingUp,
-  TrendingDown,
   ChevronDown,
   ChevronUp,
   Download,
   RotateCcw,
-  Star,
-  Target,
+  BarChart3,
+  CheckCircle2,
+  AlertTriangle,
   User,
   Bot,
+  Target,
+  Sparkles,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -56,31 +61,24 @@ interface Transcript {
 /* ------------------------------------------------------------------ */
 
 function getScoreColor(score: number): string {
-  if (score <= 40) return 'text-rose-500';
-  if (score <= 70) return 'text-amber-500';
-  if (score <= 85) return 'text-emerald-500';
-  return 'text-blue-500';
-}
-
-function getScoreRingColor(score: number): string {
-  if (score <= 40) return 'stroke-rose-500';
-  if (score <= 70) return 'stroke-amber-500';
-  if (score <= 85) return 'stroke-emerald-500';
-  return 'stroke-blue-500';
-}
-
-function getScoreGradient(score: number): string {
-  if (score <= 40) return 'from-rose-500 to-pink-500';
-  if (score <= 70) return 'from-amber-500 to-orange-500';
-  if (score <= 85) return 'from-emerald-500 to-teal-500';
-  return 'from-blue-500 to-indigo-500';
+  if (score <= 40) return '#f43f5e';
+  if (score <= 70) return '#f59e0b';
+  if (score <= 85) return '#10b981';
+  return '#4f46e5';
 }
 
 function getScoreBarBg(score: number): string {
   if (score <= 40) return 'bg-rose-500';
   if (score <= 70) return 'bg-amber-500';
   if (score <= 85) return 'bg-emerald-500';
-  return 'bg-blue-500';
+  return 'bg-indigo-500';
+}
+
+function getScoreGradeClass(score: number): string {
+  if (score <= 40) return 'text-rose-600';
+  if (score <= 70) return 'text-amber-600';
+  if (score <= 85) return 'text-emerald-600';
+  return 'text-indigo-600';
 }
 
 function getScoreLabel(score: number): string {
@@ -102,97 +100,24 @@ function formatDuration(sec: number): string {
 
 function ReportSkeleton() {
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-pulse">
-      {/* Back link */}
-      <div className="h-4 w-32 rounded bg-muted" />
-
-      {/* Header */}
-      <div className="space-y-2">
-        <div className="h-8 w-2/3 rounded bg-muted" />
-        <div className="flex gap-4">
-          <div className="h-4 w-24 rounded bg-muted" />
-          <div className="h-4 w-20 rounded bg-muted" />
-          <div className="h-4 w-28 rounded bg-muted" />
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-pulse">
+      <div className="h-8 w-48 rounded shimmer-bg" />
+      <div className="rounded-3xl border border-border/50 bg-card p-10 flex flex-col md:flex-row items-center gap-8">
+        <div className="w-[180px] h-[180px] rounded-full shimmer-bg" />
+        <div className="flex-1 space-y-3 w-full">
+          <div className="h-6 w-2/3 rounded shimmer-bg" />
+          <div className="h-4 w-1/2 rounded shimmer-bg" />
+          <div className="h-4 w-1/3 rounded shimmer-bg" />
         </div>
       </div>
-
-      {/* Score circle */}
-      <div className="flex justify-center">
-        <div className="w-40 h-40 rounded-full bg-muted" />
-      </div>
-
-      {/* Criteria */}
-      <div className="rounded-2xl border border-border/50 p-6 space-y-4">
-        <div className="h-5 w-40 rounded bg-muted" />
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="space-y-2">
-            <div className="flex justify-between">
-              <div className="h-4 w-32 rounded bg-muted" />
-              <div className="h-4 w-12 rounded bg-muted" />
-            </div>
-            <div className="h-2 rounded-full bg-muted" />
-          </div>
-        ))}
-      </div>
-
-      {/* Strengths / Improvements */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {[0, 1].map((i) => (
           <div key={i} className="rounded-2xl border border-border/50 p-6 space-y-3">
-            <div className="h-5 w-32 rounded bg-muted" />
-            <div className="h-4 w-full rounded bg-muted" />
-            <div className="h-4 w-3/4 rounded bg-muted" />
-            <div className="h-4 w-5/6 rounded bg-muted" />
+            <div className="h-5 w-32 rounded shimmer-bg" />
+            <div className="h-4 w-full rounded shimmer-bg" />
+            <div className="h-4 w-3/4 rounded shimmer-bg" />
           </div>
         ))}
-      </div>
-
-      {/* Feedback */}
-      <div className="rounded-2xl border border-border/50 p-6 space-y-3">
-        <div className="h-5 w-24 rounded bg-muted" />
-        <div className="h-4 w-full rounded bg-muted" />
-        <div className="h-4 w-5/6 rounded bg-muted" />
-        <div className="h-4 w-2/3 rounded bg-muted" />
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Circular Score                                                     */
-/* ------------------------------------------------------------------ */
-
-function ScoreCircle({ score }: { score: number }) {
-  const circumference = 2 * Math.PI * 56;
-  const offset = circumference - (score / 100) * circumference;
-
-  return (
-    <div className="relative w-44 h-44">
-      <svg className="w-44 h-44 -rotate-90" viewBox="0 0 128 128">
-        {/* Background ring */}
-        <circle
-          cx="64" cy="64" r="56"
-          fill="none"
-          strokeWidth="7"
-          className="stroke-muted"
-        />
-        {/* Score ring */}
-        <circle
-          cx="64" cy="64" r="56"
-          fill="none"
-          strokeWidth="7"
-          className={getScoreRingColor(score)}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 1s ease-out' }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-4xl font-bold tracking-tight ${getScoreColor(score)}`}>
-          {Math.round(score)}
-        </span>
-        <span className="text-xs text-muted-foreground font-medium mt-0.5">out of 100</span>
       </div>
     </div>
   );
@@ -207,11 +132,13 @@ function CriteriaBar({ cs }: { cs: CriteriaScore }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{cs.criterion_name}</span>
-          <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{cs.weight}% weight</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium truncate">{cs.criterion_name}</span>
+          <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded whitespace-nowrap">{cs.weight}% weight</span>
         </div>
-        <span className="text-sm font-semibold tabular-nums">{cs.score}<span className="text-muted-foreground font-normal">/5</span></span>
+        <span className="text-sm font-semibold tabular-nums whitespace-nowrap">
+          {cs.score}<span className="text-muted-foreground font-normal">/5</span>
+        </span>
       </div>
       <div className="h-2 bg-muted rounded-full overflow-hidden">
         <div
@@ -233,7 +160,7 @@ function TranscriptBubble({ t }: { t: Transcript }) {
   return (
     <div className={`flex gap-2.5 ${isLearner ? 'flex-row-reverse' : ''}`}>
       <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-        isLearner ? 'bg-blue-100 text-blue-600' : 'bg-violet-100 text-violet-600'
+        isLearner ? 'bg-indigo-100 text-indigo-600' : 'bg-violet-100 text-violet-600'
       }`}>
         {isLearner ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
       </div>
@@ -328,29 +255,77 @@ function ReportsPageInner() {
 
   /* Loading state */
   if (loading) {
-    return <ReportSkeleton />;
+    return (
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <PageHeader
+          icon={BarChart3}
+          accent="analytics"
+          title="Your reports"
+          subtitle="See how you did in each training session."
+        />
+        <ReportSkeleton />
+      </div>
+    );
   }
 
-  /* No report */
-  if (!report) {
+  /* No target id at all — list empty state */
+  if (!targetId) {
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-5">
-            <Target className="w-8 h-8 text-muted-foreground/50" />
-          </div>
-          <h2 className="text-lg font-semibold mb-2">Report not available yet</h2>
-          <p className="text-sm text-muted-foreground text-center max-w-sm">
-            Your session report is being generated. Please check back in a moment.
-          </p>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <PageHeader
+          icon={BarChart3}
+          accent="analytics"
+          title="Your reports"
+          subtitle="See how you did in each training session."
+        />
+        <div className="rounded-3xl border border-border/50 bg-card overflow-hidden">
+          <RichEmptyState
+            icon={BarChart3}
+            accent="analytics"
+            title="No reports yet"
+            description="Complete a training session to get your first detailed report."
+            action={{ label: 'Go to dashboard', href: '/dashboard' }}
+          />
         </div>
       </div>
     );
   }
 
+  /* Report not available yet */
+  if (!report) {
+    return (
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <PageHeader
+          icon={BarChart3}
+          accent="analytics"
+          title="Your reports"
+          subtitle="See how you did in each training session."
+        />
+        <div className="rounded-3xl border border-border/50 bg-card overflow-hidden">
+          <RichEmptyState
+            icon={Target}
+            accent="analytics"
+            title="Report not available yet"
+            description="Your session report is being generated. Please check back in a moment."
+            action={{ label: 'Back to dashboard', href: '/dashboard' }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const score = report.overall_score;
+  const grade = getScoreLabel(score);
+
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <PageHeader
+        icon={BarChart3}
+        accent="analytics"
+        title="Your reports"
+        subtitle="See how you did in each training session."
+      />
+
       {/* Back link */}
       <button
         onClick={() => router.push('/dashboard')}
@@ -360,34 +335,51 @@ function ReportsPageInner() {
         Back to Dashboard
       </button>
 
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{report.scenario_title}</h1>
-        <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <Clock className="w-4 h-4" />
-            {formatDuration(report.duration_sec || 0)}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <MessageSquare className="w-4 h-4" />
-            {report.total_turns || 0} turns
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Calendar className="w-4 h-4" />
-            {reportDate}
-          </span>
-        </div>
-      </div>
+      {/* ── Hero: big score circle + summary ── */}
+      <div className="rounded-3xl border border-border/60 bg-card p-8 md:p-10 shadow-sm animate-fade-in">
+        <div className="flex flex-col md:flex-row items-center md:items-center gap-8 md:gap-12">
+          <div className="flex-shrink-0">
+            <ProgressRing
+              value={score}
+              size={180}
+              stroke={14}
+              color={getScoreColor(score)}
+              label={
+                <div className="text-center">
+                  <div className="text-5xl font-bold tracking-tight text-foreground leading-none">
+                    {Math.round(score)}
+                    <span className="text-xl align-top ml-0.5 font-semibold text-muted-foreground">%</span>
+                  </div>
+                  <div className={`text-xs font-semibold mt-2 ${getScoreGradeClass(score)}`}>
+                    {grade}
+                  </div>
+                </div>
+              }
+            />
+          </div>
 
-      {/* Overall Score */}
-      <div className="rounded-2xl border border-border/50 bg-card p-8">
-        <div className="flex flex-col items-center gap-4">
-          <ScoreCircle score={report.overall_score} />
-          <div className="text-center">
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-gradient-to-r ${getScoreGradient(report.overall_score)} text-white`}>
-              <Star className="w-3.5 h-3.5" />
-              {getScoreLabel(report.overall_score)}
-            </span>
+          <div className="flex-1 min-w-0 text-center md:text-left space-y-3">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 uppercase tracking-wider">
+              <Sparkles className="w-3 h-3" />
+              Session Report
+            </div>
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight leading-tight">
+              {report.scenario_title}
+            </h2>
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <Calendar className="w-4 h-4" />
+                {reportDate}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="w-4 h-4" />
+                {formatDuration(report.duration_sec || 0)}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <MessageSquare className="w-4 h-4" />
+                {report.total_turns || 0} turns
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -397,77 +389,99 @@ function ReportsPageInner() {
         Your overall score is a weighted average of each criterion. Each criterion is scored 1-5 based on the rubric. Focus on improving criteria with lower scores — the AI feedback explains what to do differently next time.
       </HelpHint>
 
-      {/* Score Breakdown */}
-      <div className="rounded-2xl border border-border/50 bg-card p-6">
-        <h2 className="text-lg font-semibold mb-5">Score Breakdown</h2>
-        <div className="space-y-5">
-          {report.criteria_scores.map((cs, i) => (
-            <CriteriaBar key={i} cs={cs} />
-          ))}
-        </div>
-      </div>
-
-      {/* Strengths & Improvements */}
+      {/* ── Strengths & Improvements ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Strengths */}
-        <div className="rounded-2xl border border-emerald-200/60 bg-emerald-50/30 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4 text-emerald-600" />
-            </div>
-            <h2 className="font-semibold text-emerald-800">Strengths</h2>
-          </div>
-          <ul className="space-y-2.5">
-            {report.strengths.map((s, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed">
-                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">
-                  +
-                </span>
-                <span className="text-emerald-900">{s}</span>
-              </li>
-            ))}
+        <SectionCard
+          icon={CheckCircle2}
+          iconTint="text-emerald-600"
+          title="Strengths"
+          subtitle="What you did well"
+        >
+          <ul className="p-5 space-y-3">
+            {report.strengths.length === 0 ? (
+              <li className="text-sm text-muted-foreground">No strengths recorded for this session.</li>
+            ) : (
+              report.strengths.map((s, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
+                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">
+                    +
+                  </span>
+                  <span className="text-foreground">{s}</span>
+                </li>
+              ))
+            )}
           </ul>
-        </div>
+        </SectionCard>
 
-        {/* Improvements */}
-        <div className="rounded-2xl border border-amber-200/60 bg-amber-50/30 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-              <TrendingDown className="w-4 h-4 text-amber-600" />
-            </div>
-            <h2 className="font-semibold text-amber-800">Areas for Improvement</h2>
-          </div>
-          <ul className="space-y-2.5">
-            {report.improvements.map((s, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed">
-                <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">
-                  !
-                </span>
-                <span className="text-amber-900">{s}</span>
-              </li>
-            ))}
+        <SectionCard
+          icon={AlertTriangle}
+          iconTint="text-amber-600"
+          title="Improvements"
+          subtitle="Areas to focus on next time"
+        >
+          <ul className="p-5 space-y-3">
+            {report.improvements.length === 0 ? (
+              <li className="text-sm text-muted-foreground">No improvements recorded for this session.</li>
+            ) : (
+              report.improvements.map((s, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
+                  <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">
+                    !
+                  </span>
+                  <span className="text-foreground">{s}</span>
+                </li>
+              ))
+            )}
           </ul>
-        </div>
+        </SectionCard>
       </div>
 
-      {/* Narrative Feedback */}
+      {/* ── Narrative Feedback ── */}
       {report.narrative_feedback && (
-        <div className="rounded-2xl border border-border/50 bg-card p-6">
-          <h2 className="text-lg font-semibold mb-3">Coach Feedback</h2>
-          <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">{report.narrative_feedback}</p>
-        </div>
+        <SectionCard
+          icon={Sparkles}
+          iconTint="text-indigo-600"
+          title="Coach feedback"
+          subtitle="A personal note from your AI coach"
+        >
+          <div className="p-6">
+            <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
+              {report.narrative_feedback}
+            </p>
+          </div>
+        </SectionCard>
       )}
 
-      {/* Transcript */}
-      <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+      {/* ── Criteria Breakdown ── */}
+      <SectionCard
+        icon={BarChart3}
+        iconTint="text-indigo-600"
+        title="Criteria breakdown"
+        subtitle="Your score against each rubric criterion"
+      >
+        <div className="p-6 space-y-6">
+          {report.criteria_scores.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No criteria scores for this session.</p>
+          ) : (
+            report.criteria_scores.map((cs, i) => <CriteriaBar key={i} cs={cs} />)
+          )}
+        </div>
+      </SectionCard>
+
+      {/* ── Transcript ── */}
+      <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
         <button
           onClick={() => setShowTranscript(!showTranscript)}
-          className="w-full flex items-center justify-between p-6 hover:bg-muted/30 transition-colors"
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted/30 transition-colors"
         >
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Full Transcript</h2>
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{transcripts.length} messages</span>
+          <div className="flex items-center gap-2.5">
+            <MessageSquare className="w-4 h-4 text-muted-foreground" strokeWidth={2.2} />
+            <div className="text-left">
+              <h2 className="font-semibold text-sm tracking-tight">Full transcript</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {transcripts.length} messages from this session
+              </p>
+            </div>
           </div>
           {showTranscript ? (
             <ChevronUp className="w-5 h-5 text-muted-foreground" />
@@ -477,17 +491,19 @@ function ReportsPageInner() {
         </button>
 
         {showTranscript && (
-          <div className="px-6 pb-6">
-            <div className="max-h-[500px] overflow-y-auto space-y-4 pr-2 scrollbar-thin">
-              {transcripts.map((t, i) => (
-                <TranscriptBubble key={i} t={t} />
-              ))}
+          <div className="px-5 pb-5 border-t border-border/40">
+            <div className="max-h-[500px] overflow-y-auto space-y-4 pr-1 pt-4 scrollbar-thin">
+              {transcripts.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No transcript available.</p>
+              ) : (
+                transcripts.map((t, i) => <TranscriptBubble key={i} t={t} />)
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Actions */}
+      {/* ── Actions ── */}
       <div className="flex flex-col sm:flex-row gap-3 pt-2 pb-8">
         <button
           onClick={() => router.push('/dashboard')}
@@ -522,7 +538,13 @@ function ReportsPageInner() {
 
 export default function ReportsPage() {
   return (
-    <Suspense fallback={<ReportSkeleton />}>
+    <Suspense
+      fallback={
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+          <ReportSkeleton />
+        </div>
+      }
+    >
       <ReportsPageInner />
     </Suspense>
   );

@@ -13,7 +13,12 @@ import {
   ClipboardList,
   TrendingUp,
   Clock,
+  BarChart3,
 } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatTile } from '@/components/ui/stat-tile';
+import { SectionCard } from '@/components/ui/section-card';
+import { RichEmptyState } from '@/components/ui/rich-empty-state';
 
 interface OverviewData {
   totals: {
@@ -56,21 +61,21 @@ function formatDuration(sec: number | null): string {
 /* ── Skeleton ── */
 function PageSkeleton() {
   return (
-    <div className="space-y-6 animate-pulse">
+    <div className="space-y-6">
       {/* Header */}
       <div>
-        <div className="h-8 w-40 rounded bg-muted" />
-        <div className="h-4 w-64 rounded bg-muted mt-2" />
+        <div className="h-8 w-40 rounded shimmer-bg" />
+        <div className="h-4 w-64 rounded shimmer-bg mt-2" />
       </div>
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="rounded-2xl border border-border/50 bg-card p-5">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-muted" />
+              <div className="w-12 h-12 rounded-xl shimmer-bg" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-20 rounded bg-muted" />
-                <div className="h-7 w-16 rounded bg-muted" />
+                <div className="h-3 w-20 rounded shimmer-bg" />
+                <div className="h-7 w-16 rounded shimmer-bg" />
               </div>
             </div>
           </div>
@@ -78,40 +83,8 @@ function PageSkeleton() {
       </div>
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="rounded-2xl border border-border/50 bg-card p-5 h-80" />
-        <div className="rounded-2xl border border-border/50 bg-card p-5 h-80" />
-      </div>
-    </div>
-  );
-}
-
-/* ── Stat Card ── */
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-  subtitle,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string | number;
-  accent: string;
-  subtitle?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-border/50 bg-card p-5 hover:shadow-md transition-all duration-300">
-      <div className="flex items-center gap-4">
-        <div className={`w-12 h-12 rounded-xl ${accent} flex items-center justify-center shadow-sm`}>
-          <Icon className="w-6 h-6 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
-          <p className="text-2xl font-bold tracking-tight mt-0.5">{value}</p>
-          {subtitle && (
-            <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
-          )}
-        </div>
+        <div className="rounded-2xl border border-border/50 bg-card p-5 h-80 shimmer-bg" />
+        <div className="rounded-2xl border border-border/50 bg-card p-5 h-80 shimmer-bg" />
       </div>
     </div>
   );
@@ -157,12 +130,19 @@ export default function AnalyticsPage() {
 
   if (!overview) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-          <Activity className="w-8 h-8 text-muted-foreground/40" />
-        </div>
-        <h3 className="text-base font-semibold mb-1.5">Analytics unavailable</h3>
-        <p className="text-sm text-muted-foreground">Failed to load analytics data. Please try again.</p>
+      <div className="space-y-6">
+        <PageHeader
+          icon={BarChart3}
+          accent="analytics"
+          title="Analytics"
+          subtitle="Tenant-wide training activity and outcomes."
+        />
+        <RichEmptyState
+          icon={Activity}
+          accent="analytics"
+          title="Analytics unavailable"
+          description="Failed to load analytics data. Please try again."
+        />
       </div>
     );
   }
@@ -172,51 +152,51 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Analytics</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Training performance and learner engagement metrics.
-        </p>
-      </div>
+      <PageHeader
+        icon={BarChart3}
+        accent="analytics"
+        title="Analytics"
+        subtitle="Tenant-wide training activity and outcomes."
+      />
 
       {/* Stats grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
+        <StatTile
           icon={Activity}
           label="Total Sessions"
-          value={totals.total_sessions.toLocaleString()}
-          accent="bg-indigo-500"
+          value={totals.total_sessions}
+          accent="analytics"
         />
-        <StatCard
+        <StatTile
           icon={CheckCircle2}
           label="Completed"
-          value={totals.completed_sessions.toLocaleString()}
-          accent="bg-emerald-500"
-          subtitle={`${completion_rate.toFixed(1)}% completion rate`}
+          value={totals.completed_sessions}
+          accent="analytics"
         />
-        <StatCard
+        <StatTile
           icon={Users}
           label="Active Learners"
-          value={totals.total_learners.toLocaleString()}
-          accent="bg-blue-500"
+          value={totals.total_learners}
+          accent="analytics"
         />
-        <StatCard
+        <StatTile
           icon={ClipboardList}
           label="Active Scenarios"
-          value={totals.active_scenarios.toLocaleString()}
-          accent="bg-violet-500"
+          value={totals.active_scenarios}
+          accent="analytics"
         />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Sessions trend */}
-        <div className="rounded-2xl border border-border/50 bg-card p-5">
-          <div className="flex items-center gap-2 mb-5">
-            <TrendingUp className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">Sessions Per Day</h2>
-            <span className="text-xs text-muted-foreground ml-auto">Last 30 days</span>
-          </div>
+        <SectionCard
+          icon={TrendingUp}
+          iconTint="text-sky-600"
+          title="Sessions Per Day"
+          subtitle={`Last 30 days · ${completion_rate.toFixed(1)}% completion rate`}
+        >
+          <div className="p-5">
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={trends}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 16% 90%)" />
@@ -257,14 +237,17 @@ export default function AnalyticsPage() {
               />
             </LineChart>
           </ResponsiveContainer>
-        </div>
+          </div>
+        </SectionCard>
 
         {/* Score distribution */}
-        <div className="rounded-2xl border border-border/50 bg-card p-5">
-          <div className="flex items-center gap-2 mb-5">
-            <Activity className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">Score Distribution</h2>
-          </div>
+        <SectionCard
+          icon={Activity}
+          iconTint="text-sky-600"
+          title="Score Distribution"
+          subtitle="Learners grouped by final session score."
+        >
+          <div className="p-5">
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={score_distribution} barSize={32}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 16% 90%)" vertical={false} />
@@ -294,16 +277,18 @@ export default function AnalyticsPage() {
               <Bar dataKey="count" fill="hsl(243 75% 59%)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+          </div>
+        </SectionCard>
       </div>
 
       {/* Recent Sessions table */}
       {recent_sessions && recent_sessions.length > 0 && (
-        <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
-          <div className="flex items-center gap-2 px-5 py-4 border-b border-border/50">
-            <Clock className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">Recent Sessions</h2>
-          </div>
+        <SectionCard
+          icon={Clock}
+          iconTint="text-sky-600"
+          title="Recent Sessions"
+          subtitle="Latest training activity across your tenant."
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -338,7 +323,7 @@ export default function AnalyticsPage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </SectionCard>
       )}
     </div>
   );

@@ -64,5 +64,119 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01", "ss03";
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Keyframes                                                          */
+/* ------------------------------------------------------------------ */
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.35); }
+  70% { box-shadow: 0 0 0 10px rgba(79, 70, 229, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(-8px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Utilities                                                          */
+/* ------------------------------------------------------------------ */
+
+.animate-float-slow { animation: float-slow 4s ease-in-out infinite; }
+.animate-slide-in-right { animation: slide-in-right 250ms ease-out both; }
+.animate-slide-up { animation: slide-up 300ms ease-out both; }
+.animate-fade-in { animation: fade-in 400ms ease-out both; }
+.animate-pulse-ring { animation: pulse-ring 2s ease-out infinite; }
+
+.shimmer-bg {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted) / 0.5) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Gradient text — used on hero titles */
+.text-gradient-indigo {
+  background: linear-gradient(90deg, #4f46e5 0%, #8b5cf6 50%, #ec4899 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.text-gradient-emerald {
+  background: linear-gradient(90deg, #059669 0%, #0d9488 50%, #0891b2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Domain gradient icon backgrounds — each admin section gets its own. */
+.bg-grad-dashboard { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); }
+.bg-grad-learners  { background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%); }
+.bg-grad-avatars   { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
+.bg-grad-personas  { background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%); }
+.bg-grad-scenarios { background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); }
+.bg-grad-assign    { background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%); }
+.bg-grad-analytics { background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%); }
+.bg-grad-settings  { background: linear-gradient(135deg, #64748b 0%, #475569 100%); }
+
+/* Learner-side warm gradients */
+.bg-grad-learner-hero  { background: linear-gradient(135deg, #4f46e5 0%, #a855f7 50%, #ec4899 100%); }
+.bg-grad-learner-card  { background: linear-gradient(135deg, #faf5ff 0%, #eff6ff 100%); }
+
+/* Card hover lift + glow */
+.card-interactive {
+  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 250ms cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 250ms ease;
+}
+.card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.12),
+              0 8px 10px -6px rgba(79, 70, 229, 0.08);
+  border-color: rgb(165 180 252 / 0.5);
+}
+
+/* Subtle scrollbar */
+.thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 8px;
+}
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }
