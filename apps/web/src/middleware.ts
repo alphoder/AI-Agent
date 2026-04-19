@@ -24,6 +24,7 @@ const ADMIN_PREFIXES = [
   '/avatars',
   '/personas',
   '/scenarios',
+  '/assignments',
   '/analytics',
   '/settings',
 ];

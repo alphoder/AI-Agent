@@ -74,11 +74,27 @@ router.post(
         });
       }
 
-      const { name } = req.body;
+      const { name, gender, tts_provider, tts_voice_id } = req.body;
       if (!name?.trim()) {
         return res.status(400).json({
           success: false,
           error: { code: 'MISSING_NAME', message: 'Avatar name is required' },
+        });
+      }
+
+      const validGenders = ['female', 'male', 'non_binary', 'other'];
+      if (gender && !validGenders.includes(gender)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_GENDER', message: `gender must be one of ${validGenders.join(', ')}` },
+        });
+      }
+
+      const validTtsProviders = ['deepgram', 'openai', 'elevenlabs'];
+      if (tts_provider && !validTtsProviders.includes(tts_provider)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_TTS_PROVIDER', message: `tts_provider must be one of ${validTtsProviders.join(', ')}` },
         });
       }
 
@@ -88,8 +104,11 @@ router.post(
       // Create DB record first
       const result = await db.tenantQuery(
         tenantId,
-        `INSERT INTO avatars (tenant_id, name, provider, source_image_url, status, created_by, config)
-         VALUES ($1, $2, $3, '', 'processing', $4, $5)
+        `INSERT INTO avatars (
+           tenant_id, name, provider, source_image_url, status, created_by, config,
+           gender, tts_provider, tts_voice_id
+         )
+         VALUES ($1, $2, $3, '', 'processing', $4, $5, $6, $7, $8)
          RETURNING id`,
         [
           tenantId,
@@ -97,6 +116,9 @@ router.post(
           (req as any).tenantConfig?.avatar_provider || 'simli',
           userId,
           JSON.stringify(req.body.config || {}),
+          gender || null,
+          tts_provider || 'deepgram',
+          tts_voice_id || 'aura-asteria-en',
         ],
       );
 
@@ -161,7 +183,8 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response, next: Next
       db.tenantQuery(
         tenantId,
         `SELECT id, name, provider, provider_avatar_id, source_image_url,
-                thumbnail_url, status, config, created_at, updated_at
+                thumbnail_url, status, config, gender, tts_provider, tts_voice_id,
+                created_at, updated_at
          FROM avatars WHERE ${whereClause}
          ORDER BY created_at DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -220,7 +243,8 @@ router.get('/:id', validateUuidParam(), wrap(async (req: AuthenticatedRequest, r
     const result = await db.tenantQuery(
       req.user!.tid,
       `SELECT id, name, provider, provider_avatar_id, source_image_url,
-              thumbnail_url, status, config, created_by, created_at, updated_at
+              thumbnail_url, status, config, gender, tts_provider, tts_voice_id,
+              created_by, created_at, updated_at
        FROM avatars WHERE id = $1 AND deleted_at IS NULL`,
       [req.params.id],
     );
@@ -263,7 +287,7 @@ router.patch(
   rbac('admin'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const { name, config: avatarConfig } = req.body;
+      const { name, config: avatarConfig, gender, tts_provider, tts_voice_id } = req.body;
       const updates: string[] = [];
       const params: unknown[] = [];
       let paramIdx = 1;
@@ -275,6 +299,30 @@ router.patch(
       if (avatarConfig !== undefined) {
         updates.push(`config = $${paramIdx++}`);
         params.push(JSON.stringify(avatarConfig));
+      }
+      if (gender !== undefined) {
+        if (gender !== null && !['female','male','non_binary','other'].includes(gender)) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'INVALID_GENDER', message: 'gender must be female/male/non_binary/other' },
+          });
+        }
+        updates.push(`gender = $${paramIdx++}`);
+        params.push(gender);
+      }
+      if (tts_provider !== undefined) {
+        if (!['deepgram','openai','elevenlabs'].includes(tts_provider)) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'INVALID_TTS_PROVIDER', message: 'tts_provider must be deepgram/openai/elevenlabs' },
+          });
+        }
+        updates.push(`tts_provider = $${paramIdx++}`);
+        params.push(tts_provider);
+      }
+      if (tts_voice_id !== undefined) {
+        updates.push(`tts_voice_id = $${paramIdx++}`);
+        params.push(tts_voice_id || null);
       }
 
       if (updates.length === 0) {
@@ -289,7 +337,7 @@ router.patch(
         req.user!.tid,
         `UPDATE avatars SET ${updates.join(', ')}
          WHERE id = $${paramIdx} AND deleted_at IS NULL
-         RETURNING id, name, status, config, updated_at`,
+         RETURNING id, name, status, config, gender, tts_provider, tts_voice_id, updated_at`,
         params,
       );
 
