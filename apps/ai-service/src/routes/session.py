@@ -210,13 +210,27 @@ async def end_session(req: EndSessionRequest, background_tasks: BackgroundTasks)
 
 
 async def _trigger_scoring(scoring_data: dict):
-    """Trigger post-session scoring with the complete payload."""
+    """Trigger post-session scoring with the complete payload.
+
+    The /scoring/evaluate route is protected by require_internal_key, so this
+    internal self-call must include the X-Internal-Key header. Without it the
+    call 401s and the learner never sees a score.
+    """
     try:
         scoring_url = f"http://{settings.host}:{settings.port}/scoring/evaluate"
         client = get_http_client()
-        await client.post(
+        headers = {"X-Internal-Key": settings.internal_api_key} if settings.internal_api_key else {}
+        resp = await client.post(
             scoring_url,
             json=scoring_data,
+            headers=headers,
         )
+        if resp.status_code >= 400:
+            logger.error(
+                "scoring_trigger_http_error",
+                session_id=scoring_data.get("session_id"),
+                status=resp.status_code,
+                body=resp.text[:500],
+            )
     except Exception as e:
         logger.error("scoring_trigger_failed", session_id=scoring_data.get("session_id"), error=str(e))

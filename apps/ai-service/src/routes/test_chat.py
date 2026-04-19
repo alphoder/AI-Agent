@@ -315,17 +315,32 @@ async def _process_response(
                     "role": "assistant",
                 })
 
-                # Stream TTS audio for this sentence (first chunk in ~200ms)
+                # Stream TTS audio for this sentence (first chunk in ~200ms).
+                # Deepgram's /speak?encoding=linear16 prefixes a 44-byte RIFF
+                # WAV header that SimliClient.sendAudioData treats as samples
+                # (audible click). Strip it from the first bytes of the stream.
                 try:
                     if hasattr(tts, 'synthesize_streaming'):
+                        first = True
+                        pending = b""
                         async for audio_chunk in tts.synthesize_streaming(sentence):
+                            if first:
+                                pending += audio_chunk
+                                if len(pending) < 44:
+                                    continue
+                                audio_chunk = pending[44:]
+                                pending = b""
+                                first = False
+                                if not audio_chunk:
+                                    continue
                             await websocket.send_json({
                                 "type": "audio",
                                 "data": base64.b64encode(audio_chunk).decode("ascii"),
                             })
                     else:
                         audio_bytes = await tts.synthesize(sentence)
-                        if audio_bytes:
+                        if audio_bytes and len(audio_bytes) > 44:
+                            audio_bytes = audio_bytes[44:]
                             for i in range(0, len(audio_bytes), 8192):
                                 await websocket.send_json({
                                     "type": "audio",
@@ -344,14 +359,26 @@ async def _process_response(
             })
             try:
                 if hasattr(tts, 'synthesize_streaming'):
+                    first = True
+                    pending = b""
                     async for audio_chunk in tts.synthesize_streaming(remainder):
+                        if first:
+                            pending += audio_chunk
+                            if len(pending) < 44:
+                                continue
+                            audio_chunk = pending[44:]
+                            pending = b""
+                            first = False
+                            if not audio_chunk:
+                                continue
                         await websocket.send_json({
                             "type": "audio",
                             "data": base64.b64encode(audio_chunk).decode("ascii"),
                         })
                 else:
                     audio_bytes = await tts.synthesize(remainder)
-                    if audio_bytes:
+                    if audio_bytes and len(audio_bytes) > 44:
+                        audio_bytes = audio_bytes[44:]
                         for i in range(0, len(audio_bytes), 8192):
                             await websocket.send_json({
                                 "type": "audio",

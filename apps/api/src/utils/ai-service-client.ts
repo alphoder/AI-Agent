@@ -7,6 +7,21 @@ interface AIServiceRequestOptions {
   timeoutMs?: number;
 }
 
+/**
+ * Build a WebSocket URL for the AI service from its configured base URL.
+ * Converts http:// → ws:// and https:// → wss:// so the frontend can connect
+ * securely on Vercel (mixed content blocking) while still working on localhost.
+ *
+ * Example: https://my-ai.onrender.com + /ws/test-chat → wss://my-ai.onrender.com/ws/test-chat
+ */
+export function aiServiceWsUrl(path: string): string {
+  const base = (config.AI_SERVICE_URL || 'http://localhost:8000').replace(/\/$/, '');
+  let wsBase = base;
+  if (base.startsWith('https://')) wsBase = 'wss://' + base.slice('https://'.length);
+  else if (base.startsWith('http://')) wsBase = 'ws://' + base.slice('http://'.length);
+  return wsBase + (path.startsWith('/') ? path : '/' + path);
+}
+
 export async function callAIService({ path, body, timeoutMs = 10000 }: AIServiceRequestOptions): Promise<Response> {
   const url = `${config.AI_SERVICE_URL}${path}`;
   const controller = new AbortController();

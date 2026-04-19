@@ -7,7 +7,7 @@ import { db } from '../config/database';
 import { redis, RedisKeys } from '../config/redis';
 import { logger } from '../config/logger';
 import { config } from '../config/env';
-import { callAIService, callAIServiceBackground } from '../utils/ai-service-client';
+import { callAIService, callAIServiceBackground, aiServiceWsUrl } from '../utils/ai-service-client';
 import { auditLog } from '../middleware/audit-logger';
 import { validateUuidParam } from '../middleware/validate-uuid';
 
@@ -211,7 +211,7 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
       providerAvatarId: row.provider_avatar_id,
       avatarName: row.avatar_name || row.persona_name,
       simliApiKey: config.SIMLI_API_KEY || '',
-      wsUrl: `ws://localhost:8000/ws/test-chat`,  // AI service WebSocket for conversation
+      wsUrl: aiServiceWsUrl('/ws/test-chat'),  // AI service WebSocket for conversation pipeline
     };
 
     res.status(201).json({

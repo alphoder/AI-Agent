@@ -8,7 +8,7 @@ import { S3Service } from '../services/s3-service';
 import { db } from '../config/database';
 import { config as envConfig } from '../config/env';
 import { logger } from '../config/logger';
-import { callAIServiceBackground } from '../utils/ai-service-client';
+import { callAIServiceBackground, aiServiceWsUrl } from '../utils/ai-service-client';
 import { validateUuidParam } from '../middleware/validate-uuid';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
@@ -530,8 +530,10 @@ router.post('/:id/test-session', validateUuidParam(), wrap(async (req: Authentic
           faceId,
           avatarName: avatar.name,
           voiceId: avatarConfig.voice || 'nova',
-          // AI service WebSocket URL for the conversation pipeline
-          wsUrl: `ws://localhost:8000/ws/test-chat`,
+          // AI service WebSocket URL for the conversation pipeline.
+          // Derived from AI_SERVICE_URL so it works on both localhost (ws://)
+          // and production behind HTTPS (wss://) — never hardcode here.
+          wsUrl: aiServiceWsUrl('/ws/test-chat'),
         },
       });
 
