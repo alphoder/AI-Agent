@@ -7,6 +7,9 @@ import { HelpHint } from '@/components/ui/help-hint';
 
 type Step = 'upload' | 'configure' | 'review';
 
+type Gender = 'female' | 'male' | 'non_binary' | 'other';
+type TtsProvider = 'deepgram' | 'openai';
+
 interface AvatarConfig {
   voice: string;
   language: string;
@@ -14,67 +17,27 @@ interface AvatarConfig {
   backgroundRemoval: boolean;
 }
 
-const VOICE_OPTIONS = [
-  {
-    id: 'nova',
-    label: 'Friendly Coach',
-    description: 'Warm, approachable tone — great for onboarding and soft-skills training',
-    category: 'friendly',
-    icon: '😊',
-    gender: 'female',
-    voiceNames: ['Samantha', 'Karen', 'Tessa'],
-    pitch: 1.1, rate: 1.0,
-  },
-  {
-    id: 'onyx',
-    label: 'Executive Mentor',
-    description: 'Confident, authoritative presence — ideal for leadership and interview prep',
-    category: 'professional',
-    icon: '👔',
-    gender: 'male',
-    voiceNames: ['Daniel', 'Aaron', 'Alex'],
-    pitch: 0.85, rate: 0.92,
-  },
-  {
-    id: 'shimmer',
-    label: 'Clinical Trainer',
-    description: 'Clear, precise articulation — suited for medical and compliance scenarios',
-    category: 'professional',
-    icon: '🩺',
-    gender: 'female',
-    voiceNames: ['Moira', 'Fiona', 'Victoria'],
-    pitch: 1.05, rate: 0.95,
-  },
-  {
-    id: 'echo',
-    label: 'Patient Advisor',
-    description: 'Calm, empathetic delivery — perfect for counseling and de-escalation',
-    category: 'empathetic',
-    icon: '🤝',
-    gender: 'male',
-    voiceNames: ['Tom', 'Oliver', 'James'],
-    pitch: 0.9, rate: 0.88,
-  },
-  {
-    id: 'alloy',
-    label: 'Neutral Facilitator',
-    description: 'Balanced, adaptable voice — works across any training scenario',
-    category: 'neutral',
-    icon: '🎯',
-    gender: 'neutral',
-    voiceNames: ['Alex', 'Samantha', 'Google UK English'],
-    pitch: 1.0, rate: 1.0,
-  },
-  {
-    id: 'fable',
-    label: 'Energetic Presenter',
-    description: 'Dynamic, engaging energy — best for sales training and pitching',
-    category: 'energetic',
-    icon: '⚡',
-    gender: 'female',
-    voiceNames: ['Samantha', 'Karen', 'Tessa'],
-    pitch: 1.15, rate: 1.08,
-  },
+interface ApiVoice {
+  id: string;
+  name: string;
+  provider: TtsProvider;
+  gender: 'female' | 'male' | 'non_binary';
+  accent?: string;
+  language?: string;
+  model_family?: string;
+  description?: string;
+}
+
+const GENDER_OPTIONS: { id: Gender; label: string; icon: string }[] = [
+  { id: 'female',     label: 'Female',     icon: '♀' },
+  { id: 'male',       label: 'Male',       icon: '♂' },
+  { id: 'non_binary', label: 'Non-binary', icon: '⚧' },
+  { id: 'other',      label: 'Other',      icon: '•' },
+];
+
+const PROVIDER_VOICE_OPTIONS: { id: TtsProvider; label: string; description: string }[] = [
+  { id: 'deepgram', label: 'Deepgram Aura-2', description: 'Fast, natural, recommended for live conversation' },
+  { id: 'openai',   label: 'OpenAI TTS',      description: 'Higher fidelity, slightly higher latency' },
 ];
 
 const VOICE_PREVIEW_TEXT = "Welcome to your training session. I'll be guiding you through today's scenario. Feel free to respond naturally, and I'll adapt to your pace.";
@@ -102,8 +65,13 @@ export default function CreateAvatarPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [provider, setProvider] = useState('simli');
+  const [gender, setGender] = useState<Gender>('female');
+  const [ttsProvider, setTtsProvider] = useState<TtsProvider>('deepgram');
+  const [voiceId, setVoiceId] = useState('aura-2-asteria-en');
+  const [voices, setVoices] = useState<ApiVoice[]>([]);
+  const [voicesLoading, setVoicesLoading] = useState(false);
   const [config, setConfig] = useState<AvatarConfig>({
-    voice: 'alloy',
+    voice: 'aura-2-asteria-en',
     language: 'en-US',
     speakingRate: 1.0,
     backgroundRemoval: true,
@@ -111,6 +79,36 @@ export default function CreateAvatarPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
+
+  // Load voice catalog from the API whenever the gender or tts provider changes.
+  // The API filters by gender server-side so the UI only ever shows relevant options.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadVoices() {
+      setVoicesLoading(true);
+      try {
+        const genderParam = gender === 'non_binary' ? 'non_binary' : gender === 'other' ? '' : gender;
+        const res = await apiClient.get('/voices', {
+          params: { provider: ttsProvider, ...(genderParam ? { gender: genderParam } : {}) },
+        });
+        if (cancelled) return;
+        const list: ApiVoice[] = res.data.data || [];
+        setVoices(list);
+        // If the currently selected voice isn't in the new filtered list, reset to the first one.
+        if (list.length > 0 && !list.some((v) => v.id === voiceId)) {
+          setVoiceId(list[0].id);
+          setConfig((c) => ({ ...c, voice: list[0].id }));
+        }
+      } catch {
+        if (!cancelled) setVoices([]);
+      } finally {
+        if (!cancelled) setVoicesLoading(false);
+      }
+    }
+    loadVoices();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gender, ttsProvider]);
 
   // Revoke previous Object URL on unmount or when preview changes
   useEffect(() => {
@@ -209,28 +207,28 @@ export default function CreateAvatarPage() {
       return;
     }
 
-    const voiceOption = VOICE_OPTIONS.find((v) => v.id === voiceId);
-    if (!voiceOption) { setPlayingVoice(null); return; }
-
+    // Fallback preview using browser speech synthesis. Pick gender-appropriate
+    // system voice; pitch/rate default to 1.0 (modulation now lives on persona).
     const utterance = new SpeechSynthesisUtterance(VOICE_PREVIEW_TEXT);
-    utterance.pitch = voiceOption.pitch;
-    utterance.rate = voiceOption.rate * speakingRateRef.current;
+    utterance.pitch = 1.0;
+    utterance.rate = speakingRateRef.current;
     utterance.lang = config.language;
 
-    // Pick best system voice by preferred name list
-    const voices = window.speechSynthesis.getVoices();
+    const availableVoices = window.speechSynthesis.getVoices();
     let bestVoice: SpeechSynthesisVoice | null = null;
 
-    for (const preferred of voiceOption.voiceNames) {
-      const match = voices.find((v) =>
-        v.name.includes(preferred) && v.lang.startsWith(config.language.split('-')[0])
+    // Try name-match first against the Deepgram voice name we have
+    const voiceMeta = voices.find((v) => v.id === voiceId);
+    if (voiceMeta) {
+      const nameMatch = availableVoices.find((v) =>
+        v.name.includes(voiceMeta.name) && v.lang.startsWith(config.language.split('-')[0])
       );
-      if (match) { bestVoice = match; break; }
+      if (nameMatch) bestVoice = nameMatch;
     }
 
     if (!bestVoice) {
       const langPrefix = config.language.split('-')[0];
-      const langVoices = voices.filter((v) => v.lang.startsWith(langPrefix));
+      const langVoices = availableVoices.filter((v) => v.lang.startsWith(langPrefix));
       bestVoice = langVoices.find((v) => !v.name.includes('compact') && !v.name.includes('Online'))
         || langVoices[0] || null;
     }
@@ -288,7 +286,10 @@ export default function CreateAvatarPage() {
       const formData = new FormData();
       formData.append('image', file);
       formData.append('name', name.trim());
-      formData.append('config', JSON.stringify({ ...config, provider }));
+      formData.append('gender', gender);
+      formData.append('tts_provider', ttsProvider);
+      formData.append('tts_voice_id', voiceId);
+      formData.append('config', JSON.stringify({ ...config, voice: voiceId, provider, gender }));
 
       await apiClient.post('/avatars', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -302,8 +303,9 @@ export default function CreateAvatarPage() {
     }
   };
 
-  const selectedVoice = VOICE_OPTIONS.find((v) => v.id === config.voice);
+  const selectedVoice = voices.find((v) => v.id === voiceId);
   const selectedProvider = PROVIDER_OPTIONS.find((p) => p.id === provider);
+  const selectedGender = GENDER_OPTIONS.find((g) => g.id === gender);
 
   return (
     <div className="max-w-2xl mx-auto p-6">
@@ -441,65 +443,131 @@ export default function CreateAvatarPage() {
             </div>
           </div>
 
-          {/* Voice Persona */}
+          {/* Gender */}
           <div>
-            <label className="block text-sm font-medium mb-1.5">Voice Persona</label>
-            <p className="text-xs text-muted-foreground mb-3">Choose a voice that matches your training scenario. Click the play button to hear a preview.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {VOICE_OPTIONS.map((voice) => (
+            <label className="block text-sm font-medium mb-1.5">Gender</label>
+            <p className="text-xs text-muted-foreground mb-3">Determines which voices appear below and helps match this avatar to compatible personas later.</p>
+            <div className="grid grid-cols-4 gap-2">
+              {GENDER_OPTIONS.map((g) => (
                 <button
-                  key={voice.id}
+                  key={g.id}
                   type="button"
-                  onClick={() => {
-                    setConfig((c) => ({ ...c, voice: voice.id }));
-                    previewVoice(voice.id);
-                  }}
-                  className={`rounded-xl border p-4 text-left transition-all relative group ${
-                    config.voice === voice.id
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm'
+                  onClick={() => setGender(g.id)}
+                  className={`rounded-lg border p-3 text-center transition-all ${
+                    gender === g.id
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                       : 'border-input hover:border-primary/50 hover:bg-muted/30'
                   }`}
                 >
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl mt-0.5 shrink-0">{voice.icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">{voice.label}</span>
-                        {config.voice === voice.id && (
-                          <svg className="w-4 h-4 text-primary shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                          </svg>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{voice.description}</p>
-                    </div>
-                    <div
-                      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1.5 shrink-0 transition-all text-xs font-medium ${
-                        playingVoice === voice.id
-                          ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-                          : 'bg-muted/80 text-muted-foreground group-hover:bg-primary/15 group-hover:text-primary'
-                      }`}
-                    >
-                      {playingVoice === voice.id ? (
-                        <>
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                            <rect x="6" y="6" width="12" height="12" rx="2" />
-                          </svg>
-                          Stop
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                          Play
-                        </>
-                      )}
-                    </div>
-                  </div>
+                  <div className="text-lg leading-none">{g.icon}</div>
+                  <div className="text-xs font-medium mt-1">{g.label}</div>
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* TTS provider */}
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Voice engine</label>
+            <div className="grid grid-cols-2 gap-3">
+              {PROVIDER_VOICE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setTtsProvider(opt.id)}
+                  className={`rounded-lg border p-3 text-left transition-all ${
+                    ttsProvider === opt.id
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                      : 'border-input hover:border-primary/50 hover:bg-muted/30'
+                  }`}
+                >
+                  <span className="block text-sm font-medium">{opt.label}</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">{opt.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Voice catalog — fetched from /api/voices, gender-filtered */}
+          <div>
+            <label className="block text-sm font-medium mb-1.5">
+              Voice
+              {voices.length > 0 && (
+                <span className="ml-2 text-xs text-muted-foreground font-normal">
+                  {voices.length} {gender} voice{voices.length !== 1 ? 's' : ''} available
+                </span>
+              )}
+            </label>
+            <p className="text-xs text-muted-foreground mb-3">Click any voice to select and preview it.</p>
+            {voicesLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">Loading voices…</div>
+            ) : voices.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                No voices available for this combination. Try a different gender or provider.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-80 overflow-y-auto pr-1">
+                {voices.map((v) => {
+                  const selected = voiceId === v.id;
+                  const isPlaying = playingVoice === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => {
+                        setVoiceId(v.id);
+                        setConfig((c) => ({ ...c, voice: v.id }));
+                        previewVoice(v.id);
+                      }}
+                      className={`rounded-lg border p-3 text-left transition-all relative group ${
+                        selected
+                          ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                          : 'border-input hover:border-primary/50 hover:bg-muted/30'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-semibold truncate">{v.name}</span>
+                            {v.accent && (
+                              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                {v.accent}
+                              </span>
+                            )}
+                            {v.model_family === 'aura-1' && (
+                              <span className="text-[10px] font-medium uppercase tracking-wider text-amber-600">
+                                v1
+                              </span>
+                            )}
+                          </div>
+                          {v.description && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{v.description}</p>
+                          )}
+                          <p className="text-[10px] font-mono text-muted-foreground/60 mt-1 truncate">{v.id}</p>
+                        </div>
+                        <div
+                          className={`flex items-center justify-center rounded-full w-7 h-7 shrink-0 transition-colors text-xs ${
+                            isPlaying
+                              ? 'bg-destructive/10 text-destructive'
+                              : 'bg-muted/80 text-muted-foreground group-hover:bg-primary/15 group-hover:text-primary'
+                          }`}
+                        >
+                          {isPlaying ? (
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                              <rect x="6" y="6" width="12" height="12" rx="2" />
+                            </svg>
+                          ) : (
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Language */}
@@ -609,8 +677,12 @@ export default function CreateAvatarPage() {
               <span className="text-sm font-medium">{selectedProvider?.label}</span>
             </div>
             <div className="flex justify-between p-3.5">
+              <span className="text-sm text-muted-foreground">Gender</span>
+              <span className="text-sm font-medium">{selectedGender?.icon} {selectedGender?.label}</span>
+            </div>
+            <div className="flex justify-between p-3.5">
               <span className="text-sm text-muted-foreground">Voice</span>
-              <span className="text-sm font-medium">{selectedVoice?.icon} {selectedVoice?.label}</span>
+              <span className="text-sm font-medium">{selectedVoice?.name || voiceId} <span className="text-xs text-muted-foreground">({ttsProvider})</span></span>
             </div>
             <div className="flex justify-between p-3.5">
               <span className="text-sm text-muted-foreground">Language</span>

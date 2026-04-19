@@ -118,7 +118,7 @@ router.post(
           JSON.stringify(req.body.config || {}),
           gender || null,
           tts_provider || 'deepgram',
-          tts_voice_id || 'aura-asteria-en',
+          tts_voice_id || 'aura-2-asteria-en',
         ],
       );
 
