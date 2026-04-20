@@ -8,8 +8,11 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SectionCard } from '@/components/ui/section-card';
 import { RichEmptyState } from '@/components/ui/rich-empty-state';
 import { ProgressRing } from '@/components/ui/progress-ring';
+import { StatTile } from '@/components/ui/stat-tile';
+import Link from 'next/link';
 import {
   ArrowLeft,
+  ArrowRight,
   Clock,
   MessageSquare,
   Calendar,
@@ -24,6 +27,10 @@ import {
   Bot,
   Target,
   Sparkles,
+  TrendingUp,
+  Trophy,
+  Flame,
+  FileText,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -270,25 +277,7 @@ function ReportsPageInner() {
 
   /* No target id at all — list empty state */
   if (!targetId) {
-    return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <PageHeader
-          icon={BarChart3}
-          accent="analytics"
-          title="Your reports"
-          subtitle="See how you did in each training session."
-        />
-        <div className="rounded-3xl border border-border/50 bg-card overflow-hidden">
-          <RichEmptyState
-            icon={BarChart3}
-            accent="analytics"
-            title="No reports yet"
-            description="Complete a training session to get your first detailed report."
-            action={{ label: 'Go to dashboard', href: '/dashboard' }}
-          />
-        </div>
-      </div>
-    );
+    return <ReportsOverview />;
   }
 
   /* Report not available yet */
@@ -532,6 +521,316 @@ function ReportsPageInner() {
           Try Again
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Reports overview (no specific session selected)                    */
+/* ------------------------------------------------------------------ */
+
+interface HistorySession {
+  id: string;
+  created_at: string;
+  status: string;
+  duration_sec: number | null;
+  scenario_title: string;
+  overall_score: number | string | null;
+}
+
+function ReportsOverview() {
+  const [sessions, setSessions] = useState<HistorySession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await apiClient.get('/analytics/my-activity', { params: { days: 180 } });
+        const raw = (res.data?.data?.sessions ?? []) as HistorySession[];
+        setSessions(raw);
+      } catch (err) {
+        console.error('Failed to fetch report history:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  // Only sessions with a numeric score count as completed reports.
+  const scored = sessions
+    .map((s) => ({ ...s, scoreNum: s.overall_score != null ? Number(s.overall_score) : null }))
+    .filter((s) => s.scoreNum != null && !isNaN(s.scoreNum)) as Array<HistorySession & { scoreNum: number }>;
+
+  const stats = (() => {
+    if (scored.length === 0) {
+      return { total: 0, avg: 0, best: 0, totalMinutes: 0, streak: 0, lastDate: null as Date | null };
+    }
+    const sorted = [...scored].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const totalMinutes = sorted.reduce((acc, s) => acc + Math.round((s.duration_sec || 0) / 60), 0);
+    const sum = sorted.reduce((acc, s) => acc + s.scoreNum, 0);
+    const best = sorted.reduce((acc, s) => Math.max(acc, s.scoreNum), 0);
+
+    // Streak = consecutive unique days with at least one session, ending today or yesterday.
+    const dayKeys = new Set(sorted.map((s) => {
+      const d = new Date(s.created_at);
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    }));
+    let streak = 0;
+    const cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+    // Allow 1-day grace: if no session today, start from yesterday
+    if (!dayKeys.has(cursor.getTime())) cursor.setDate(cursor.getDate() - 1);
+    while (dayKeys.has(cursor.getTime())) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+
+    const lastDate = new Date(sorted[sorted.length - 1].created_at);
+
+    return {
+      total: sorted.length,
+      avg: Math.round(sum / sorted.length),
+      best: Math.round(best),
+      totalMinutes,
+      streak,
+      lastDate,
+    };
+  })();
+
+  // Per-scenario aggregation (best/avg/attempts)
+  const byScenario = (() => {
+    const map = new Map<string, { title: string; attempts: number; best: number; total: number; last: string }>();
+    for (const s of scored) {
+      const key = s.scenario_title;
+      const entry = map.get(key) ?? { title: key, attempts: 0, best: 0, total: 0, last: s.created_at };
+      entry.attempts += 1;
+      entry.best = Math.max(entry.best, s.scoreNum);
+      entry.total += s.scoreNum;
+      if (new Date(s.created_at) > new Date(entry.last)) entry.last = s.created_at;
+      map.set(key, entry);
+    }
+    return Array.from(map.values())
+      .map((e) => ({ ...e, avg: Math.round(e.total / e.attempts) }))
+      .sort((a, b) => b.best - a.best);
+  })();
+
+  // Trend sparkline data (last 15 scored sessions, oldest → newest)
+  const trend = scored
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .slice(-15)
+    .map((s) => s.scoreNum);
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <PageHeader
+        icon={BarChart3}
+        accent="analytics"
+        title="Your reports"
+        subtitle="Every completed session, scored against its rubric."
+      />
+
+      {loading ? (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <StatTile key={i} icon={Trophy} label="" value={0} loading />
+            ))}
+          </div>
+          <div className="h-72 rounded-3xl shimmer-bg" />
+        </>
+      ) : scored.length === 0 ? (
+        <div className="rounded-3xl border border-border/50 bg-card overflow-hidden">
+          <RichEmptyState
+            icon={BarChart3}
+            accent="analytics"
+            title="No reports yet"
+            description="Complete a training session to get your first detailed report."
+            action={{ label: 'Go to dashboard', href: '/dashboard' }}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatTile icon={FileText}   label="Completed"    value={stats.total} accent="learners" />
+            <StatTile icon={TrendingUp} label="Average"       value={stats.avg}   suffix="%" accent="analytics" />
+            <StatTile icon={Trophy}     label="Best"          value={stats.best}  suffix="%" accent="scenarios" />
+            <StatTile icon={Flame}      label="Streak"        value={stats.streak} suffix={stats.streak === 1 ? ' day' : ' days'} accent="assign" />
+          </div>
+
+          {/* Trend sparkline */}
+          {trend.length >= 2 && (
+            <SectionCard
+              icon={TrendingUp}
+              iconTint="text-sky-600"
+              title="Score trend"
+              subtitle={`Your last ${trend.length} scored sessions (oldest \u2192 newest).`}
+            >
+              <div className="p-5">
+                <TrendSparkline points={trend} />
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Per-scenario breakdown */}
+          <SectionCard
+            icon={Target}
+            iconTint="text-amber-600"
+            title="By scenario"
+            subtitle="How you've performed in each scenario you've trained on."
+          >
+            <div className="divide-y divide-border/40">
+              {byScenario.map((sc) => {
+                // Find the session id of the latest attempt for the link
+                const latestSession = scored
+                  .filter((s) => s.scenario_title === sc.title)
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+                return (
+                  <Link
+                    key={sc.title}
+                    href={`/reports?session=${latestSession.id}`}
+                    className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/30 transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center shrink-0">
+                      <Target className="w-5 h-5 text-amber-700" strokeWidth={2.2} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{sc.title}</p>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                        <span>{sc.attempts} attempt{sc.attempts !== 1 ? 's' : ''}</span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span>Avg <span className={getScoreColor(sc.avg)}>{sc.avg}%</span></span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span>Best <span className={getScoreColor(sc.best)}>{sc.best}%</span></span>
+                      </div>
+                    </div>
+                    <ProgressRing
+                      value={sc.best}
+                      size={44}
+                      stroke={4}
+                      label={<span className={`text-xs font-semibold ${getScoreColor(sc.best)}`}>{sc.best}</span>}
+                    />
+                  </Link>
+                );
+              })}
+            </div>
+          </SectionCard>
+
+          {/* Full history */}
+          <SectionCard
+            icon={Clock}
+            iconTint="text-indigo-600"
+            title="All reports"
+            subtitle={`${scored.length} scored session${scored.length !== 1 ? 's' : ''} in the last 6 months.`}
+          >
+            <div className="divide-y divide-border/40">
+              {scored
+                .slice()
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                .map((s) => {
+                  const started = new Date(s.created_at);
+                  const mins = s.duration_sec ? Math.max(1, Math.round(s.duration_sec / 60)) : 0;
+                  return (
+                    <Link
+                      key={s.id}
+                      href={`/reports?session=${s.id}`}
+                      className="flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors group"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+                        <FileText className="w-4 h-4 text-indigo-700" strokeWidth={2.2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{s.scenario_title}</p>
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
+                          <span>{started.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          <span className="text-muted-foreground/40">·</span>
+                          <span>{started.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+                          {mins > 0 && (
+                            <>
+                              <span className="text-muted-foreground/40">·</span>
+                              <span>{mins} min</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`text-sm font-semibold tabular-nums shrink-0 ${getScoreColor(s.scoreNum)}`}>
+                        {Math.round(s.scoreNum)}%
+                      </span>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </Link>
+                  );
+                })}
+            </div>
+          </SectionCard>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Tiny SVG sparkline. Normalises points to the component's box,
+ * renders the line + an area fill underneath. No external deps.
+ */
+function TrendSparkline({ points }: { points: number[] }) {
+  const W = 600;
+  const H = 96;
+  const PAD = 6;
+  const min = 0;
+  const max = 100;
+  const n = points.length;
+  const step = n > 1 ? (W - PAD * 2) / (n - 1) : 0;
+  const yFor = (v: number) => PAD + (1 - (v - min) / (max - min)) * (H - PAD * 2);
+
+  const linePath = points
+    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${PAD + i * step} ${yFor(v)}`)
+    .join(' ');
+  const areaPath = `${linePath} L ${PAD + (n - 1) * step} ${H - PAD} L ${PAD} ${H - PAD} Z`;
+  const last = points[points.length - 1];
+  const first = points[0];
+  const delta = last - first;
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="text-xs text-muted-foreground">
+          {first}% <ArrowRight className="w-3 h-3 inline mx-0.5" /> <span className="font-semibold text-foreground">{last}%</span>
+        </p>
+        <p className={`text-xs font-medium ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-muted-foreground'}`}>
+          {delta > 0 ? '+' : ''}{delta} pts
+        </p>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-24" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="hsl(243 75% 59%)" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="hsl(243 75% 59%)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {/* 50% and 80% guide lines */}
+        <line x1={PAD} x2={W - PAD} y1={yFor(50)} y2={yFor(50)} stroke="currentColor" strokeOpacity="0.08" strokeDasharray="2 3" />
+        <line x1={PAD} x2={W - PAD} y1={yFor(80)} y2={yFor(80)} stroke="currentColor" strokeOpacity="0.08" strokeDasharray="2 3" />
+        {n > 1 && (
+          <>
+            <path d={areaPath} fill="url(#spark-fill)" />
+            <path d={linePath} fill="none" stroke="hsl(243 75% 59%)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          </>
+        )}
+        {points.map((v, i) => (
+          <circle
+            key={i}
+            cx={PAD + i * step}
+            cy={yFor(v)}
+            r={i === n - 1 ? 4 : 2.5}
+            fill="hsl(243 75% 59%)"
+            stroke="white"
+            strokeWidth={i === n - 1 ? 2 : 1}
+          />
+        ))}
+      </svg>
     </div>
   );
 }
