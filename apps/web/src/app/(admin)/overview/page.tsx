@@ -157,6 +157,21 @@ export default function AdminOverviewPage() {
               subtitle: d.learner_name,
             });
           }
+          const scheduled = Array.isArray(calendar?.scheduled)
+            ? (calendar.scheduled as Array<{ date: string; assignment_id: string; scenario_id: string; learner_name: string; scenario_title: string; scheduled_at: string }>)
+            : [];
+          for (const s of scheduled) {
+            const at = s.scheduled_at ? new Date(s.scheduled_at) : null;
+            const when = at && !isNaN(at.getTime())
+              ? at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+              : undefined;
+            events.push({
+              date: s.date,
+              type: 'scheduled',
+              title: `Scheduled: ${s.scenario_title}`,
+              subtitle: when ? `${s.learner_name} · ${when}` : s.learner_name,
+            });
+          }
         }
 
         // Fallback: if calendar block isn't present (older API), fold in

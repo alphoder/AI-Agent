@@ -50,6 +50,8 @@ interface AssignmentRow {
   avatar_id: string | null;
   status: 'assigned' | 'in_progress' | 'completed';
   due_date: string | null;
+  scheduled_at: string | null;
+  notes: string | null;
   assigned_at: string;
   learner_email: string;
   learner_name: string;
@@ -212,6 +214,7 @@ export default function AssignmentsPage() {
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Persona</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Avatar</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+              <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduled</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Due</th>
               <th className="px-5 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">Score</th>
               <th className="px-5 py-3" />
@@ -221,7 +224,7 @@ export default function AssignmentsPage() {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-t border-border/40">
-                  {Array.from({ length: 8 }).map((__, j) => (
+                  {Array.from({ length: 9 }).map((__, j) => (
                     <td key={j} className="px-5 py-4">
                       <div className="h-4 w-24 rounded shimmer-bg" />
                     </td>
@@ -230,7 +233,7 @@ export default function AssignmentsPage() {
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-0">
+                <td colSpan={9} className="p-0">
                   <RichEmptyState
                     icon={ClipboardCheck}
                     accent="assign"
@@ -264,7 +267,24 @@ export default function AssignmentsPage() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-5 py-3.5"><StatusBadge status={a.status} /></td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-1.5">
+                      <StatusBadge status={a.status} />
+                      {a.notes && (
+                        <span
+                          title={a.notes}
+                          className="inline-flex items-center rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 cursor-help"
+                        >
+                          Note
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5 text-xs text-muted-foreground tabular-nums">
+                    {a.scheduled_at
+                      ? new Date(a.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                      : '—'}
+                  </td>
                   <td className="px-5 py-3.5 text-xs text-muted-foreground tabular-nums">
                     {a.due_date ? new Date(a.due_date).toLocaleDateString() : '—'}
                   </td>
@@ -325,6 +345,8 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
   const [avatarId, setAvatarId] = useState('');
   const [learnerIds, setLearnerIds] = useState<Set<string>>(new Set());
   const [dueDate, setDueDate] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [notes, setNotes] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -395,6 +417,8 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
         avatar_id: avatarId || undefined,
         user_ids: Array.from(learnerIds),
         due_date: dueDate ? new Date(dueDate).toISOString() : undefined,
+        scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+        notes: notes.trim() || undefined,
       });
       onSaved();
     } catch (err: unknown) {
@@ -637,19 +661,48 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
+                        Scheduled start <span className="normal-case text-muted-foreground/60">(optional)</span>
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledAt}
+                        onChange={(e) => setScheduledAt(e.target.value)}
+                        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1">A nudge for the learner — they can still start whenever.</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
+                        Due date <span className="normal-case text-muted-foreground/60">(optional)</span>
+                      </label>
+                      <div className="relative">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+                        <input
+                          type="date"
+                          value={dueDate}
+                          onChange={(e) => setDueDate(e.target.value)}
+                          className="w-full rounded-lg border border-border bg-card pl-10 pr-3 py-2 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Notes to the learner */}
                   <div>
                     <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
-                      Due date (optional)
+                      Notes for the learner <span className="normal-case text-muted-foreground/60">(optional · markdown)</span>
                     </label>
-                    <div className="relative">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
-                      <input
-                        type="date"
-                        value={dueDate}
-                        onChange={(e) => setDueDate(e.target.value)}
-                        className="w-full rounded-lg border border-border bg-card pl-10 pr-3 py-2 text-sm"
-                      />
-                    </div>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      rows={5}
+                      placeholder={"Any instructions the learner should read before starting.\n\nMarkdown works:\n- **Focus on** asking open-ended questions\n- Aim for 5–7 minute sessions\n- Reference the pricing sheet you sent last week"}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm font-mono leading-relaxed"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">Shown on the learner&apos;s assignment card and before every session.</p>
                   </div>
 
                   {/* Summary */}
@@ -658,6 +711,12 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
                     <div className="flex gap-2"><span className="text-muted-foreground w-20">Persona:</span><span className="font-medium">{selectedPersona?.name || '—'}</span></div>
                     <div className="flex gap-2"><span className="text-muted-foreground w-20">Avatar:</span><span className="font-medium">{selectedAvatar?.name || '—'}{selectedAvatar?.gender ? ` (${selectedAvatar.gender.replace('_', ' ')})` : ''}</span></div>
                     <div className="flex gap-2"><span className="text-muted-foreground w-20">Learners:</span><span className="font-medium">{learnerIds.size}</span></div>
+                    {scheduledAt && (
+                      <div className="flex gap-2"><span className="text-muted-foreground w-20">Scheduled:</span><span className="font-medium">{new Date(scheduledAt).toLocaleString()}</span></div>
+                    )}
+                    {notes.trim() && (
+                      <div className="flex gap-2"><span className="text-muted-foreground w-20">Notes:</span><span className="font-medium line-clamp-1">{notes.trim().split('\n')[0]}</span></div>
+                    )}
                   </div>
                 </div>
               )}

@@ -1,16 +1,17 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Clock, Target, Users } from 'lucide-react';
+import { Clock, Target, Users, CalendarClock } from 'lucide-react';
 
 /**
  * Dashboard activity event.
- *   type = 'session'  → a training session contribution (counts toward intensity)
- *   type = 'due'      → an assignment due date (rendered as an amber corner dot)
+ *   type = 'session'   → a training session contribution (drives intensity)
+ *   type = 'due'       → an assignment due date (amber dot on the cell)
+ *   type = 'scheduled' → admin-planned start time (violet dot on the cell)
  */
 export interface ActivityEvent {
   date: string;
-  type: 'session' | 'due';
+  type: 'session' | 'due' | 'scheduled';
   title: string;
   subtitle?: string;
   /**
@@ -201,15 +202,19 @@ export function ActivityCalendar({
   const totals = useMemo(() => {
     let metric = 0;
     let dues = 0;
+    let scheduled = 0;
     grid.forEach((col) => {
       col.forEach((d) => {
+        const list = eventsByDay.get(dateKey(d)) || [];
+        for (const e of list) {
+          if (e.type === 'due') dues++;
+          else if (e.type === 'scheduled') scheduled++;
+        }
         if (d > today) return;
         metric += countByDay.get(dateKey(d)) || 0;
-        const list = eventsByDay.get(dateKey(d)) || [];
-        for (const e of list) if (e.type === 'due') dues++;
       });
     });
-    return { metric, dues };
+    return { metric, dues, scheduled };
   }, [grid, countByDay, eventsByDay, today]);
 
   const palette = PALETTES[accent];
@@ -238,6 +243,9 @@ export function ActivityCalendar({
           in the last {weeks} weeks
           {totals.dues > 0 && (
             <span className="ml-2 text-muted-foreground">· {totals.dues} deadline{totals.dues !== 1 ? 's' : ''}</span>
+          )}
+          {totals.scheduled > 0 && (
+            <span className="ml-2 text-muted-foreground">· {totals.scheduled} scheduled</span>
           )}
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -291,6 +299,7 @@ export function ActivityCalendar({
                     const lvl = bucketFor(count, maxCount);
                     const dayEvents = eventsByDay.get(key) || [];
                     const hasDue = dayEvents.some((e) => e.type === 'due');
+                    const hasScheduled = dayEvents.some((e) => e.type === 'scheduled');
                     const isToday = isSameDay(d, today);
                     const isSelected = selected === key;
 
@@ -301,9 +310,9 @@ export function ActivityCalendar({
                         onClick={() => !inFuture && setSelected(isSelected ? null : key)}
                         onMouseEnter={() => setHovered(key)}
                         onMouseLeave={() => setHovered(null)}
-                        disabled={inFuture && !hasDue}
+                        disabled={inFuture && !hasDue && !hasScheduled}
                         className={`relative rounded-sm transition-all ${
-                          inFuture && !hasDue ? 'opacity-20' : ''
+                          inFuture && !hasDue && !hasScheduled ? 'opacity-20' : ''
                         } ${
                           palette[lvl]
                         } ${
@@ -314,10 +323,13 @@ export function ActivityCalendar({
                               : 'hover:ring-1 hover:ring-foreground/30'
                         }`}
                         style={{ width: CELL, height: CELL }}
-                        aria-label={`${d.toDateString()}: ${count} ${count === 1 ? label.singular : label.plural}${hasDue ? ', deadline' : ''}`}
+                        aria-label={`${d.toDateString()}: ${count} ${count === 1 ? label.singular : label.plural}${hasDue ? ', deadline' : ''}${hasScheduled ? ', scheduled' : ''}`}
                       >
                         {hasDue && (
                           <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 ring-1 ring-card" />
+                        )}
+                        {hasScheduled && (
+                          <span className="absolute -bottom-0.5 -left-0.5 w-1.5 h-1.5 rounded-full bg-violet-500 ring-1 ring-card" />
                         )}
                       </button>
                     );
@@ -392,11 +404,18 @@ export function ActivityCalendar({
   );
 }
 
-function EventIcon({ type, metric }: { type: 'session' | 'due'; metric: 'sessions' | 'unique-learners' }) {
+function EventIcon({ type, metric }: { type: ActivityEvent['type']; metric: 'sessions' | 'unique-learners' }) {
   if (type === 'due') {
     return (
       <div className="w-5 h-5 rounded-md bg-amber-50 flex items-center justify-center shrink-0">
         <Target className="w-3 h-3 text-amber-700" strokeWidth={2.4} />
+      </div>
+    );
+  }
+  if (type === 'scheduled') {
+    return (
+      <div className="w-5 h-5 rounded-md bg-violet-50 flex items-center justify-center shrink-0">
+        <CalendarClock className="w-3 h-3 text-violet-700" strokeWidth={2.4} />
       </div>
     );
   }

@@ -10,6 +10,7 @@ import { SectionCard } from '@/components/ui/section-card';
 import { RichEmptyState } from '@/components/ui/rich-empty-state';
 import { ProgressRing } from '@/components/ui/progress-ring';
 import { ActivityCalendar, ActivityEvent } from '@/components/ui/activity-calendar';
+import { MarkdownLite } from '@/components/ui/markdown-lite';
 import {
   BookOpen,
   CheckCircle2,
@@ -36,6 +37,8 @@ interface Assignment {
   scenario_id: string;
   assignment_status: 'assigned' | 'in_progress' | 'completed';
   due_date: string | null;
+  scheduled_at: string | null;
+  notes: string | null;
   title: string;
   description: string | null;
   objective: string | null;
@@ -239,7 +242,7 @@ function AssignmentCard({
         )}
 
         {/* Meta row */}
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
           <span className="inline-flex items-center gap-1">
             <Timer className="w-3.5 h-3.5" />
             {Math.floor(a.max_duration_sec / 60)} min
@@ -250,7 +253,26 @@ function AssignmentCard({
               {overdue ? 'Overdue' : isClient ? formatDueDate(a.due_date) : '\u2014'}
             </span>
           )}
+          {a.scheduled_at && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 font-medium">
+              <Sparkles className="w-3 h-3" />
+              {isClient
+                ? new Date(a.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                : '\u2014'}
+            </span>
+          )}
         </div>
+
+        {/* Admin note — rendered as a quiet yellow card, markdown-style */}
+        {a.notes && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-lg border border-amber-200/70 bg-amber-50/60 p-3 text-xs text-amber-950 leading-relaxed whitespace-pre-wrap"
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 mb-1">Note from your admin</p>
+            <MarkdownLite source={a.notes} />
+          </div>
+        )}
 
         {/* CTA */}
         <div className="flex gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
@@ -350,16 +372,32 @@ export default function LearnerDashboardPage() {
             });
           }
           const dues = (payload?.due_assignments || []) as Array<{
-            assignment_id: string; scenario_id: string; scenario_title: string; due_date: string;
+            assignment_id: string; scenario_id: string; scenario_title: string;
+            due_date: string | null; scheduled_at: string | null;
           }>;
           for (const d of dues) {
-            events.push({
-              date: d.due_date,
-              type: 'due',
-              title: `Due: ${d.scenario_title}`,
-              subtitle: 'Open assignment',
-              href: `/session/${d.scenario_id}?assignment=${d.assignment_id}`,
-            });
+            if (d.due_date) {
+              events.push({
+                date: d.due_date,
+                type: 'due',
+                title: `Due: ${d.scenario_title}`,
+                subtitle: 'Open assignment',
+                href: `/session/${d.scenario_id}?assignment=${d.assignment_id}`,
+              });
+            }
+            if (d.scheduled_at) {
+              const sd = new Date(d.scheduled_at);
+              const whenLabel = !isNaN(sd.getTime())
+                ? sd.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+                : 'scheduled';
+              events.push({
+                date: d.scheduled_at,
+                type: 'scheduled',
+                title: `Scheduled: ${d.scenario_title}`,
+                subtitle: whenLabel,
+                href: `/session/${d.scenario_id}?assignment=${d.assignment_id}`,
+              });
+            }
           }
         }
         setCalendarEvents(events);

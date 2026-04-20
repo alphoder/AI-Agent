@@ -134,6 +134,27 @@ router.get(
         [tenantId],
       );
 
+      // Scheduled start times (distinct from due dates)
+      const calendarScheduledResult = await db.tenantQuery(
+        tenantId,
+        `SELECT sa.scheduled_at::date::text AS date,
+                sa.id AS assignment_id,
+                sa.scenario_id,
+                sa.scheduled_at,
+                u.display_name AS learner_name,
+                sc.title AS scenario_title
+         FROM scenario_assignments sa
+         JOIN users u ON u.id = sa.user_id
+         JOIN scenarios sc ON sc.id = sa.scenario_id
+         WHERE sa.tenant_id = $1
+           AND sa.status != 'completed'
+           AND sa.scheduled_at IS NOT NULL
+           AND sa.scheduled_at >= CURRENT_DATE - INTERVAL '182 days'
+           AND u.deleted_at IS NULL
+           AND sc.deleted_at IS NULL`,
+        [tenantId],
+      );
+
       // Score distribution buckets
       const scoreDistResult = await db.tenantQuery(
         tenantId,
@@ -200,6 +221,7 @@ router.get(
           calendar: {
             days: calendarDaysResult.rows,
             dues: calendarDuesResult.rows,
+            scheduled: calendarScheduledResult.rows,
           },
         },
       });
@@ -249,15 +271,17 @@ router.get(
           `SELECT sa.id AS assignment_id,
                   sa.scenario_id,
                   sa.due_date,
+                  sa.scheduled_at,
+                  sa.notes,
                   sa.status,
                   sc.title AS scenario_title
            FROM scenario_assignments sa
            JOIN scenarios sc ON sc.id = sa.scenario_id
            WHERE sa.user_id = $1
-             AND sa.due_date IS NOT NULL
+             AND (sa.due_date IS NOT NULL OR sa.scheduled_at IS NOT NULL)
              AND sa.status != 'completed'
              AND sc.deleted_at IS NULL
-           ORDER BY sa.due_date ASC
+           ORDER BY COALESCE(sa.scheduled_at, sa.due_date) ASC
            LIMIT 100`,
           [userId],
         ),
@@ -268,6 +292,9 @@ router.get(
         data: {
           sessions: sessionsResult.rows,
           due_assignments: assignmentsResult.rows,
+          // Same rows, filtered/relabelled for the calendar to draw a
+          // separate 'scheduled' dot on the start-time date.
+          scheduled_assignments: assignmentsResult.rows.filter((r: { scheduled_at: string | null }) => r.scheduled_at != null),
         },
         meta: { days, user_id: userId },
       });
