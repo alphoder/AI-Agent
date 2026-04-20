@@ -6,11 +6,13 @@ import apiClient from '@/lib/api-client';
 import {
   Users, Drama, ClipboardList, Activity, Clock,
   LayoutDashboard, GraduationCap, Plus, ArrowRight, CheckCircle2, ClipboardCheck,
+  Calendar,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatTile } from '@/components/ui/stat-tile';
 import { SectionCard } from '@/components/ui/section-card';
 import { RichEmptyState } from '@/components/ui/rich-empty-state';
+import { ActivityCalendar, ActivityEvent } from '@/components/ui/activity-calendar';
 
 interface DashboardStats {
   avatars: number;
@@ -63,17 +65,20 @@ export default function AdminOverviewPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [avatarsRes, personasRes, scenariosRes, sessionsRes, learnersRes] = await Promise.allSettled([
+        const [avatarsRes, personasRes, scenariosRes, sessionsRes, learnersRes, overviewRes, assignmentsRes] = await Promise.allSettled([
           apiClient.get('/avatars?page=1&limit=1'),
           apiClient.get('/personas?page=1&limit=1'),
           apiClient.get('/scenarios'),
           apiClient.get('/sessions?limit=10&sort=started_at:desc'),
           apiClient.get('/users?role=learner&limit=1'),
+          apiClient.get('/analytics/overview'),
+          apiClient.get('/assignments?limit=200'),
         ]);
 
         const avatarCount = avatarsRes.status === 'fulfilled'
@@ -107,6 +112,47 @@ export default function AdminOverviewPage() {
           avg_score: s.avg_score as number | null,
         })));
         setRecentSessions(sessionList.slice(0, 6));
+
+        // Build calendar events: session trend buckets + assignment due dates
+        const events: ActivityEvent[] = [];
+
+        if (overviewRes.status === 'fulfilled') {
+          const trends = overviewRes.value.data?.data?.trends;
+          if (Array.isArray(trends)) {
+            for (const t of trends as Array<{ date: string; count: number }>) {
+              const count = Number(t.count) || 0;
+              // Expand each day's count into N distinct session events so the
+              // calendar shows a dot per day and the count badge on the cell.
+              for (let i = 0; i < count; i++) {
+                events.push({
+                  date: t.date,
+                  type: 'session',
+                  title: `${count} training session${count !== 1 ? 's' : ''}`,
+                  subtitle: new Date(t.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+                });
+                if (i >= 2) break; // cap visual noise — the cell shows "+N" anyway
+              }
+            }
+          }
+        }
+
+        if (assignmentsRes.status === 'fulfilled') {
+          const rows = assignmentsRes.value.data?.data;
+          if (Array.isArray(rows)) {
+            for (const a of rows as Array<Record<string, unknown>>) {
+              if (a.due_date && a.status !== 'completed') {
+                events.push({
+                  date: a.due_date as string,
+                  type: 'due',
+                  title: `Due: ${a.scenario_title as string}`,
+                  subtitle: a.learner_name as string,
+                });
+              }
+            }
+          }
+        }
+
+        setCalendarEvents(events);
       } catch (err) {
         console.error('Failed to load admin dashboard:', err);
       } finally {
@@ -168,6 +214,20 @@ export default function AdminOverviewPage() {
           ))}
         </div>
       </div>
+
+      {/* Activity calendar */}
+      <SectionCard
+        icon={Calendar}
+        iconTint="text-indigo-600"
+        title="Activity calendar"
+        subtitle="Training sessions (indigo) and upcoming assignment deadlines (amber)."
+      >
+        {loading ? (
+          <div className="p-10 text-center text-sm text-muted-foreground">Loading calendar…</div>
+        ) : (
+          <ActivityCalendar events={calendarEvents} accent="dashboard" />
+        )}
+      </SectionCard>
 
       {/* Two-column: Scenarios + Recent activity */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

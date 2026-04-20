@@ -9,6 +9,7 @@ import { StatTile } from '@/components/ui/stat-tile';
 import { SectionCard } from '@/components/ui/section-card';
 import { RichEmptyState } from '@/components/ui/rich-empty-state';
 import { ProgressRing } from '@/components/ui/progress-ring';
+import { ActivityCalendar, ActivityEvent } from '@/components/ui/activity-calendar';
 import {
   BookOpen,
   CheckCircle2,
@@ -23,6 +24,7 @@ import {
   Tag,
   ChevronRight,
   Sparkles,
+  Calendar,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -292,6 +294,7 @@ function AssignmentCard({
 export default function LearnerDashboardPage() {
   const router = useRouter();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState<string>('there');
   const [isClient, setIsClient] = useState(false);
@@ -306,8 +309,51 @@ export default function LearnerDashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const { data } = await apiClient.get('/scenarios/assignments/me');
-        setAssignments(data.data ?? []);
+        const [assignRes, activityRes] = await Promise.allSettled([
+          apiClient.get('/scenarios/assignments/me'),
+          apiClient.get('/analytics/my-activity', { params: { days: 90 } }),
+        ]);
+
+        const assignList: Assignment[] = assignRes.status === 'fulfilled'
+          ? (assignRes.value.data?.data ?? [])
+          : [];
+        setAssignments(assignList);
+
+        // Build calendar events from (a) learner's own sessions and
+        // (b) upcoming assignment due dates for open assignments.
+        const events: ActivityEvent[] = [];
+        if (activityRes.status === 'fulfilled') {
+          const payload = activityRes.value.data?.data;
+          const sessions = (payload?.sessions || []) as Array<{
+            id: string; created_at: string; status: string;
+            duration_sec: number | null; scenario_title: string;
+            overall_score: number | string | null;
+          }>;
+          for (const s of sessions) {
+            const score = s.overall_score != null ? Number(s.overall_score) : null;
+            events.push({
+              date: s.created_at,
+              type: 'session',
+              title: s.scenario_title || 'Training session',
+              subtitle: s.duration_sec ? `${Math.round(s.duration_sec / 60)} min` : undefined,
+              score,
+              href: `/reports?session=${s.id}`,
+            });
+          }
+          const dues = (payload?.due_assignments || []) as Array<{
+            assignment_id: string; scenario_id: string; scenario_title: string; due_date: string;
+          }>;
+          for (const d of dues) {
+            events.push({
+              date: d.due_date,
+              type: 'due',
+              title: `Due: ${d.scenario_title}`,
+              subtitle: 'Open assignment',
+              href: `/session/${d.scenario_id}?assignment=${d.assignment_id}`,
+            });
+          }
+        }
+        setCalendarEvents(events);
       } catch (err) {
         console.error('Failed to fetch assignments:', err);
       } finally {
@@ -436,6 +482,20 @@ export default function LearnerDashboardPage() {
           Each card below is a training scenario assigned by your instructor. Click a card or &apos;Start Session&apos; to begin a live conversation with an AI avatar. Your performance will be scored against the scenario&apos;s rubric criteria.
         </HelpHint>
       )}
+
+      {/* ── Activity calendar ── */}
+      <SectionCard
+        icon={Calendar}
+        iconTint="text-emerald-600"
+        title="Your activity"
+        subtitle="Past sessions (emerald) and upcoming deadlines (amber). Click a day for details."
+      >
+        {loading ? (
+          <div className="p-10 text-center text-sm text-muted-foreground">Loading your calendar…</div>
+        ) : (
+          <ActivityCalendar events={calendarEvents} accent="learners" />
+        )}
+      </SectionCard>
 
       {/* ── Assignments ── */}
       {loading ? (

@@ -151,6 +151,74 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
+// GET /my-activity — Learner's own recent sessions + upcoming assignments
+// Used by the learner dashboard calendar. Scoped to the authenticated user;
+// no role restriction but learners only ever see their own rows.
+// ---------------------------------------------------------------------------
+router.get(
+  '/my-activity',
+  wrap(async (req: AuthenticatedRequest, res: Response, _next: NextFunction) => {
+    const tenantId = req.user!.tid;
+    const userId = req.user!.sub;
+    const days = Math.min(180, Math.max(7, parseInt(req.query.days as string) || 60));
+
+    try {
+      const [sessionsResult, assignmentsResult] = await Promise.all([
+        db.tenantQuery(
+          tenantId,
+          `SELECT s.id,
+                  s.created_at,
+                  s.status,
+                  s.duration_sec,
+                  sc.title AS scenario_title,
+                  ss.overall_score
+           FROM sessions s
+           JOIN scenarios sc ON sc.id = s.scenario_id
+           LEFT JOIN session_scores ss ON ss.session_id = s.id
+           WHERE s.user_id = $1
+             AND s.created_at >= NOW() - ($2::int || ' days')::interval
+           ORDER BY s.created_at DESC
+           LIMIT 500`,
+          [userId, days],
+        ),
+        db.tenantQuery(
+          tenantId,
+          `SELECT sa.id AS assignment_id,
+                  sa.scenario_id,
+                  sa.due_date,
+                  sa.status,
+                  sc.title AS scenario_title
+           FROM scenario_assignments sa
+           JOIN scenarios sc ON sc.id = sa.scenario_id
+           WHERE sa.user_id = $1
+             AND sa.due_date IS NOT NULL
+             AND sa.status != 'completed'
+             AND sc.deleted_at IS NULL
+           ORDER BY sa.due_date ASC
+           LIMIT 100`,
+          [userId],
+        ),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          sessions: sessionsResult.rows,
+          due_assignments: assignmentsResult.rows,
+        },
+        meta: { days, user_id: userId },
+      });
+    } catch (err) {
+      logger.error({ err }, 'my-activity error');
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch activity' },
+      });
+    }
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // GET /scenarios/:id — Per-scenario analytics
 // ---------------------------------------------------------------------------
 router.get(
