@@ -116,26 +116,42 @@ export default function AdminOverviewPage() {
         // Build calendar events: session trend buckets + assignment due dates
         const events: ActivityEvent[] = [];
 
+        // Build calendar events from the tenant-wide analytics payload.
+        // The heatmap measures DISTINCT LEARNERS active per day — we emit
+        // one 'session' event per (day, learner) pair; the calendar will
+        // then colour each cell by the count of unique subtitles that day.
         if (overviewRes.status === 'fulfilled') {
-          const trends = overviewRes.value.data?.data?.trends;
-          if (Array.isArray(trends)) {
-            // The heatmap uses real per-day counts for intensity colouring —
-            // emit one session event per session on that day.
-            for (const t of trends as Array<{ date: string; count: number }>) {
-              const count = Number(t.count) || 0;
-              for (let i = 0; i < count; i++) {
-                events.push({
-                  date: t.date,
-                  type: 'session',
-                  title: `Training session`,
-                  subtitle: new Date(t.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
-                });
-              }
+          const calendar = overviewRes.value.data?.data?.calendar;
+          const days = Array.isArray(calendar?.days)
+            ? (calendar.days as Array<{ date: string; learner_count: number; learners: string[] }>)
+            : [];
+          for (const d of days) {
+            const names = Array.isArray(d.learners) ? d.learners.filter(Boolean) : [];
+            for (const learner of names) {
+              events.push({
+                date: d.date,
+                type: 'session',
+                title: 'Active learner',
+                subtitle: learner, // used by the calendar as the uniqueness key
+              });
             }
+          }
+          const dues = Array.isArray(calendar?.dues)
+            ? (calendar.dues as Array<{ date: string; assignment_id: string; scenario_id: string; learner_name: string; scenario_title: string }>)
+            : [];
+          for (const d of dues) {
+            events.push({
+              date: d.date,
+              type: 'due',
+              title: `Due: ${d.scenario_title}`,
+              subtitle: d.learner_name,
+            });
           }
         }
 
-        if (assignmentsRes.status === 'fulfilled') {
+        // Fallback: if calendar block isn't present (older API), fold in
+        // the assignments list so at least due dates show up.
+        if (events.length === 0 && assignmentsRes.status === 'fulfilled') {
           const rows = assignmentsRes.value.data?.data;
           if (Array.isArray(rows)) {
             for (const a of rows as Array<Record<string, unknown>>) {
@@ -214,17 +230,22 @@ export default function AdminOverviewPage() {
         </div>
       </div>
 
-      {/* Activity calendar */}
+      {/* Activity calendar — intensity = distinct learners active that day */}
       <SectionCard
         icon={Calendar}
         iconTint="text-indigo-600"
         title="Activity calendar"
-        subtitle="Training sessions (indigo) and upcoming assignment deadlines (amber)."
+        subtitle="How many learners trained each day (darker = more) plus upcoming deadlines."
       >
         {loading ? (
           <div className="p-10 text-center text-sm text-muted-foreground">Loading calendar…</div>
         ) : (
-          <ActivityCalendar events={calendarEvents} accent="dashboard" />
+          <ActivityCalendar
+            events={calendarEvents}
+            accent="dashboard"
+            intensityMetric="unique-learners"
+            metricLabel={{ singular: 'learner active', plural: 'learners active' }}
+          />
         )}
       </SectionCard>
 

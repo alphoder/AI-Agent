@@ -56,7 +56,7 @@ router.get(
         [],
       );
 
-      // Sessions per day for last 30 days
+      // Sessions per day for last 30 days (used by the trend chart)
       const trendsResult = await db.tenantQuery(
         tenantId,
         `SELECT
@@ -72,6 +72,50 @@ router.get(
            AND s.tenant_id = $1
          GROUP BY d.date
          ORDER BY d.date`,
+        [tenantId],
+      );
+
+      // Per-day distinct-learner counts for the last ~26 weeks
+      // (used by the admin activity calendar). Includes a short array of
+      // learner names per day so the hover panel can show who was active.
+      const calendarDaysResult = await db.tenantQuery(
+        tenantId,
+        `WITH daily AS (
+           SELECT s.created_at::date AS date,
+                  s.user_id,
+                  MAX(u.display_name) AS learner_name
+           FROM sessions s
+           JOIN users u ON u.id = s.user_id
+           WHERE s.tenant_id = $1
+             AND s.created_at >= CURRENT_DATE - INTERVAL '182 days'
+           GROUP BY s.created_at::date, s.user_id
+         )
+         SELECT date::text AS date,
+                COUNT(DISTINCT user_id)::int AS learner_count,
+                ARRAY_AGG(learner_name ORDER BY learner_name) AS learners
+         FROM daily
+         GROUP BY date
+         ORDER BY date`,
+        [tenantId],
+      );
+
+      // Open assignment due dates falling in the window
+      const calendarDuesResult = await db.tenantQuery(
+        tenantId,
+        `SELECT sa.due_date::date::text AS date,
+                sa.id AS assignment_id,
+                sa.scenario_id,
+                u.display_name AS learner_name,
+                sc.title AS scenario_title
+         FROM scenario_assignments sa
+         JOIN users u ON u.id = sa.user_id
+         JOIN scenarios sc ON sc.id = sa.scenario_id
+         WHERE sa.tenant_id = $1
+           AND sa.status != 'completed'
+           AND sa.due_date IS NOT NULL
+           AND sa.due_date >= CURRENT_DATE - INTERVAL '182 days'
+           AND u.deleted_at IS NULL
+           AND sc.deleted_at IS NULL`,
         [tenantId],
       );
 
@@ -138,6 +182,10 @@ router.get(
           completion_rate: completionRate,
           score_distribution: scoreDistribution.map((b) => ({ range: b.bucket, count: b.count })),
           recent_sessions: recentResult.rows,
+          calendar: {
+            days: calendarDaysResult.rows,
+            dues: calendarDuesResult.rows,
+          },
         },
       });
     } catch (err) {
