@@ -119,18 +119,17 @@ export default function AdminOverviewPage() {
         if (overviewRes.status === 'fulfilled') {
           const trends = overviewRes.value.data?.data?.trends;
           if (Array.isArray(trends)) {
+            // The heatmap uses real per-day counts for intensity colouring —
+            // emit one session event per session on that day.
             for (const t of trends as Array<{ date: string; count: number }>) {
               const count = Number(t.count) || 0;
-              // Expand each day's count into N distinct session events so the
-              // calendar shows a dot per day and the count badge on the cell.
               for (let i = 0; i < count; i++) {
                 events.push({
                   date: t.date,
                   type: 'session',
-                  title: `${count} training session${count !== 1 ? 's' : ''}`,
+                  title: `Training session`,
                   subtitle: new Date(t.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
                 });
-                if (i >= 2) break; // cap visual noise — the cell shows "+N" anyway
               }
             }
           }
