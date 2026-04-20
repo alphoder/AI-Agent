@@ -118,21 +118,31 @@ export default function AdminOverviewPage() {
 
         // Build calendar events from the tenant-wide analytics payload.
         // The heatmap measures DISTINCT LEARNERS active per day — we emit
-        // one 'session' event per (day, learner) pair; the calendar will
-        // then colour each cell by the count of unique subtitles that day.
+        // one 'session' event per (day, learner) pair; subtitle carries
+        // the learner name (uniqueness key) + time-of-day they started +
+        // total minutes spent that day so the hover panel tells the full
+        // story.
         if (overviewRes.status === 'fulfilled') {
           const calendar = overviewRes.value.data?.data?.calendar;
+          type LearnerDay = { name: string; sessions: number; minutes: number; first_at: string | null };
           const days = Array.isArray(calendar?.days)
-            ? (calendar.days as Array<{ date: string; learner_count: number; learners: string[] }>)
+            ? (calendar.days as Array<{ date: string; learner_count: number; learners: LearnerDay[] }>)
             : [];
           for (const d of days) {
-            const names = Array.isArray(d.learners) ? d.learners.filter(Boolean) : [];
-            for (const learner of names) {
+            const learners = Array.isArray(d.learners) ? d.learners : [];
+            for (const l of learners) {
+              const startedLabel = l.first_at
+                ? new Date(l.first_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+                : null;
+              const bits: string[] = [];
+              bits.push(`${l.sessions} session${l.sessions !== 1 ? 's' : ''}`);
+              if (l.minutes > 0) bits.push(`${l.minutes} min`);
+              if (startedLabel) bits.push(`started ${startedLabel}`);
               events.push({
                 date: d.date,
                 type: 'session',
-                title: 'Active learner',
-                subtitle: learner, // used by the calendar as the uniqueness key
+                title: l.name,
+                subtitle: bits.join(' · '),
               });
             }
           }

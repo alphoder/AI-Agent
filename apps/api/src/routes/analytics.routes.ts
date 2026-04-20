@@ -75,24 +75,39 @@ router.get(
         [tenantId],
       );
 
-      // Per-day distinct-learner counts for the last ~26 weeks
-      // (used by the admin activity calendar). Includes a short array of
-      // learner names per day so the hover panel can show who was active.
+      // Per-day distinct-learner counts for the last ~26 weeks (admin
+      // activity calendar). For each day, returns:
+      //   learner_count   — how many distinct learners trained (intensity)
+      //   learners        — JSON array of { name, sessions, minutes, first_at }
+      //                     so the hover panel can show who was active, for
+      //                     how long, and when they started.
       const calendarDaysResult = await db.tenantQuery(
         tenantId,
         `WITH daily AS (
            SELECT s.created_at::date AS date,
                   s.user_id,
-                  MAX(u.display_name) AS learner_name
+                  MAX(u.display_name) AS learner_name,
+                  COUNT(*)::int AS sessions,
+                  ROUND(COALESCE(SUM(s.duration_sec), 0) / 60.0)::int AS minutes,
+                  MIN(s.started_at) AS first_at
            FROM sessions s
            JOIN users u ON u.id = s.user_id
            WHERE s.tenant_id = $1
              AND s.created_at >= CURRENT_DATE - INTERVAL '182 days'
+             AND u.deleted_at IS NULL
            GROUP BY s.created_at::date, s.user_id
          )
          SELECT date::text AS date,
                 COUNT(DISTINCT user_id)::int AS learner_count,
-                ARRAY_AGG(learner_name ORDER BY learner_name) AS learners
+                JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                    'name', learner_name,
+                    'sessions', sessions,
+                    'minutes', minutes,
+                    'first_at', first_at
+                  )
+                  ORDER BY first_at
+                ) AS learners
          FROM daily
          GROUP BY date
          ORDER BY date`,

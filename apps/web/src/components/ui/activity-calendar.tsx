@@ -13,6 +13,13 @@ export interface ActivityEvent {
   type: 'session' | 'due';
   title: string;
   subtitle?: string;
+  /**
+   * Stable identity used by intensityMetric='unique-learners' to count
+   * distinct contributors per day. Defaults to `title` then `subtitle` if
+   * omitted. Pass an explicit user-id or email here when the subtitle is
+   * a human-readable metric string (e.g. "15 min · started 2:30 PM").
+   */
+  groupKey?: string;
   score?: number | null;
   href?: string;
 }
@@ -121,8 +128,8 @@ export function ActivityCalendar({
 
       if (ev.type !== 'session') continue;
       if (intensityMetric === 'unique-learners') {
-        // Use subtitle as the learner identifier; fall back to title
-        const learnerKey = (ev.subtitle || ev.title || '').trim().toLowerCase();
+        // Prefer explicit groupKey; fall back to title, then subtitle.
+        const learnerKey = (ev.groupKey || ev.title || ev.subtitle || '').trim().toLowerCase();
         if (!learnerKey) continue;
         const set = uniqueKeysByDay.get(key) || new Set<string>();
         set.add(learnerKey);

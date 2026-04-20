@@ -331,11 +331,20 @@ export default function LearnerDashboardPage() {
           }>;
           for (const s of sessions) {
             const score = s.overall_score != null ? Number(s.overall_score) : null;
+            const started = s.created_at ? new Date(s.created_at) : null;
+            const bits: string[] = [];
+            if (started && !isNaN(started.getTime())) {
+              bits.push(started.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+            }
+            if (s.duration_sec) {
+              const mins = Math.max(1, Math.round(s.duration_sec / 60));
+              bits.push(`${mins} min`);
+            }
             events.push({
               date: s.created_at,
               type: 'session',
               title: s.scenario_title || 'Training session',
-              subtitle: s.duration_sec ? `${Math.round(s.duration_sec / 60)} min` : undefined,
+              subtitle: bits.length ? bits.join(' · ') : undefined,
               score,
               href: `/reports?session=${s.id}`,
             });
