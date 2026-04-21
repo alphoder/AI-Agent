@@ -39,6 +39,7 @@ interface Assignment {
   due_date: string | null;
   scheduled_at: string | null;
   notes: string | null;
+  language: string | null;
   title: string;
   description: string | null;
   objective: string | null;
@@ -54,6 +55,18 @@ interface Assignment {
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
+
+const LEARNER_LANGUAGE_LABELS: Record<string, string> = {
+  en: 'English', es: 'Spanish', fr: 'French', de: 'German',
+  it: 'Italian', pt: 'Portuguese', nl: 'Dutch', ja: 'Japanese',
+  ko: 'Korean', zh: 'Chinese', ar: 'Arabic', hi: 'Hindi',
+  ru: 'Russian', tr: 'Turkish', pl: 'Polish', id: 'Indonesian',
+  vi: 'Vietnamese', th: 'Thai', fil: 'Filipino', sv: 'Swedish',
+  no: 'Norwegian', da: 'Danish', fi: 'Finnish', el: 'Greek',
+  he: 'Hebrew', cs: 'Czech', hu: 'Hungarian', ro: 'Romanian',
+  uk: 'Ukrainian', ms: 'Malay', ur: 'Urdu', bn: 'Bengali',
+  ta: 'Tamil', te: 'Telugu',
+};
 
 const DIFFICULTY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   beginner:     { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
@@ -227,6 +240,12 @@ function AssignmentCard({
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${statusCfg.bgColor} ${statusCfg.color}`}>
             {statusCfg.label}
           </span>
+
+          {a.language && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700">
+              {LEARNER_LANGUAGE_LABELS[a.language] || a.language.toUpperCase()}
+            </span>
+          )}
 
           {a.tags?.slice(0, 2).map((tag) => (
             <span key={tag} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground">

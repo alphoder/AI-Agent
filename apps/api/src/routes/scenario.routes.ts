@@ -326,7 +326,8 @@ router.get(
         db.tenantQuery(
           tenantId,
           `SELECT sa.id AS assignment_id, sa.scenario_id, sa.status AS assignment_status,
-                  sa.due_date, sa.scheduled_at, sa.notes, sa.created_at AS assigned_at,
+                  sa.due_date, sa.scheduled_at, sa.notes, sa.language,
+                  sa.created_at AS assigned_at,
                   s.title, s.description, s.objective, s.difficulty_level,
                   s.max_duration_sec, s.max_turns, s.status AS scenario_status,
                   s.opening_context, s.opening_message, s.tags,

@@ -64,7 +64,12 @@ async def test_chat_ws(websocket: WebSocket):
       {"type": "error", "message": "..."}
     """
     await websocket.accept()
-    logger.info("test_chat.connected")
+    # Language is passed as ?lang=xx on the WebSocket URL by the API.
+    # Defaults to English; safe fallback if the learner's assignment
+    # didn't specify one.
+    raw_lang = websocket.query_params.get("lang", "en")
+    lang = "".join(c for c in raw_lang if c.isalpha() or c == "-").lower()[:5] or "en"
+    logger.info("test_chat.connected", lang=lang)
 
     system_prompt = "You are a helpful AI training coach. Keep responses brief (1-2 sentences). Be natural and conversational."
     conversation_history: list[dict] = []
@@ -75,23 +80,23 @@ async def test_chat_ws(websocket: WebSocket):
     mic_active = True
 
     async def connect_deepgram():
-        """Open streaming Deepgram STT WebSocket.
+        """Open streaming Deepgram STT WebSocket in the learner's language.
 
-        endpointing=900: wait 900ms of silence before flagging interim-final
-        (was 300 — caused premature sends on natural speech pauses).
-        utterance_end_ms=1500: only emit UtteranceEnd / speech_final after
-        1.5s of continuous silence (was 1000).
+        Deepgram Nova-2 supports 36+ languages — the language code comes
+        from the assignment (admin sets it when assigning the scenario)
+        with 'en' fallback. endpointing=900/utterance_end_ms=1500 to let
+        learners pause mid-thought without premature cutoffs.
         """
         url = (
             "wss://api.deepgram.com/v1/listen"
             "?encoding=linear16&sample_rate=16000&channels=1"
-            "&model=nova-2&language=en&punctuate=true&smart_format=true"
+            f"&model=nova-2&language={lang}&punctuate=true&smart_format=true"
             "&interim_results=true&endpointing=900"
             "&vad_events=true&utterance_end_ms=1500"
         )
         headers = {"Authorization": f"Token {settings.deepgram_api_key}"}
         ws = await websockets.connect(url, additional_headers=headers)
-        logger.info("test_chat.deepgram_connected")
+        logger.info("test_chat.deepgram_connected", lang=lang)
         return ws
 
     async def deepgram_receiver(dg_ws):

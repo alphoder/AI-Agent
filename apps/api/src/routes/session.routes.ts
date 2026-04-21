@@ -43,7 +43,7 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
 
     // Validate assignment belongs to user and fetch all related config
     const assignment = await db.tenantQuery(tenantId,
-      `SELECT sa.id, sa.scenario_id, sa.user_id, sa.status,
+      `SELECT sa.id, sa.scenario_id, sa.user_id, sa.status, sa.language as assignment_language,
               s.status as scenario_status, s.persona_id, s.title, s.max_duration_sec, s.max_turns,
               s.objective, s.opening_context, s.opening_message, s.scoring_rubric,
               p.system_prompt, p.guardrails, p.rag_enabled, p.rag_top_k,
@@ -239,14 +239,21 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
     let voiceId: string = (row.tts_voice_id as string) || '';
     if (!voiceId || /^[a-f0-9]{32}$/i.test(voiceId)) voiceId = '';
 
+    // Language priority: per-assignment override > avatar default > 'en'.
+    // Admins can set assignment.language when pairing a scenario with a
+    // learner; if they don't, we fall through to the avatar's language.
+    const avatarLang = (typeof row.config === 'object' && row.config && (row.config as any).language)
+      ? String((row.config as any).language) : null;
+    const sessionLanguage = (row.assignment_language as string | null) || avatarLang || 'en';
+
     const avatarConfig = {
       provider: 'heygen' as const,
       heygenAvatarId,
       avatarName: row.avatar_name || row.persona_name,
       sessionToken: heygenSessionToken,
       voiceId: voiceId || null,
-      language: (typeof row.config === 'object' && row.config && (row.config as any).language) || 'en',
-      wsUrl: aiServiceWsUrl('/ws/test-chat'),
+      language: sessionLanguage,
+      wsUrl: `${aiServiceWsUrl('/ws/test-chat')}?lang=${encodeURIComponent(sessionLanguage)}`,
     };
 
     res.status(201).json({

@@ -52,6 +52,7 @@ interface AssignmentRow {
   due_date: string | null;
   scheduled_at: string | null;
   notes: string | null;
+  language: string | null;
   assigned_at: string;
   learner_email: string;
   learner_name: string;
@@ -67,6 +68,18 @@ const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> 
   assigned:    { bg: 'bg-slate-100',  text: 'text-slate-600',  label: 'Not started' },
   in_progress: { bg: 'bg-blue-50',    text: 'text-blue-700',   label: 'In progress' },
   completed:   { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Completed' },
+};
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  en: 'English', es: 'Spanish', fr: 'French', de: 'German',
+  it: 'Italian', pt: 'Portuguese', nl: 'Dutch', ja: 'Japanese',
+  ko: 'Korean', zh: 'Chinese', ar: 'Arabic', hi: 'Hindi',
+  ru: 'Russian', tr: 'Turkish', pl: 'Polish', id: 'Indonesian',
+  vi: 'Vietnamese', th: 'Thai', fil: 'Filipino', sv: 'Swedish',
+  no: 'Norwegian', da: 'Danish', fi: 'Finnish', el: 'Greek',
+  he: 'Hebrew', cs: 'Czech', hu: 'Hungarian', ro: 'Romanian',
+  uk: 'Ukrainian', ms: 'Malay', ur: 'Urdu', bn: 'Bengali',
+  ta: 'Tamil', te: 'Telugu',
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -213,6 +226,7 @@ export default function AssignmentsPage() {
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scenario</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Persona</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Avatar</th>
+              <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Language</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduled</th>
               <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Due</th>
@@ -224,7 +238,7 @@ export default function AssignmentsPage() {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-t border-border/40">
-                  {Array.from({ length: 9 }).map((__, j) => (
+                  {Array.from({ length: 10 }).map((__, j) => (
                     <td key={j} className="px-5 py-4">
                       <div className="h-4 w-24 rounded shimmer-bg" />
                     </td>
@@ -233,7 +247,7 @@ export default function AssignmentsPage() {
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-0">
+                <td colSpan={10} className="p-0">
                   <RichEmptyState
                     icon={ClipboardCheck}
                     accent="assign"
@@ -265,6 +279,15 @@ export default function AssignmentsPage() {
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5 text-xs">
+                    {a.language ? (
+                      <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700">
+                        {LANGUAGE_LABELS[a.language] || a.language.toUpperCase()}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground italic">Avatar default</span>
                     )}
                   </td>
                   <td className="px-5 py-3.5">
@@ -347,6 +370,8 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
   const [dueDate, setDueDate] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [notes, setNotes] = useState('');
+  const [language, setLanguage] = useState(''); // '' = inherit avatar default
+  const [availableLanguages, setAvailableLanguages] = useState<string[]>(['en']);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -354,16 +379,21 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
   useEffect(() => {
     async function load() {
       try {
-        const [sc, pe, av, us] = await Promise.all([
+        const [sc, pe, av, us, vo] = await Promise.all([
           apiClient.get('/scenarios', { params: { status: 'active', limit: 200 } }),
           apiClient.get('/personas', { params: { limit: 200 } }),
           apiClient.get('/avatars', { params: { status: 'active', limit: 200 } }),
           apiClient.get('/users', { params: { role: 'learner', limit: 200 } }),
+          // Ask the voice catalog for its set of available languages so the
+          // admin can only pick languages we actually have voices in.
+          apiClient.get('/voices'),
         ]);
         setScenarios(sc.data.data || []);
         setPersonas(pe.data.data || []);
         setAvatars(av.data.data || []);
         setLearners(us.data.data || []);
+        const langs = vo.data?.meta?.languages;
+        if (Array.isArray(langs) && langs.length > 0) setAvailableLanguages(langs);
       } catch {
         setError('Failed to load wizard data');
       } finally {
@@ -419,6 +449,7 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
         due_date: dueDate ? new Date(dueDate).toISOString() : undefined,
         scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
         notes: notes.trim() || undefined,
+        language: language || undefined, // empty = inherit avatar default
       });
       onSaved();
     } catch (err: unknown) {
@@ -661,6 +692,27 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
                     </div>
                   </div>
 
+                  {/* Training language */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
+                      Training language
+                    </label>
+                    <select
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                    >
+                      <option value="">Use avatar default</option>
+                      {availableLanguages.map((l) => (
+                        <option key={l} value={l}>{LANGUAGE_LABELS[l] || l.toUpperCase()}</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      The learner will train in this language \u2014 STT, avatar voice, and prompts all switch.
+                      Leave blank to inherit from the selected avatar.
+                    </p>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
@@ -711,6 +763,7 @@ function AssignmentWizard({ onClose, onSaved }: { onClose: () => void; onSaved: 
                     <div className="flex gap-2"><span className="text-muted-foreground w-20">Persona:</span><span className="font-medium">{selectedPersona?.name || '—'}</span></div>
                     <div className="flex gap-2"><span className="text-muted-foreground w-20">Avatar:</span><span className="font-medium">{selectedAvatar?.name || '—'}{selectedAvatar?.gender ? ` (${selectedAvatar.gender.replace('_', ' ')})` : ''}</span></div>
                     <div className="flex gap-2"><span className="text-muted-foreground w-20">Learners:</span><span className="font-medium">{learnerIds.size}</span></div>
+                    <div className="flex gap-2"><span className="text-muted-foreground w-20">Language:</span><span className="font-medium">{language ? (LANGUAGE_LABELS[language] || language.toUpperCase()) : 'Avatar default'}</span></div>
                     {scheduledAt && (
                       <div className="flex gap-2"><span className="text-muted-foreground w-20">Scheduled:</span><span className="font-medium">{new Date(scheduledAt).toLocaleString()}</span></div>
                     )}

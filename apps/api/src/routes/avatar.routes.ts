@@ -569,8 +569,9 @@ router.post('/:id/test-session', validateUuidParam(), wrap(async (req: Authentic
         language: avatarConfig.language || 'en',
         // Conversation pipeline (STT + LLM) still runs on our AI service —
         // only TTS+lip-sync is delegated to HeyGen. The frontend connects
-        // to this WebSocket to get transcripts and response text.
-        wsUrl: aiServiceWsUrl('/ws/test-chat'),
+        // to this WebSocket to get transcripts and response text. Pass
+        // language so Deepgram STT configures itself correctly.
+        wsUrl: `${aiServiceWsUrl('/ws/test-chat')}?lang=${encodeURIComponent(avatarConfig.language || 'en')}`,
       },
     });
   } catch (err) {

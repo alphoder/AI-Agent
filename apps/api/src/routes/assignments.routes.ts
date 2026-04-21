@@ -71,6 +71,7 @@ router.get(
                 sa.due_date,
                 sa.scheduled_at,
                 sa.notes,
+                sa.language,
                 sa.assigned_by,
                 sa.created_at AS assigned_at,
                 u.email AS learner_email,
@@ -131,7 +132,20 @@ router.post(
     try {
       const tenantId = req.user!.tid;
       const assignedBy = req.user!.sub;
-      const { scenario_id, persona_id, avatar_id, user_ids, due_date, scheduled_at, notes } = req.body || {};
+      const { scenario_id, persona_id, avatar_id, user_ids, due_date, scheduled_at, notes, language } = req.body || {};
+
+      // Validate language: short ISO code or null/empty (means "use avatar default")
+      let languageCode: string | null = null;
+      if (language != null && typeof language === 'string' && language.trim()) {
+        const l = language.trim().toLowerCase().slice(0, 5);
+        if (!/^[a-z]{2,3}(-[a-z]{2})?$/.test(l)) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'INVALID_LANGUAGE', message: 'language must be an ISO 639-1 code (e.g. en, es, hi)' },
+          });
+        }
+        languageCode = l.slice(0, 2);
+      }
 
       if (!scenario_id) {
         return res.status(400).json({
@@ -230,16 +244,19 @@ router.post(
       const result = await db.tenantQuery(
         tenantId,
         `INSERT INTO scenario_assignments
-           (tenant_id, scenario_id, user_id, persona_id, avatar_id, assigned_by, due_date, scheduled_at, notes)
-         SELECT $1, $2, unnest($3::uuid[]), $4, $5, $6, $7, $8, $9
+           (tenant_id, scenario_id, user_id, persona_id, avatar_id, assigned_by,
+            due_date, scheduled_at, notes, language)
+         SELECT $1, $2, unnest($3::uuid[]), $4, $5, $6, $7, $8, $9, $10
          ON CONFLICT (scenario_id, user_id) DO UPDATE SET
            persona_id   = EXCLUDED.persona_id,
            avatar_id    = EXCLUDED.avatar_id,
            due_date     = COALESCE(EXCLUDED.due_date, scenario_assignments.due_date),
            scheduled_at = COALESCE(EXCLUDED.scheduled_at, scenario_assignments.scheduled_at),
            notes        = COALESCE(EXCLUDED.notes, scenario_assignments.notes),
+           language     = COALESCE(EXCLUDED.language, scenario_assignments.language),
            updated_at   = NOW()
-         RETURNING id, scenario_id, user_id, persona_id, avatar_id, status, due_date, scheduled_at, notes, created_at`,
+         RETURNING id, scenario_id, user_id, persona_id, avatar_id, status,
+                   due_date, scheduled_at, notes, language, created_at`,
         [
           tenantId,
           scenario_id,
@@ -250,6 +267,7 @@ router.post(
           due_date || null,
           scheduled_at || null,
           typeof notes === 'string' && notes.trim() ? notes.trim() : null,
+          languageCode,
         ],
       );
 
