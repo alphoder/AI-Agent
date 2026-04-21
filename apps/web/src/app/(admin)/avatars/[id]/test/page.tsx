@@ -2,11 +2,31 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { SimliClient, generateSimliSessionToken, generateIceServers } from 'simli-client';
 import apiClient from '@/lib/api-client';
 
 type ConnectionState = 'idle' | 'initializing' | 'connecting' | 'connected' | 'error' | 'ended';
 
+interface TestSession {
+  provider: 'heygen';
+  sessionToken: string;
+  heygenAvatarId: string;
+  avatarName: string;
+  voiceId: string | null;
+  language: string;
+  wsUrl: string;
+}
+
+/**
+ * HeyGen-only avatar test page.
+ *
+ * Pipeline:
+ *   1. POST /api/avatars/:id/test-session → sessionToken + heygenAvatarId + voiceId + wsUrl
+ *   2. Initialise HeyGen SDK with sessionToken; avatar video streams via LiveKit into <video>
+ *   3. Open WebSocket to our AI service (wsUrl)
+ *   4. Capture mic → PCM16 @ 16kHz → stream to AI service
+ *   5. AI service runs Deepgram STT + Groq LLM, pushes back response_text events
+ *   6. We call avatar.speak({ text, taskType: REPEAT }) — HeyGen renders lip-sync + TTS
+ */
 export default function AvatarTestPage() {
   const params = useParams();
   const router = useRouter();
@@ -15,23 +35,21 @@ export default function AvatarTestPage() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [isMicOn, setIsMicOn] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [avatarName, setAvatarName] = useState('Avatar');
   const [elapsed, setElapsed] = useState(0);
   const [userText, setUserText] = useState('');
   const [chatMode, setChatMode] = useState<'voice' | 'text'>('voice');
   const [avatarSpeaking, setAvatarSpeaking] = useState(false);
   const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([]);
-  const [provider, setProvider] = useState<'simli' | 'heygen'>('simli');
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const simliClientRef = useRef<SimliClient | null>(null);
+  // HeyGen SDK instance — typed loosely because we import it dynamically
+  // (avoids SSR issues with the SDK that depends on browser APIs).
+  const heygenRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   const formatTime = (s: number) => {
@@ -40,531 +58,397 @@ export default function AvatarTestPage() {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  // Auto-scroll transcript
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
 
   const startTest = useCallback(async () => {
-    if (!videoRef.current || !audioRef.current) return;
+    if (!videoRef.current) return;
     setConnectionState('initializing');
     setError(null);
     setTranscript([]);
 
     try {
-      // Get session config from API
       const res = await apiClient.post(`/avatars/${avatarId}/test-session`);
-      const data = res.data.data;
+      const data = res.data.data as TestSession;
       setAvatarName(data.avatarName);
-      setProvider(data.provider);
 
-      if (data.provider === 'simli') {
-        setConnectionState('connecting');
+      setConnectionState('connecting');
 
-        // Generate Simli session token
-        const tokenData = await generateSimliSessionToken({
-          apiKey: data.simliApiKey,
-          config: {
-            faceId: data.faceId,
-            handleSilence: true,
-            maxSessionLength: 300,
-            maxIdleTime: 120,
-          },
-        });
+      // Dynamic import so the SDK doesn't try to run under SSR
+      const { default: StreamingAvatar, AvatarQuality, StreamingEvents, TaskType } =
+        await import('@heygen/streaming-avatar');
 
-        // Get ICE servers
-        let iceServers: RTCIceServer[] | null = null;
-        try {
-          iceServers = await generateIceServers(data.simliApiKey);
-        } catch {
-          // Proceed without — works on localhost
+      const avatar = new StreamingAvatar({ token: data.sessionToken });
+      heygenRef.current = { avatar, TaskType };
+
+      avatar.on(StreamingEvents.STREAM_READY, (event: { detail: MediaStream }) => {
+        if (videoRef.current && event.detail) {
+          videoRef.current.srcObject = event.detail;
+          videoRef.current.play().catch(() => {});
         }
-
-        // Create SimliClient
-        const simliClient = new SimliClient(
-          tokenData.session_token,
-          videoRef.current,
-          audioRef.current,
-          iceServers,
-        );
-        simliClientRef.current = simliClient;
-
-        simliClient.on('start', () => {
-          setConnectionState('connected');
-        });
-
-        simliClient.on('error', (detail) => {
-          setError(detail || 'Simli connection failed');
-          setConnectionState('error');
-        });
-
-        simliClient.on('speaking', () => setAvatarSpeaking(true));
-        simliClient.on('silent', () => setAvatarSpeaking(false));
-
-        await simliClient.start();
-
-        // Connect WebSocket to AI service for conversation pipeline
-        const ws = new WebSocket(data.wsUrl);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-          ws.send(JSON.stringify({
-            type: 'config',
-            avatar_name: data.avatarName,
-          }));
-        };
-
-        ws.onmessage = (event) => {
-          const msg = JSON.parse(event.data);
-
-          if (msg.type === 'listening') {
-            // STT connected, ready for voice
-            console.log('STT ready — speak naturally');
-          } else if (msg.type === 'transcript_interim') {
-            // Show live typing indicator (update last interim or add new)
-            setTranscript(prev => {
-              const last = prev[prev.length - 1];
-              if (last && last.role === 'interim') {
-                return [...prev.slice(0, -1), { role: 'interim', text: msg.text }];
-              }
-              return [...prev, { role: 'interim', text: msg.text }];
-            });
-          } else if (msg.type === 'transcript') {
-            // Final user transcript — remove interim and add final
-            setTranscript(prev => {
-              const filtered = prev.filter(m => m.role !== 'interim');
-              return [...filtered, { role: 'user', text: msg.text }];
-            });
-          } else if (msg.type === 'response_text') {
-            setTranscript(prev => [...prev, { role: 'assistant', text: msg.text }]);
-            setAvatarSpeaking(true);
-          } else if (msg.type === 'audio') {
-            // Decode base64 PCM16 and send to SimliClient
-            const binaryString = atob(msg.data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            if (simliClientRef.current) {
-              simliClientRef.current.sendAudioData(bytes);
-            }
-          } else if (msg.type === 'audio_end') {
-            setAvatarSpeaking(false);
-          } else if (msg.type === 'error') {
-            setTranscript(prev => [...prev, { role: 'system', text: `Error: ${msg.message}` }]);
-          }
-        };
-
-        ws.onerror = () => {
-          setError('WebSocket connection to AI service failed. Is the AI service running on port 8000?');
-          setConnectionState('error');
-        };
-
-        // Get mic access and start streaming audio to backend
-        if (chatMode === 'voice') {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
-          });
-          streamRef.current = stream;
-          setIsMicOn(true);
-
-          // Stream PCM16 audio to WebSocket for real-time STT
-          const audioContext = new AudioContext({ sampleRate: 16000 });
-          const source = audioContext.createMediaStreamSource(stream);
-          const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-          processor.onaudioprocess = (e) => {
-            if (ws.readyState !== WebSocket.OPEN) return;
-            const float32 = e.inputBuffer.getChannelData(0);
-            const pcm16 = float32ToPcm16(float32);
-            const b64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
-            ws.send(JSON.stringify({ type: 'audio', data: b64 }));
-          };
-
-          source.connect(processor);
-          processor.connect(audioContext.destination);
-        }
-
         setConnectionState('connected');
-        timerRef.current = setInterval(() => setElapsed(prev => prev + 1), 1000);
+        timerRef.current = setInterval(() => setElapsed((prev) => prev + 1), 1000);
+      });
 
-      } else {
-        // HeyGen path — import dynamically to avoid SSR issues
-        const { default: StreamingAvatar, AvatarQuality, StreamingEvents, TaskType } =
-          await import('@heygen/streaming-avatar');
+      avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+        setConnectionState('ended');
+        if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      });
 
-        setConnectionState('connecting');
+      avatar.on(StreamingEvents.AVATAR_START_TALKING, () => setAvatarSpeaking(true));
+      avatar.on(StreamingEvents.AVATAR_STOP_TALKING, () => setAvatarSpeaking(false));
 
-        const avatar = new StreamingAvatar({ token: data.sessionToken });
+      await avatar.createStartAvatar({
+        avatarName: data.heygenAvatarId,
+        quality: AvatarQuality.High,
+        language: data.language || 'en',
+        // Leave voice undefined to use the avatar's default when voiceId is absent
+        ...(data.voiceId ? { voice: { voiceId: data.voiceId, rate: 1.0 } } : {}),
+      });
 
-        avatar.on(StreamingEvents.STREAM_READY, (event: { detail: MediaStream }) => {
-          if (videoRef.current && event.detail) {
-            videoRef.current.srcObject = event.detail;
-            videoRef.current.play().catch(() => {});
+      // AI service WebSocket — STT + LLM pipeline
+      const ws = new WebSocket(data.wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'config', avatar_name: data.avatarName }));
+      };
+
+      ws.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'listening') {
+          // STT ready
+        } else if (msg.type === 'transcript_interim') {
+          setTranscript((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === 'interim') {
+              return [...prev.slice(0, -1), { role: 'interim', text: msg.text }];
+            }
+            return [...prev, { role: 'interim', text: msg.text }];
+          });
+        } else if (msg.type === 'transcript') {
+          setTranscript((prev) => {
+            const filtered = prev.filter((m) => m.role !== 'interim');
+            return [...filtered, { role: 'user', text: msg.text }];
+          });
+        } else if (msg.type === 'response_text') {
+          setTranscript((prev) => [...prev, { role: 'assistant', text: msg.text }]);
+          // Hand the text to HeyGen — it synthesizes the audio + lip-sync
+          // frames internally and streams them over the already-open LiveKit
+          // connection. TaskType.REPEAT = no LLM on HeyGen's side.
+          try {
+            if (heygenRef.current?.avatar) {
+              await heygenRef.current.avatar.speak({
+                text: msg.text,
+                taskType: heygenRef.current.TaskType.REPEAT,
+              });
+            }
+          } catch (speakErr) {
+            console.error('HeyGen speak failed:', speakErr);
           }
-          setConnectionState('connected');
-          timerRef.current = setInterval(() => setElapsed(prev => prev + 1), 1000);
-        });
-
-        avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
-          setConnectionState('ended');
-          if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-        });
-
-        avatar.on(StreamingEvents.AVATAR_START_TALKING, () => setAvatarSpeaking(true));
-        avatar.on(StreamingEvents.AVATAR_STOP_TALKING, () => setAvatarSpeaking(false));
-
-        await avatar.createStartAvatar({
-          avatarName: data.heygenAvatarId,
-          quality: AvatarQuality.Medium,
-          language: 'en',
-        });
-
-        if (chatMode === 'voice') {
-          await avatar.startVoiceChat({});
+        } else if (msg.type === 'response_end') {
+          // Pipeline finished this turn
+        } else if (msg.type === 'error') {
+          setTranscript((prev) => [...prev, { role: 'system', text: `Error: ${msg.message}` }]);
         }
-      }
+      };
 
-    } catch (err: unknown) {
+      ws.onerror = () => {
+        setError('WebSocket connection to AI service failed.');
+        setConnectionState('error');
+      };
+
+      // Mic capture → PCM16 @ 16kHz → WebSocket to AI service
+      if (chatMode === 'voice') {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
+        });
+        streamRef.current = stream;
+        setIsMicOn(true);
+
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        audioCtxRef.current = audioContext;
+        const source = audioContext.createMediaStreamSource(stream);
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const float32 = e.inputBuffer.getChannelData(0);
+          const pcm16 = float32ToPcm16(float32);
+          const b64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
+          ws.send(JSON.stringify({ type: 'audio', data: b64 }));
+        };
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+      }
+    } catch (err: any) {
       console.error('Test session error:', err);
-      const message = err instanceof Error ? err.message : 'Failed to start test session';
-      setError(message);
+      setError(err?.response?.data?.error?.message || err?.message || 'Failed to start test session.');
       setConnectionState('error');
     }
   }, [avatarId, chatMode]);
 
-  // Push-to-talk: start recording
-  const startRecording = useCallback(() => {
-    if (!streamRef.current || !wsRef.current) return;
-    setIsRecording(true);
-    audioChunksRef.current = [];
-
-    const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm;codecs=opus' });
-    mediaRecorderRef.current = mediaRecorder;
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunksRef.current.push(e.data);
-    };
-
-    mediaRecorder.onstop = async () => {
-      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      // Convert to PCM16 via AudioContext
-      const arrayBuffer = await blob.arrayBuffer();
-      const audioContext = new AudioContext({ sampleRate: 16000 });
-      try {
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        const pcm16 = float32ToPcm16(audioBuffer.getChannelData(0));
-        const base64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
-
-        wsRef.current?.send(JSON.stringify({ type: 'audio_complete', data: base64 }));
-      } catch (e) {
-        console.error('Audio decode error:', e);
-      } finally {
-        await audioContext.close();
-      }
-    };
-
-    mediaRecorder.start(100);
-  }, []);
-
-  // Push-to-talk: stop recording
-  const stopRecording = useCallback(() => {
-    setIsRecording(false);
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-  }, []);
-
-  const sendTextMessage = useCallback(() => {
-    if (!userText.trim()) return;
-    const text = userText.trim();
-    setUserText('');
-
-    if (provider === 'simli' && wsRef.current) {
-      wsRef.current.send(JSON.stringify({ type: 'text', text }));
-    }
-  }, [userText, provider]);
-
-  const endTest = useCallback(() => {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    if (simliClientRef.current) { simliClientRef.current.stop(); simliClientRef.current = null; }
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    if (mediaRecorderRef.current?.state === 'recording') { mediaRecorderRef.current.stop(); }
-    if (videoRef.current) { videoRef.current.srcObject = null; }
-    setConnectionState('ended');
-    setIsRecording(false);
+  const stopTest = useCallback(async () => {
+    // Stop mic
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
     setIsMicOn(false);
+
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      try { await audioCtxRef.current.close(); } catch { /* ignore */ }
+    }
+    audioCtxRef.current = null;
+
+    // Close WebSocket
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch { /* ignore */ }
+      wsRef.current = null;
+    }
+
+    // Stop HeyGen session
+    if (heygenRef.current?.avatar) {
+      try { await heygenRef.current.avatar.stopAvatar(); } catch { /* ignore */ }
+      heygenRef.current = null;
+    }
+
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    setElapsed(0);
+    setConnectionState('ended');
   }, []);
 
+  // Clean up on unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (simliClientRef.current) simliClientRef.current.stop();
-      if (wsRef.current) wsRef.current.close();
-      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      void stopTest();
     };
-  }, []);
+  }, [stopTest]);
+
+  const sendTextMessage = useCallback(() => {
+    const text = userText.trim();
+    if (!text) return;
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: 'text', text }));
+    setUserText('');
+  }, [userText]);
+
+  const toggleMic = useCallback(() => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const tracks = stream.getAudioTracks();
+    const newState = !isMicOn;
+    tracks.forEach((t) => { t.enabled = newState; });
+    setIsMicOn(newState);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: newState ? 'mic_on' : 'mic_off' }));
+    }
+  }, [isMicOn]);
+
+  const isLive = connectionState === 'connected' || connectionState === 'connecting' || connectionState === 'initializing';
 
   return (
-    <div className="fixed inset-0 bg-black flex flex-col z-50">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-6 py-3 bg-black/80 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => { endTest(); router.push(`/avatars/${avatarId}`); }}
-            className="text-white/70 hover:text-white text-sm flex items-center gap-1"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back
-          </button>
-          <span className="text-white font-medium">{avatarName} — Test Session</span>
-          {provider === 'simli' && <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">Simli</span>}
-          {provider === 'heygen' && <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded">HeyGen</span>}
+    <div className="fixed inset-0 flex flex-col bg-[#0a0a12] text-white overflow-hidden">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+        <button
+          onClick={async () => { await stopTest(); router.push('/avatars'); }}
+          className="text-sm text-white/60 hover:text-white transition-colors"
+        >
+          ← Back to avatars
+        </button>
+        <div className="text-center">
+          <p className="text-sm font-semibold">{avatarName}</p>
+          <p className="text-[11px] text-white/50">HeyGen Interactive Avatar · {formatTime(elapsed)}</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="w-24 text-right">
           {connectionState === 'connected' && (
-            <>
-              {avatarSpeaking && (
-                <div className="flex items-center gap-1.5">
-                  <div className="flex gap-0.5">
-                    {[...Array(3)].map((_, i) => (
-                      <div key={i} className="w-1 bg-blue-400 rounded-full animate-pulse" style={{ height: `${8 + i * 4}px`, animationDelay: `${i * 0.15}s` }} />
-                    ))}
-                  </div>
-                  <span className="text-blue-400 text-xs">Speaking</span>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Live
+            </span>
+          )}
+        </div>
+      </header>
+
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 p-4 min-h-0">
+        {/* Avatar video */}
+        <div className="relative rounded-2xl overflow-hidden bg-black flex items-center justify-center">
+          <video
+            ref={videoRef}
+            className="w-full h-full object-cover"
+            autoPlay
+            playsInline
+            muted={false}
+          />
+          {connectionState !== 'connected' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+              {connectionState === 'idle' && (
+                <button
+                  onClick={startTest}
+                  className="rounded-full bg-primary px-8 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg"
+                >
+                  Start training
+                </button>
+              )}
+              {(connectionState === 'initializing' || connectionState === 'connecting') && (
+                <div className="text-center space-y-2">
+                  <div className="mx-auto w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                  <p className="text-sm text-white/70">
+                    {connectionState === 'initializing' ? 'Fetching session…' : 'Connecting to HeyGen…'}
+                  </p>
                 </div>
               )}
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-green-400 text-xs">Connected</span>
-              </div>
-              <span className="text-white/60 text-sm font-mono">{formatTime(elapsed)}</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div className="flex-1 flex relative overflow-hidden">
-        {/* Video area */}
-        <div className="flex-1 flex items-start justify-center pt-4">
-          <video ref={videoRef} autoPlay playsInline className={`h-full max-w-full object-contain rounded-lg ${connectionState === 'connected' ? '' : 'hidden'}`} />
-          <audio ref={audioRef} autoPlay className="hidden" />
-
-          {/* Idle state */}
-          {connectionState === 'idle' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center space-y-6">
-                <div className="w-32 h-32 rounded-full bg-white/10 flex items-center justify-center mx-auto">
-                  <svg className="w-16 h-16 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h2 className="text-white text-xl font-semibold">Test {avatarName}</h2>
-                  <p className="text-white/50 mt-1 text-sm">Talk to the avatar. Hold the mic button to speak.</p>
-                  <p className="text-white/30 mt-1 text-xs">Pipeline: Your voice → Whisper STT → GPT-4o → TTS → Simli lip-sync</p>
-                </div>
-                <div className="flex gap-3 justify-center">
-                  <button onClick={() => { setChatMode('voice'); startTest(); }}
-                    className="bg-primary hover:bg-primary/90 text-white px-8 py-3 rounded-lg font-medium text-sm flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                    </svg>
-                    Voice Chat
-                  </button>
-                  <button onClick={() => { setChatMode('text'); startTest(); }}
-                    className="border border-white/20 text-white/70 hover:text-white px-6 py-3 rounded-lg text-sm flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                    Text Chat
+              {connectionState === 'error' && (
+                <div className="text-center max-w-sm px-6">
+                  <p className="text-sm text-rose-400 font-medium">Couldn&apos;t start the session</p>
+                  {error && <p className="text-xs text-white/60 mt-2">{error}</p>}
+                  <button
+                    onClick={() => { setConnectionState('idle'); setError(null); }}
+                    className="mt-4 rounded-lg border border-white/20 px-4 py-2 text-xs hover:bg-white/5"
+                  >
+                    Try again
                   </button>
                 </div>
-              </div>
+              )}
+              {connectionState === 'ended' && (
+                <div className="text-center space-y-3">
+                  <p className="text-sm text-white/70">Session ended</p>
+                  <button
+                    onClick={() => { setConnectionState('idle'); }}
+                    className="rounded-full bg-primary px-5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                  >
+                    Start a new session
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
-          {(connectionState === 'initializing' || connectionState === 'connecting') && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center space-y-4">
-                <div className="w-12 h-12 border-2 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
-                <p className="text-white/70 text-sm">{connectionState === 'initializing' ? 'Setting up...' : 'Connecting to avatar...'}</p>
-              </div>
-            </div>
-          )}
-
-          {connectionState === 'error' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center space-y-4 max-w-md">
-                <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto">
-                  <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
-                </div>
-                <h3 className="text-white font-medium">Connection Failed</h3>
-                <p className="text-white/50 text-sm">{error}</p>
-                <div className="flex gap-3 justify-center">
-                  <button onClick={() => { setConnectionState('idle'); setError(null); }}
-                    className="bg-primary hover:bg-primary/90 text-white px-6 py-2 rounded-lg text-sm">Try Again</button>
-                  <button onClick={() => router.push(`/avatars/${avatarId}`)}
-                    className="border border-white/20 text-white/70 px-6 py-2 rounded-lg text-sm">Go Back</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {connectionState === 'ended' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center space-y-4">
-                <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto">
-                  <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <h3 className="text-white font-medium">Test Complete</h3>
-                <p className="text-white/50 text-sm">Session lasted {formatTime(elapsed)}</p>
-                <div className="flex gap-3 justify-center">
-                  <button onClick={() => { setConnectionState('idle'); setElapsed(0); setTranscript([]); }}
-                    className="bg-primary hover:bg-primary/90 text-white px-6 py-2 rounded-lg text-sm">Test Again</button>
-                  <button onClick={() => router.push(`/avatars/${avatarId}`)}
-                    className="border border-white/20 text-white/70 px-6 py-2 rounded-lg text-sm">Back to Avatar</button>
-                </div>
-              </div>
+          {/* Speaking indicator */}
+          {connectionState === 'connected' && avatarSpeaking && (
+            <div className="absolute bottom-4 left-4 inline-flex items-center gap-2 rounded-full bg-black/60 backdrop-blur px-3 py-1.5 text-[11px]">
+              <span className="flex gap-0.5">
+                <span className="w-0.5 h-2 bg-primary animate-pulse" />
+                <span className="w-0.5 h-3 bg-primary animate-pulse [animation-delay:120ms]" />
+                <span className="w-0.5 h-2 bg-primary animate-pulse [animation-delay:240ms]" />
+              </span>
+              Speaking
             </div>
           )}
         </div>
 
-        {/* Transcript panel — right side when connected */}
-        {connectionState === 'connected' && transcript.length > 0 && (
-          <div className="w-80 bg-black/60 border-l border-white/10 flex flex-col">
-            <div className="px-4 py-3 border-b border-white/10">
-              <span className="text-white/70 text-xs font-medium uppercase tracking-wide">Transcript</span>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {transcript.map((msg, i) => (
-                <div key={i} className={`text-sm ${msg.role === 'user' || msg.role === 'interim' ? 'text-right' : ''}`}>
-                  <span className={`inline-block px-3 py-1.5 rounded-lg max-w-[90%] ${
-                    msg.role === 'user' ? 'bg-primary/30 text-white' :
-                    msg.role === 'interim' ? 'bg-primary/15 text-white/50 italic' :
-                    msg.role === 'system' ? 'bg-red-500/20 text-red-300' :
-                    'bg-white/10 text-white/80'
-                  }`}>
-                    {msg.text}
-                    {msg.role === 'interim' && <span className="animate-pulse ml-1">...</span>}
-                  </span>
-                </div>
-              ))}
-              <div ref={transcriptEndRef} />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Bottom controls */}
-      {connectionState === 'connected' && (
-        <div className="px-6 py-4 bg-black/80 border-t border-white/10">
-          {chatMode === 'text' && (
-            <div className="flex gap-2 mb-3 max-w-2xl mx-auto">
-              <input type="text" value={userText} onChange={(e) => setUserText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && sendTextMessage()}
-                placeholder="Type a message..."
-                className="flex-1 bg-white/10 text-white placeholder-white/40 rounded-lg px-4 py-2 text-sm border border-white/10 focus:border-primary/50 focus:outline-none" />
-              <button onClick={sendTextMessage} disabled={!userText.trim()}
-                className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">Send</button>
-            </div>
-          )}
-
-          <div className="flex items-center justify-center gap-6">
-            {/* Mic toggle (voice mode) — streaming, not push-to-talk */}
-            {chatMode === 'voice' && (
-              <div className="flex items-center gap-3">
-                {isMicOn && (
-                  <div className="flex items-center gap-1">
-                    {[...Array(4)].map((_, i) => (
-                      <div key={i} className="w-1 bg-green-400 rounded-full animate-pulse"
-                        style={{ height: `${6 + i * 3}px`, animationDelay: `${i * 0.1}s` }} />
-                    ))}
-                  </div>
-                )}
+        {/* Transcript + controls */}
+        <div className="flex flex-col rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
+          <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+            <p className="text-sm font-semibold">Conversation</p>
+            <div className="flex gap-1">
+              {(['voice', 'text'] as const).map((m) => (
                 <button
-                  onClick={() => {
-                    if (streamRef.current) {
-                      const track = streamRef.current.getAudioTracks()[0];
-                      if (track) {
-                        track.enabled = !track.enabled;
-                        setIsMicOn(track.enabled);
-                        wsRef.current?.send(JSON.stringify({ type: track.enabled ? 'mic_on' : 'mic_off' }));
-                      }
-                    }
-                  }}
-                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                    isMicOn
-                      ? 'bg-green-500/20 ring-2 ring-green-500/40 text-green-400'
-                      : 'bg-red-500/20 ring-2 ring-red-500/40 text-red-400'
+                  key={m}
+                  onClick={() => setChatMode(m)}
+                  className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${
+                    chatMode === m ? 'bg-primary text-primary-foreground' : 'text-white/60 hover:text-white'
                   }`}
                 >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    {isMicOn ? (
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                    ) : (
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                    )}
-                  </svg>
+                  {m === 'voice' ? 'Voice' : 'Text'}
                 </button>
-                <span className={`text-xs ${isMicOn ? 'text-green-400' : 'text-red-400'}`}>
-                  {isMicOn ? 'Listening' : 'Muted'}
-                </span>
-              </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+            {transcript.length === 0 ? (
+              <p className="text-xs text-white/40 text-center mt-8">
+                {connectionState === 'connected'
+                  ? chatMode === 'voice' ? 'Say something to begin…' : 'Type a message below.'
+                  : 'Start a session to begin the conversation.'}
+              </p>
+            ) : (
+              transcript.map((m, i) => (
+                <div key={i} className={`flex ${m.role === 'user' || m.role === 'interim' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                      m.role === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : m.role === 'interim'
+                          ? 'bg-white/10 text-white/60 italic'
+                          : m.role === 'system'
+                            ? 'bg-rose-500/20 text-rose-300'
+                            : 'bg-white/10 text-white'
+                    }`}
+                  >
+                    {m.text}
+                  </div>
+                </div>
+              ))
             )}
+            <div ref={transcriptEndRef} />
+          </div>
 
-            {/* End call */}
-            <button onClick={endTest}
-              className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" />
-              </svg>
-            </button>
-
-            {/* Switch mode */}
-            <button onClick={() => setChatMode(chatMode === 'voice' ? 'text' : 'voice')}
-              className="w-14 h-14 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"
-              title={chatMode === 'voice' ? 'Switch to text' : 'Switch to voice'}>
-              {chatMode === 'voice' ? (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-              )}
-            </button>
+          <div className="p-3 border-t border-white/10 space-y-2">
+            {chatMode === 'text' ? (
+              <form
+                onSubmit={(e) => { e.preventDefault(); sendTextMessage(); }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={userText}
+                  onChange={(e) => setUserText(e.target.value)}
+                  placeholder="Say something…"
+                  disabled={connectionState !== 'connected'}
+                  className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-xs placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={connectionState !== 'connected' || !userText.trim()}
+                  className="rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={toggleMic}
+                disabled={connectionState !== 'connected'}
+                className={`w-full rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 ${
+                  isMicOn
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-white/10 text-white hover:bg-white/15'
+                }`}
+              >
+                {isMicOn ? 'Mute microphone' : 'Unmute microphone'}
+              </button>
+            )}
+            {isLive && (
+              <button
+                onClick={stopTest}
+                className="w-full rounded-lg border border-rose-500/30 text-rose-300 bg-rose-500/10 px-3 py-2 text-xs font-medium hover:bg-rose-500/15 transition-colors"
+              >
+                End session
+              </button>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-// Helper: Float32Array to PCM16 Int16Array
+/* ---------------------- audio helpers ---------------------- */
+
 function float32ToPcm16(float32: Float32Array): Int16Array {
-  const pcm16 = new Int16Array(float32.length);
+  const pcm = new Int16Array(float32.length);
   for (let i = 0; i < float32.length; i++) {
     const s = Math.max(-1, Math.min(1, float32[i]));
-    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
   }
-  return pcm16;
+  return pcm;
 }
 
-// Helper: Uint8Array to base64
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }

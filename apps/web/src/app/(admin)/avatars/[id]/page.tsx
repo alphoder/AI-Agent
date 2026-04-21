@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 
 type Gender = 'female' | 'male' | 'non_binary' | 'other';
-type TtsProvider = 'deepgram' | 'openai';
+type TtsProvider = 'heygen';
 
 interface AvatarDetail {
   id: string;
@@ -42,9 +42,9 @@ const GENDER_OPTIONS: { id: Gender; label: string; icon: string }[] = [
   { id: 'other',      label: 'Other',      icon: '•' },
 ];
 
+// Voice engine is HeyGen-only in this deployment.
 const PROVIDER_VOICE_OPTIONS: { id: TtsProvider; label: string; description: string }[] = [
-  { id: 'deepgram', label: 'Deepgram Aura-2', description: 'Fast, natural, recommended for live conversation' },
-  { id: 'openai',   label: 'OpenAI TTS',      description: 'Higher fidelity, slightly higher latency' },
+  { id: 'heygen', label: 'HeyGen', description: 'Bundled with the streaming avatar. 300+ voices, 40+ languages.' },
 ];
 
 const LANGUAGE_OPTIONS = [
@@ -76,8 +76,8 @@ export default function AvatarDetailPage() {
   // Voice editing state — mirrors the avatar's top-level gender/tts_provider/tts_voice_id columns
   const [showVoiceEditor, setShowVoiceEditor] = useState(false);
   const [voiceGender, setVoiceGender] = useState<Gender>('female');
-  const [ttsProvider, setTtsProvider] = useState<TtsProvider>('deepgram');
-  const [voiceId, setVoiceId] = useState('aura-2-asteria-en');
+  const [ttsProvider, setTtsProvider] = useState<TtsProvider>('heygen');
+  const [voiceId, setVoiceId] = useState('');
   const [voiceLanguage, setVoiceLanguage] = useState('en-US');
   const [speakingRate, setSpeakingRate] = useState(1.0);
   const [savingVoice, setSavingVoice] = useState(false);
@@ -180,8 +180,8 @@ export default function AvatarDetailPage() {
       // fall back to legacy config.* keys so existing records still load.
       const cfg = (a.config || {}) as Record<string, unknown>;
       setVoiceGender(((a.gender as Gender) || 'female'));
-      setTtsProvider(((a.tts_provider as TtsProvider) || 'deepgram'));
-      setVoiceId((a.tts_voice_id as string) || (cfg.voice as string) || 'aura-2-asteria-en');
+      setTtsProvider('heygen');
+      setVoiceId((a.tts_voice_id as string) || (cfg.voice as string) || '');
       if (cfg.language) setVoiceLanguage(cfg.language as string);
       if (cfg.speakingRate != null) setSpeakingRate(cfg.speakingRate as number);
     } catch {
@@ -377,7 +377,7 @@ export default function AvatarDetailPage() {
                 {avatar?.tts_voice_id || (avatar?.config?.voice as string) || '—'}
               </dd>
               <dd className="text-xs text-muted-foreground mt-0.5">
-                {avatar?.tts_provider || 'deepgram'}
+                {avatar?.tts_provider || 'heygen'}
               </dd>
             </div>
             <div>

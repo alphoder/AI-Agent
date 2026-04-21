@@ -49,6 +49,7 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
               p.system_prompt, p.guardrails, p.rag_enabled, p.rag_top_k,
               p.rag_similarity_threshold, p.temperature, p.avatar_id, p.name as persona_name,
               a.provider, a.provider_avatar_id, a.name as avatar_name,
+              a.tts_voice_id, a.config,
               t.max_concurrent_sessions, t.session_duration_limit_sec, t.idle_timeout_sec,
               t.avatar_provider
        FROM scenario_assignments sa
@@ -205,13 +206,47 @@ router.post('/', rateLimit(5), wrap(async (req: AuthenticatedRequest, res: Respo
       userAgent: req.get('user-agent'),
     });
 
-    // Include Simli/avatar config for direct WebRTC fallback
+    // HeyGen streaming avatar config. The learner session page connects the
+    // HeyGen SDK with `sessionToken`, renders `heygenAvatarId` with the
+    // chosen `voiceId`, and uses `wsUrl` to stream STT + receive response
+    // text from our AI service (which hands it off to avatar.speak).
+    let heygenSessionToken = '';
+    try {
+      const heygenApiKey = config.HEYGEN_API_KEY;
+      if (heygenApiKey) {
+        const tokenRes = await fetch('https://api.heygen.com/v1/streaming.create_token', {
+          method: 'POST',
+          headers: { 'x-api-key': heygenApiKey, 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json() as { data?: { token?: string } };
+          heygenSessionToken = tokenData?.data?.token || '';
+        } else {
+          logger.warn({ status: tokenRes.status }, 'HeyGen token request failed at session-create');
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'HeyGen token fetch threw at session-create');
+    }
+
+    // Resolve HeyGen avatar id. Fall back to a safe public face so legacy
+    // rows (pre-HeyGen rewrite) still open a session.
+    let heygenAvatarId = row.provider === 'heygen' ? (row.provider_avatar_id || '') : '';
+    if (!heygenAvatarId || heygenAvatarId.startsWith('dev-') || heygenAvatarId === 'default') {
+      heygenAvatarId = 'Wayne_20240711';
+    }
+    let voiceId: string = (row.tts_voice_id as string) || '';
+    if (!voiceId || /^[a-f0-9]{32}$/i.test(voiceId)) voiceId = '';
+
     const avatarConfig = {
-      provider: row.avatar_provider || 'simli',
-      providerAvatarId: row.provider_avatar_id,
+      provider: 'heygen' as const,
+      heygenAvatarId,
       avatarName: row.avatar_name || row.persona_name,
-      simliApiKey: config.SIMLI_API_KEY || '',
-      wsUrl: aiServiceWsUrl('/ws/test-chat'),  // AI service WebSocket for conversation pipeline
+      sessionToken: heygenSessionToken,
+      voiceId: voiceId || null,
+      language: (typeof row.config === 'object' && row.config && (row.config as any).language) || 'en',
+      wsUrl: aiServiceWsUrl('/ws/test-chat'),
     };
 
     res.status(201).json({

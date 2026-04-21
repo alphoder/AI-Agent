@@ -37,9 +37,16 @@ type SimliClientType = import('simli-client').SimliClient;
 
 interface AvatarConfig {
   provider: 'simli' | 'heygen';
-  providerAvatarId: string;
+  // HeyGen (primary in this deployment)
+  heygenAvatarId?: string;
+  sessionToken?: string;
+  voiceId?: string | null;
+  language?: string;
+  // Simli (legacy — kept so TS types still compile; backend no longer emits)
+  providerAvatarId?: string;
+  simliApiKey?: string;
+  // Shared
   avatarName: string;
-  simliApiKey: string;
   wsUrl: string;
 }
 
@@ -146,13 +153,18 @@ function SessionPageInner() {
   const roomRef = useRef<Room | null>(null);
   const turnCountRef = useRef(0);
 
-  // Simli-specific refs
+  // Simli-specific refs (legacy — kept for dead-code compatibility)
   const simliVideoRef = useRef<HTMLVideoElement>(null);
   const simliAudioRef = useRef<HTMLAudioElement>(null);
   const simliClientRef = useRef<SimliClientType | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const simliMicStreamRef = useRef<MediaStream | null>(null);
   const simliAudioContextRef = useRef<AudioContext | null>(null);
+
+  // HeyGen streaming avatar refs (the primary path)
+  const heygenRef = useRef<{ avatar: any; TaskType: any } | null>(null);
+  const heygenMicStreamRef = useRef<MediaStream | null>(null);
+  const heygenAudioCtxRef = useRef<AudioContext | null>(null);
 
   // Preflight checks
   useEffect(() => {
@@ -223,11 +235,13 @@ function SessionPageInner() {
       throw new Error('Simli video/audio elements not ready');
     }
 
-    // Generate Simli session token
+    // Generate Simli session token (legacy — backend no longer emits
+    // provider='simli', but the type is still present in AvatarConfig for
+    // back-compat so we cast with `!` here.)
     const tokenData = await generateSimliSessionToken({
-      apiKey: avatarConfig.simliApiKey,
+      apiKey: avatarConfig.simliApiKey!,
       config: {
-        faceId: avatarConfig.providerAvatarId,
+        faceId: avatarConfig.providerAvatarId!,
         handleSilence: true,
         maxSessionLength: 1800,
         maxIdleTime: 120,
@@ -237,7 +251,7 @@ function SessionPageInner() {
     // Get ICE servers (optional, works without on localhost)
     let iceServers: RTCIceServer[] | null = null;
     try {
-      iceServers = await generateIceServers(avatarConfig.simliApiKey);
+      iceServers = await generateIceServers(avatarConfig.simliApiKey!);
     } catch {
       // Proceed without
     }
@@ -398,6 +412,102 @@ function SessionPageInner() {
     }
   }
 
+  // HeyGen streaming avatar — the primary path for this deployment.
+  // Stands up the HeyGen SDK, streams the learner's mic to our AI service
+  // over WebSocket for STT+LLM, and hands each response sentence to
+  // avatar.speak(REPEAT) which renders TTS + lip-sync on HeyGen's side.
+  async function startHeygenSession(config: SessionConfig) {
+    const ac = config.avatarConfig;
+    if (!ac || !ac.sessionToken) {
+      throw new Error('HeyGen session token missing');
+    }
+
+    const { default: StreamingAvatar, AvatarQuality, StreamingEvents, TaskType } =
+      await import('@heygen/streaming-avatar');
+
+    const avatar = new StreamingAvatar({ token: ac.sessionToken });
+    heygenRef.current = { avatar, TaskType };
+
+    avatar.on(StreamingEvents.STREAM_READY, (event: { detail: MediaStream }) => {
+      if (event.detail) {
+        // Reuse the existing video panel — we publish the stream as a
+        // MediaStreamTrack so <VideoPanel track={...} /> can consume it the
+        // same way it consumes a LiveKit track.
+        const [videoTrack] = event.detail.getVideoTracks();
+        if (videoTrack) setAvatarVideoTrack(videoTrack);
+      }
+      setConnectionStatus('connected');
+    });
+    avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+      setConnectionStatus('disconnected');
+    });
+    avatar.on(StreamingEvents.AVATAR_START_TALKING, () => setAvatarSpeaking(true));
+    avatar.on(StreamingEvents.AVATAR_STOP_TALKING, () => setAvatarSpeaking(false));
+
+    await avatar.createStartAvatar({
+      avatarName: ac.heygenAvatarId || 'Wayne_20240711',
+      quality: AvatarQuality.High,
+      language: ac.language || 'en',
+      ...(ac.voiceId ? { voice: { voiceId: ac.voiceId, rate: 1.0 } } : {}),
+    });
+
+    // Open AI service WebSocket (STT + LLM). Same protocol as the admin
+    // test page — server emits response_text events; we hand them to HeyGen.
+    const ws = new WebSocket(ac.wsUrl);
+    wsRef.current = ws as unknown as never;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'config', avatar_name: ac.avatarName }));
+    };
+    ws.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'transcript_interim') {
+        setInterimText(String(msg.text || ''));
+      } else if (msg.type === 'transcript') {
+        setInterimText('');
+        setTranscripts((prev) => [...prev, {
+          role: 'learner',
+          content: String(msg.text || ''),
+          turn_number: prev.length + 1,
+          timestamp: Date.now(),
+        }]);
+      } else if (msg.type === 'response_text') {
+        setTranscripts((prev) => [...prev, {
+          role: 'avatar',
+          content: String(msg.text || ''),
+          turn_number: prev.length + 1,
+          timestamp: Date.now(),
+        }]);
+        try {
+          await avatar.speak({ text: msg.text, taskType: TaskType.REPEAT });
+        } catch (err) {
+          console.error('HeyGen speak failed:', err);
+        }
+      } else if (msg.type === 'error') {
+        console.error('AI service error:', msg.message);
+      }
+    };
+    ws.onerror = () => setError('Lost connection to the training server.');
+
+    // Mic → PCM16 @ 16kHz → WebSocket
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 },
+    });
+    heygenMicStreamRef.current = stream;
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    heygenAudioCtxRef.current = audioContext;
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (e) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const float32 = e.inputBuffer.getChannelData(0);
+      const pcm16 = float32ToPcm16(float32);
+      const b64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
+      ws.send(JSON.stringify({ type: 'audio', data: b64 }));
+    };
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+  }
+
   // Start session
   async function startSession() {
     if (!assignmentId) {
@@ -427,14 +537,18 @@ function SessionPageInner() {
       setPhase('session');
       setConnectionStatus('connecting');
 
-      // Check if avatarConfig is present with Simli provider — use Simli Compose path
-      if (config.avatarConfig?.provider === 'simli') {
+      // HeyGen is the primary (and currently only) streaming avatar path.
+      if (config.avatarConfig?.provider === 'heygen') {
+        setActiveProvider('livekit'); // reuse the live UI state for HeyGen too
+        await startHeygenSession(config);
+      } else if (config.avatarConfig?.provider === 'simli') {
+        // Legacy fallback — the backend no longer emits this, but keep the
+        // branch in case an old build is still around.
         setActiveProvider('simli');
         try {
           await startSimliSession(config);
         } catch (simliErr) {
           console.error('Simli connection failed, falling back to LiveKit:', simliErr);
-          // Fall back to LiveKit path
           setActiveProvider('livekit');
           await connectLiveKit(config);
         }
@@ -566,8 +680,22 @@ function SessionPageInner() {
       roomRef.current = null;
     }
 
-    // Cleanup Simli resources
+    // Cleanup Simli resources (legacy)
     cleanupSimli();
+
+    // Cleanup HeyGen resources
+    if (heygenMicStreamRef.current) {
+      heygenMicStreamRef.current.getTracks().forEach((t) => t.stop());
+      heygenMicStreamRef.current = null;
+    }
+    if (heygenAudioCtxRef.current && heygenAudioCtxRef.current.state !== 'closed') {
+      try { await heygenAudioCtxRef.current.close(); } catch { /* ignore */ }
+      heygenAudioCtxRef.current = null;
+    }
+    if (heygenRef.current?.avatar) {
+      try { await heygenRef.current.avatar.stopAvatar(); } catch { /* ignore */ }
+      heygenRef.current = null;
+    }
 
     // Animate through ending steps
     const stepTimer = setInterval(() => {

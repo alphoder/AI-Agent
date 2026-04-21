@@ -21,6 +21,7 @@ import { internalRoutes } from './routes/internal.routes';
 import { usersRoutes } from './routes/users.routes';
 import { voicesRoutes } from './routes/voices.routes';
 import { assignmentsRoutes } from './routes/assignments.routes';
+import { heygenRoutes } from './routes/heygen.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -116,6 +117,7 @@ export function createApp(): express.Express {
   app.use('/api/users', usersRoutes);
   app.use('/api/voices', voicesRoutes);
   app.use('/api/assignments', assignmentsRoutes);
+  app.use('/api/heygen', heygenRoutes);
   app.use('/api/internal', internalRoutes);
 
   // 404 catch-all

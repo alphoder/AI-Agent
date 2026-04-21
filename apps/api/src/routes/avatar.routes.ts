@@ -1,5 +1,4 @@
 import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
-import multer from 'multer';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { rbac } from '../middleware/rbac';
@@ -15,10 +14,6 @@ type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
 const router: Router = Router();
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-});
 
 // All routes require auth + tenant context
 router.use(authMiddleware as unknown as RequestHandler);
@@ -26,59 +21,52 @@ router.use(tenantMiddleware as unknown as RequestHandler);
 // 30 requests per minute for avatar CRUD
 router.use(rateLimit(30, 60));
 
-// Magic byte validation
-const MAGIC_BYTES: Record<string, Buffer[]> = {
-  'image/jpeg': [Buffer.from([0xff, 0xd8, 0xff])],
-  'image/png': [Buffer.from([0x89, 0x50, 0x4e, 0x47])],
-};
-
-function validateMagicBytes(buffer: Buffer, mimetype: string): boolean {
-  const patterns = MAGIC_BYTES[mimetype];
-  if (!patterns) return false;
-  return patterns.some((pattern) =>
-    buffer.subarray(0, pattern.length).equals(pattern),
-  );
-}
-
 /**
  * POST /api/avatars
- * Create a new avatar (admin only)
+ * Create a new avatar pointing at a HeyGen library face + voice. Admin only.
+ *
+ * Body (JSON):
+ *   name              (required) — display name
+ *   heygen_avatar_id  (required) — avatar_id from GET /api/heygen/avatars
+ *   voice_id          (required) — voice_id from GET /api/voices
+ *   gender            (optional) — female | male | non_binary | other
+ *   language          (optional) — ISO 639-1 (defaults to 'en')
+ *   preview_image_url (optional) — HeyGen preview URL, stored as thumbnail
+ *
+ * No image upload. HeyGen is the only provider; their library already
+ * contains polished avatars plus preview images we can use as thumbnails.
+ * Status is 'active' immediately since nothing has to process async.
  */
 router.post(
   '/',
   rbac('admin'),
-  upload.single('image'),
   wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const file = req.file;
-      if (!file) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'MISSING_FILE', message: 'Image file is required' },
-        });
-      }
+      const {
+        name,
+        heygen_avatar_id,
+        voice_id,
+        gender,
+        language,
+        preview_image_url,
+      } = req.body || {};
 
-      // Validate mime type
-      if (!['image/jpeg', 'image/png'].includes(file.mimetype)) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'INVALID_FILE_TYPE', message: 'Only JPEG and PNG files are allowed' },
-        });
-      }
-
-      // Validate magic bytes
-      if (!validateMagicBytes(file.buffer, file.mimetype)) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'INVALID_FILE', message: 'File content does not match declared type' },
-        });
-      }
-
-      const { name, gender, tts_provider, tts_voice_id } = req.body;
-      if (!name?.trim()) {
+      if (!name || typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({
           success: false,
           error: { code: 'MISSING_NAME', message: 'Avatar name is required' },
+        });
+      }
+      if (!heygen_avatar_id || typeof heygen_avatar_id !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_AVATAR_ID', message: 'heygen_avatar_id is required. Pick one from /api/heygen/avatars.' },
+        });
+      }
+      if (!voice_id || typeof voice_id !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_VOICE', message: 'voice_id is required. Pick one from /api/voices.' },
         });
       }
 
@@ -90,68 +78,39 @@ router.post(
         });
       }
 
-      const validTtsProviders = ['deepgram', 'openai', 'elevenlabs'];
-      if (tts_provider && !validTtsProviders.includes(tts_provider)) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'INVALID_TTS_PROVIDER', message: `tts_provider must be one of ${validTtsProviders.join(', ')}` },
-        });
-      }
-
       const tenantId = req.user!.tid;
       const userId = req.user!.sub;
 
-      // Create DB record first
       const result = await db.tenantQuery(
         tenantId,
         `INSERT INTO avatars (
-           tenant_id, name, provider, source_image_url, status, created_by, config,
+           tenant_id, name, provider, provider_avatar_id, source_image_url,
+           thumbnail_url, status, created_by, config,
            gender, tts_provider, tts_voice_id
          )
-         VALUES ($1, $2, $3, '', 'processing', $4, $5, $6, $7, $8)
-         RETURNING id`,
+         VALUES ($1, $2, 'heygen', $3, '', $4, 'active', $5, $6, $7, 'heygen', $8)
+         RETURNING id, name, provider, provider_avatar_id, thumbnail_url,
+                   status, gender, tts_provider, tts_voice_id, config, created_at, updated_at`,
         [
           tenantId,
           name.trim(),
-          (req as any).tenantConfig?.avatar_provider || 'simli',
+          heygen_avatar_id,
+          preview_image_url || null,
           userId,
-          JSON.stringify(req.body.config || {}),
+          JSON.stringify({ heygenAvatarId: heygen_avatar_id, language: language || 'en' }),
           gender || null,
-          tts_provider || 'deepgram',
-          tts_voice_id || 'aura-2-asteria-en',
+          voice_id,
         ],
       );
 
-      const avatarId = result.rows[0].id;
-      const ext = file.mimetype === 'image/jpeg' ? 'jpg' : 'png';
-      const s3Key = S3Service.avatarKey(tenantId, avatarId, `source.${ext}`);
-
-      // Upload to S3
-      await S3Service.upload(s3Key, file.buffer, file.mimetype);
-      const sourceUrl = await S3Service.getSignedUrl(s3Key);
-
-      // Update DB with S3 URL
-      await db.tenantQuery(
-        tenantId,
-        'UPDATE avatars SET source_image_url = $1 WHERE id = $2',
-        [s3Key, avatarId],
+      logger.info(
+        { tenantId, avatarId: result.rows[0].id, heygen_avatar_id, voice_id },
+        'HeyGen avatar created',
       );
 
-      // Call AI service to create avatar (async, don't await)
-      callAIServiceBackground({
-        path: '/avatar/create',
-        body: {
-          avatar_id: avatarId,
-          tenant_id: tenantId,
-          image_url: sourceUrl,
-          provider: (req as any).tenantConfig?.avatar_provider || 'simli',
-          config: req.body.config || {},
-        },
-      });
-
-      res.status(202).json({
+      res.status(201).json({
         success: true,
-        data: { id: avatarId, status: 'processing' },
+        data: result.rows[0],
       });
     } catch (err) {
       next(err);
@@ -542,7 +501,7 @@ router.post('/:id/test-session', validateUuidParam(), wrap(async (req: Authentic
 
     const result = await db.tenantQuery(
       tenantId,
-      `SELECT id, name, provider, provider_avatar_id, config, status
+      `SELECT id, name, provider, provider_avatar_id, tts_voice_id, config, status
        FROM avatars WHERE id = $1 AND deleted_at IS NULL`,
       [req.params.id],
     );
@@ -556,72 +515,64 @@ router.post('/:id/test-session', validateUuidParam(), wrap(async (req: Authentic
       return res.status(400).json({ success: false, error: { code: 'AVATAR_NOT_ACTIVE', message: 'Avatar must be active to test' } });
     }
 
+    const heygenApiKey = envConfig.HEYGEN_API_KEY;
+    if (!heygenApiKey) {
+      return res.status(500).json({ success: false, error: { code: 'NO_HEYGEN_KEY', message: 'HeyGen API key not configured' } });
+    }
+
     const avatarConfig = typeof avatar.config === 'string' ? JSON.parse(avatar.config) : (avatar.config || {});
 
-    if (avatar.provider === 'simli') {
-      // --- SIMLI COMPOSE (audio-in → lip-sync video) ---
-      const simliApiKey = envConfig.SIMLI_API_KEY;
-      if (!simliApiKey) {
-        return res.status(500).json({ success: false, error: { code: 'NO_SIMLI_KEY', message: 'Simli API key not configured' } });
-      }
+    // Resolve the HeyGen library avatar_id. Modern rows set provider_avatar_id
+    // at create time; legacy rows (pre-HeyGen rewrite) may only have
+    // avatarConfig.heygenAvatarId or an inapplicable Simli face id. Fall back
+    // to a sensible public HeyGen face so sessions never fail outright.
+    let heygenAvatarId = avatar.provider === 'heygen' ? (avatar.provider_avatar_id || '') : '';
+    if (!heygenAvatarId) heygenAvatarId = avatarConfig.heygenAvatarId || '';
+    if (!heygenAvatarId || heygenAvatarId.startsWith('dev-') || heygenAvatarId === 'default') {
+      heygenAvatarId = 'Wayne_20240711';
+    }
 
-      let faceId = avatar.provider_avatar_id || '';
-      if (!faceId || faceId.startsWith('dev-')) {
-        faceId = 'tmp_s3_dg_eo';  // Default Simli demo face
-      }
+    // Voice: prefer the new top-level tts_voice_id, fall back to config.voice
+    // for backwards compat. If it still looks like a Simli face UUID (32 hex
+    // chars), replace it with a safe HeyGen default so a legacy row won't
+    // crash the session.
+    let voiceId: string = (avatar.tts_voice_id as string) || avatarConfig.voice || '';
+    if (!voiceId || /^[a-f0-9]{32}$/i.test(voiceId)) {
+      voiceId = ''; // let HeyGen pick the avatar's default voice
+    }
 
-      res.json({
-        success: true,
-        data: {
-          provider: 'simli',
-          simliApiKey,
-          faceId,
-          avatarName: avatar.name,
-          voiceId: avatarConfig.voice || 'nova',
-          // AI service WebSocket URL for the conversation pipeline.
-          // Derived from AI_SERVICE_URL so it works on both localhost (ws://)
-          // and production behind HTTPS (wss://) — never hardcode here.
-          wsUrl: aiServiceWsUrl('/ws/test-chat'),
-        },
-      });
-
-    } else {
-      // --- HEYGEN ---
-      const heygenApiKey = envConfig.HEYGEN_API_KEY;
-      if (!heygenApiKey) {
-        return res.status(500).json({ success: false, error: { code: 'NO_HEYGEN_KEY', message: 'HeyGen API key not configured' } });
-      }
-
-      // Get HeyGen session token
-      const tokenRes = await fetch('https://api.heygen.com/v1/streaming.create_token', {
-        method: 'POST',
-        headers: { 'x-api-key': heygenApiKey, 'Content-Type': 'application/json' },
-      });
-
-      if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        logger.error({ status: tokenRes.status, body: errText }, 'HeyGen token request failed');
-        return res.status(502).json({ success: false, error: { code: 'HEYGEN_TOKEN_ERROR', message: 'Failed to get HeyGen session token' } });
-      }
-
-      const tokenData = await tokenRes.json() as { data: { token: string } };
-
-      let heygenAvatarId = avatar.provider_avatar_id || avatarConfig.heygenAvatarId || '';
-      if (!heygenAvatarId || heygenAvatarId.startsWith('dev-') || heygenAvatarId === 'default') {
-        heygenAvatarId = 'Wayne_20240711';  // Default HeyGen public avatar
-      }
-
-      res.json({
-        success: true,
-        data: {
-          provider: 'heygen',
-          sessionToken: tokenData.data.token,
-          heygenAvatarId,
-          avatarName: avatar.name,
-          voiceId: avatarConfig.voice || null,
-        },
+    // Get a short-lived HeyGen session token (30 min). The SDK uses this
+    // token to negotiate the LiveKit streaming session from the browser.
+    const tokenRes = await fetch('https://api.heygen.com/v1/streaming.create_token', {
+      method: 'POST',
+      headers: { 'x-api-key': heygenApiKey, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!tokenRes.ok) {
+      const errText = await tokenRes.text();
+      logger.error({ status: tokenRes.status, body: errText.slice(0, 300) }, 'HeyGen token request failed');
+      return res.status(502).json({
+        success: false,
+        error: { code: 'HEYGEN_TOKEN_ERROR', message: 'Failed to get HeyGen session token' },
       });
     }
+    const tokenData = await tokenRes.json() as { data: { token: string } };
+
+    res.json({
+      success: true,
+      data: {
+        provider: 'heygen',
+        sessionToken: tokenData.data.token,
+        heygenAvatarId,
+        avatarName: avatar.name,
+        voiceId: voiceId || null,
+        language: avatarConfig.language || 'en',
+        // Conversation pipeline (STT + LLM) still runs on our AI service —
+        // only TTS+lip-sync is delegated to HeyGen. The frontend connects
+        // to this WebSocket to get transcripts and response text.
+        wsUrl: aiServiceWsUrl('/ws/test-chat'),
+      },
+    });
   } catch (err) {
     next(err);
   }

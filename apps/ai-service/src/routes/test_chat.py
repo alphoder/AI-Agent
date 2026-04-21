@@ -273,26 +273,28 @@ async def _transcribe_audio_rest(pcm_data: bytes) -> str:
 async def _process_response(
     websocket: WebSocket,
     llm: LLMClient,
-    tts,
+    tts,  # kept for signature compatibility; unused — HeyGen does TTS on the client
     system_prompt: str,
     history: list[dict],
     user_text: str,
 ):
-    """Run LLM → TTS pipeline with sentence-level streaming for low latency.
+    """Stream the LLM response as sentences of plain text.
 
-    Instead of waiting for the full LLM response, we stream sentence by sentence:
-    as soon as a sentence boundary is detected (. ? ! ;), we immediately send it
-    for TTS while the LLM keeps generating. This cuts latency from 3-5s to <1s.
+    In the HeyGen-only deployment, our AI service no longer synthesizes audio.
+    We just hand each completed sentence back to the browser via WebSocket;
+    the frontend then calls `avatar.speak({ text, taskType: REPEAT })` on the
+    HeyGen SDK, which renders the TTS + lip-sync at the edge. Cuts our
+    pipeline down to STT + LLM, which keeps end-to-end latency low and
+    removes a whole category of audio-routing bugs.
     """
+    del tts  # deliberately unused
     history.append({"role": "user", "content": user_text})
 
     try:
         full_response = ""
         sentence_buffer = ""
-        sent_first = False
-
-        # Sentence boundary chars
-        boundaries = {".","!","?",";",":","।"}  # includes Hindi danda
+        # Sentence boundaries across scripts — Latin + Hindi danda + CJK.
+        boundaries = {".", "!", "?", ";", ":", "।", "。", "！", "？"}
 
         async for chunk in llm.generate_response(
             system_prompt=system_prompt,
@@ -307,58 +309,16 @@ async def _process_response(
             full_response += chunk + " "
             sentence_buffer += chunk + " "
 
-            # Check if buffer contains a complete sentence
             has_boundary = any(c in sentence_buffer for c in boundaries)
-            # Only flush if we have enough text (avoid tiny fragments)
             if has_boundary and len(sentence_buffer.strip()) > 10:
                 sentence = sentence_buffer.strip()
                 sentence_buffer = ""
-
-                if not sent_first:
-                    sent_first = True
-
-                # Send text immediately
                 await websocket.send_json({
                     "type": "response_text",
                     "text": sentence,
                     "role": "assistant",
                 })
 
-                # Stream TTS audio for this sentence (first chunk in ~200ms).
-                # Deepgram's /speak?encoding=linear16 prefixes a 44-byte RIFF
-                # WAV header that SimliClient.sendAudioData treats as samples
-                # (audible click). Strip it from the first bytes of the stream.
-                try:
-                    if hasattr(tts, 'synthesize_streaming'):
-                        first = True
-                        pending = b""
-                        async for audio_chunk in tts.synthesize_streaming(sentence):
-                            if first:
-                                pending += audio_chunk
-                                if len(pending) < 44:
-                                    continue
-                                audio_chunk = pending[44:]
-                                pending = b""
-                                first = False
-                                if not audio_chunk:
-                                    continue
-                            await websocket.send_json({
-                                "type": "audio",
-                                "data": base64.b64encode(audio_chunk).decode("ascii"),
-                            })
-                    else:
-                        audio_bytes = await tts.synthesize(sentence)
-                        if audio_bytes and len(audio_bytes) > 44:
-                            audio_bytes = audio_bytes[44:]
-                            for i in range(0, len(audio_bytes), 8192):
-                                await websocket.send_json({
-                                    "type": "audio",
-                                    "data": base64.b64encode(audio_bytes[i:i+8192]).decode("ascii"),
-                                })
-                except Exception as tts_err:
-                    logger.warn("test_chat.tts_chunk_error", error=str(tts_err))
-
-        # Flush remaining buffer
         remainder = sentence_buffer.strip()
         if remainder:
             await websocket.send_json({
@@ -366,41 +326,14 @@ async def _process_response(
                 "text": remainder,
                 "role": "assistant",
             })
-            try:
-                if hasattr(tts, 'synthesize_streaming'):
-                    first = True
-                    pending = b""
-                    async for audio_chunk in tts.synthesize_streaming(remainder):
-                        if first:
-                            pending += audio_chunk
-                            if len(pending) < 44:
-                                continue
-                            audio_chunk = pending[44:]
-                            pending = b""
-                            first = False
-                            if not audio_chunk:
-                                continue
-                        await websocket.send_json({
-                            "type": "audio",
-                            "data": base64.b64encode(audio_chunk).decode("ascii"),
-                        })
-                else:
-                    audio_bytes = await tts.synthesize(remainder)
-                    if audio_bytes and len(audio_bytes) > 44:
-                        audio_bytes = audio_bytes[44:]
-                        for i in range(0, len(audio_bytes), 8192):
-                            await websocket.send_json({
-                                "type": "audio",
-                                "data": base64.b64encode(audio_bytes[i:i+8192]).decode("ascii"),
-                            })
-            except Exception as tts_err:
-                logger.warn("test_chat.tts_remainder_error", error=str(tts_err))
 
         full_response = full_response.strip()
         if full_response:
             history.append({"role": "assistant", "content": full_response})
 
-        await websocket.send_json({"type": "audio_end"})
+        # Keeps the existing client-side contract — the frontend listens for
+        # response_end to stop its "thinking" indicator. Renamed from audio_end.
+        await websocket.send_json({"type": "response_end"})
 
     except Exception as e:
         logger.error("test_chat.pipeline_error", error=str(e))

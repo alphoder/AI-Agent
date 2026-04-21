@@ -1,5 +1,7 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { config } from '../config/env';
+import { logger } from '../config/logger';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -8,121 +10,157 @@ const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);
 
 /**
- * Hardcoded catalog of TTS voices. Kept in code (not the DB) because:
- *   - the provider owns the canonical list; we just expose a curated subset
- *   - no admin should be able to add fake voice IDs through the API
- *
- * Gender is used by the UI to suggest matching voices when the admin picks
- * an avatar of a given gender. The source of truth is Deepgram's own
- * published TTS model catalog (https://developers.deepgram.com/docs/tts-models).
- *
- * All `id` values have been verified against Deepgram's public docs — passing
- * one of these strings to `/speak?model=<id>` returns audio without error.
+ * HeyGen voice entry as the platform exposes it to the UI. We don't surface
+ * every field HeyGen returns — just what the Avatar create form needs to
+ * render filterable cards with a preview button.
  */
-interface VoiceEntry {
+interface Voice {
   id: string;
   name: string;
-  provider: 'deepgram' | 'openai' | 'elevenlabs';
+  provider: 'heygen';
   gender: 'female' | 'male' | 'non_binary';
+  language: string;         // e.g. 'en', 'es', 'hi', 'fr' (ISO 639-1)
   accent?: string;
-  language?: string;
-  model_family?: 'aura-1' | 'aura-2';
-  description?: string;
+  preview_url?: string;     // HeyGen-hosted MP3
+  support_pause?: boolean;
+  emotion_support?: boolean;
 }
 
-const VOICES: VoiceEntry[] = [
-  // -------------------------------------------------------------------------
-  // Deepgram Aura-2 — English (recommended defaults)
-  // -------------------------------------------------------------------------
-  // Feminine
-  { provider: 'deepgram', id: 'aura-2-andromeda-en', name: 'Andromeda', gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Casual, expressive — customer service' },
-  { provider: 'deepgram', id: 'aura-2-asteria-en',   name: 'Asteria',   gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Clear, confident, energetic' },
-  { provider: 'deepgram', id: 'aura-2-athena-en',    name: 'Athena',    gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Calm, smooth, professional storyteller' },
-  { provider: 'deepgram', id: 'aura-2-aurora-en',    name: 'Aurora',    gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Cheerful, expressive, energetic' },
-  { provider: 'deepgram', id: 'aura-2-callista-en',  name: 'Callista',  gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Clear, professional IVR voice' },
-  { provider: 'deepgram', id: 'aura-2-cora-en',      name: 'Cora',      gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Smooth, melodic, caring' },
-  { provider: 'deepgram', id: 'aura-2-delia-en',     name: 'Delia',     gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Casual, friendly, breathy' },
-  { provider: 'deepgram', id: 'aura-2-electra-en',   name: 'Electra',   gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Professional, engaging, knowledgeable' },
-  { provider: 'deepgram', id: 'aura-2-harmonia-en',  name: 'Harmonia',  gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Empathetic, calm, confident' },
-  { provider: 'deepgram', id: 'aura-2-hera-en',      name: 'Hera',      gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Smooth, warm, professional' },
-  { provider: 'deepgram', id: 'aura-2-juno-en',      name: 'Juno',      gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Natural, melodic, breathy' },
-  { provider: 'deepgram', id: 'aura-2-luna-en',      name: 'Luna',      gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Friendly, natural, engaging' },
-  { provider: 'deepgram', id: 'aura-2-ophelia-en',   name: 'Ophelia',   gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Expressive, enthusiastic' },
-  { provider: 'deepgram', id: 'aura-2-pandora-en',   name: 'Pandora',   gender: 'female', accent: 'British',   language: 'en', model_family: 'aura-2', description: 'Smooth, calm, melodic (UK)' },
-  { provider: 'deepgram', id: 'aura-2-phoebe-en',    name: 'Phoebe',    gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Energetic, warm, casual' },
-  { provider: 'deepgram', id: 'aura-2-theia-en',     name: 'Theia',     gender: 'female', accent: 'Australian',language: 'en', model_family: 'aura-2', description: 'Expressive, polite, sincere (AU)' },
-  { provider: 'deepgram', id: 'aura-2-vesta-en',     name: 'Vesta',     gender: 'female', accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Natural, patient, empathetic' },
-  // Masculine
-  { provider: 'deepgram', id: 'aura-2-apollo-en',    name: 'Apollo',    gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Confident, casual, conversational' },
-  { provider: 'deepgram', id: 'aura-2-arcas-en',     name: 'Arcas',     gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Natural, smooth, clear' },
-  { provider: 'deepgram', id: 'aura-2-aries-en',     name: 'Aries',     gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Warm, energetic, caring' },
-  { provider: 'deepgram', id: 'aura-2-atlas-en',     name: 'Atlas',     gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Enthusiastic, approachable, friendly' },
-  { provider: 'deepgram', id: 'aura-2-draco-en',     name: 'Draco',     gender: 'male',   accent: 'British',   language: 'en', model_family: 'aura-2', description: 'Warm baritone narrator (UK)' },
-  { provider: 'deepgram', id: 'aura-2-hermes-en',    name: 'Hermes',    gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Expressive, engaging, professional' },
-  { provider: 'deepgram', id: 'aura-2-hyperion-en',  name: 'Hyperion',  gender: 'male',   accent: 'Australian',language: 'en', model_family: 'aura-2', description: 'Caring, warm, empathetic (AU)' },
-  { provider: 'deepgram', id: 'aura-2-jupiter-en',   name: 'Jupiter',   gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Expressive baritone, informative' },
-  { provider: 'deepgram', id: 'aura-2-mars-en',      name: 'Mars',      gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Smooth, patient baritone' },
-  { provider: 'deepgram', id: 'aura-2-neptune-en',   name: 'Neptune',   gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Professional, patient, polite' },
-  { provider: 'deepgram', id: 'aura-2-odysseus-en',  name: 'Odysseus',  gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Calm, smooth, professional' },
-  { provider: 'deepgram', id: 'aura-2-orion-en',     name: 'Orion',     gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Approachable, comfortable, polite' },
-  { provider: 'deepgram', id: 'aura-2-orpheus-en',   name: 'Orpheus',   gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Clear, confident, trustworthy' },
-  { provider: 'deepgram', id: 'aura-2-pluto-en',     name: 'Pluto',     gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Smooth, empathetic baritone narrator' },
-  { provider: 'deepgram', id: 'aura-2-saturn-en',    name: 'Saturn',    gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Knowledgeable, confident baritone' },
-  { provider: 'deepgram', id: 'aura-2-zeus-en',      name: 'Zeus',      gender: 'male',   accent: 'American',  language: 'en', model_family: 'aura-2', description: 'Deep, trustworthy, smooth' },
-
-  // -------------------------------------------------------------------------
-  // Deepgram Aura-1 — English (legacy, still supported)
-  // -------------------------------------------------------------------------
-  { provider: 'deepgram', id: 'aura-asteria-en',  name: 'Asteria (v1)',  gender: 'female', accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — clear, confident, energetic' },
-  { provider: 'deepgram', id: 'aura-luna-en',     name: 'Luna (v1)',     gender: 'female', accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — friendly, natural, engaging' },
-  { provider: 'deepgram', id: 'aura-stella-en',   name: 'Stella (v1)',   gender: 'female', accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — clear, professional' },
-  { provider: 'deepgram', id: 'aura-athena-en',   name: 'Athena (v1)',   gender: 'female', accent: 'British',  language: 'en', model_family: 'aura-1', description: 'Legacy — calm storyteller (UK)' },
-  { provider: 'deepgram', id: 'aura-hera-en',     name: 'Hera (v1)',     gender: 'female', accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — smooth, warm, professional' },
-  { provider: 'deepgram', id: 'aura-orion-en',    name: 'Orion (v1)',    gender: 'male',   accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — approachable, calm' },
-  { provider: 'deepgram', id: 'aura-arcas-en',    name: 'Arcas (v1)',    gender: 'male',   accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — natural, smooth, clear' },
-  { provider: 'deepgram', id: 'aura-perseus-en',  name: 'Perseus (v1)',  gender: 'male',   accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — confident, professional' },
-  { provider: 'deepgram', id: 'aura-angus-en',    name: 'Angus (v1)',    gender: 'male',   accent: 'Irish',    language: 'en', model_family: 'aura-1', description: 'Legacy — warm, friendly (IE)' },
-  { provider: 'deepgram', id: 'aura-orpheus-en',  name: 'Orpheus (v1)',  gender: 'male',   accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — professional, trustworthy' },
-  { provider: 'deepgram', id: 'aura-helios-en',   name: 'Helios (v1)',   gender: 'male',   accent: 'British',  language: 'en', model_family: 'aura-1', description: 'Legacy — professional (UK)' },
-  { provider: 'deepgram', id: 'aura-zeus-en',     name: 'Zeus (v1)',     gender: 'male',   accent: 'American', language: 'en', model_family: 'aura-1', description: 'Legacy — deep, trustworthy' },
-
-  // -------------------------------------------------------------------------
-  // OpenAI TTS — all voices (from tts-1 / tts-1-hd models)
-  // -------------------------------------------------------------------------
-  { provider: 'openai', id: 'alloy',   name: 'Alloy',   gender: 'non_binary', language: 'en', description: 'Balanced, versatile' },
-  { provider: 'openai', id: 'echo',    name: 'Echo',    gender: 'male',       language: 'en', description: 'Crisp, informative' },
-  { provider: 'openai', id: 'fable',   name: 'Fable',   gender: 'male',       language: 'en', description: 'Storytelling, warm' },
-  { provider: 'openai', id: 'onyx',    name: 'Onyx',    gender: 'male',       language: 'en', description: 'Deep, confident' },
-  { provider: 'openai', id: 'ash',     name: 'Ash',     gender: 'male',       language: 'en', description: 'Firm, direct' },
-  { provider: 'openai', id: 'nova',    name: 'Nova',    gender: 'female',     language: 'en', description: 'Youthful, friendly' },
-  { provider: 'openai', id: 'shimmer', name: 'Shimmer', gender: 'female',     language: 'en', description: 'Warm, reassuring' },
-  { provider: 'openai', id: 'sage',    name: 'Sage',    gender: 'female',     language: 'en', description: 'Gentle, thoughtful' },
-];
+// In-memory cache (1 hour TTL). HeyGen's catalog doesn't change often and
+// their API is rate-limited, so we don't want to hit it on every keystroke.
+interface CacheEntry<T> { value: T; expiresAt: number }
+let voiceCache: CacheEntry<Voice[]> | null = null;
+const CACHE_MS = 60 * 60 * 1000;
 
 /**
- * GET /api/voices?provider=&gender=&language=
- * Returns the TTS voice catalog, optionally filtered.
- * Used by the Avatar form (gender-matched dropdown).
+ * Normalise HeyGen's language code ("English", "en-US", "Hindi") down to a
+ * short ISO 639-1 code we can pair with Deepgram's STT language flag.
+ */
+function toShortLang(raw: string | undefined): string {
+  if (!raw) return 'en';
+  const s = String(raw).toLowerCase().trim();
+  // Already ISO?
+  if (/^[a-z]{2}(-[A-Z]{2})?$/i.test(s) && s.length <= 5) return s.slice(0, 2).toLowerCase();
+  const map: Record<string, string> = {
+    english: 'en', spanish: 'es', french: 'fr', german: 'de',
+    italian: 'it', portuguese: 'pt', dutch: 'nl', japanese: 'ja',
+    korean: 'ko', chinese: 'zh', mandarin: 'zh', arabic: 'ar',
+    hindi: 'hi', russian: 'ru', turkish: 'tr', polish: 'pl',
+    indonesian: 'id', vietnamese: 'vi', filipino: 'fil', tagalog: 'fil',
+    thai: 'th', swedish: 'sv', norwegian: 'no', danish: 'da',
+    finnish: 'fi', greek: 'el', hebrew: 'he', czech: 'cs',
+    hungarian: 'hu', romanian: 'ro', ukrainian: 'uk', malay: 'ms',
+    urdu: 'ur', bengali: 'bn', tamil: 'ta', telugu: 'te',
+  };
+  for (const [k, v] of Object.entries(map)) if (s.includes(k)) return v;
+  return s.slice(0, 2);
+}
+
+function toGender(raw: string | undefined): 'female' | 'male' | 'non_binary' {
+  if (!raw) return 'non_binary';
+  const s = String(raw).toLowerCase();
+  if (s.includes('female') || s === 'f' || s.includes('woman')) return 'female';
+  if (s.includes('male')   || s === 'm' || s.includes('man'))   return 'male';
+  return 'non_binary';
+}
+
+async function fetchHeygenVoices(): Promise<Voice[]> {
+  if (!config.HEYGEN_API_KEY) {
+    logger.warn('HEYGEN_API_KEY not configured; returning empty voice catalog');
+    return [];
+  }
+
+  const resp = await fetch('https://api.heygen.com/v2/voices', {
+    method: 'GET',
+    headers: {
+      'accept': 'application/json',
+      'x-api-key': config.HEYGEN_API_KEY,
+    },
+    // Modest timeout so a slow HeyGen response doesn't hang the dashboard
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    logger.error({ status: resp.status, body: body.slice(0, 300) }, 'HeyGen /v2/voices failed');
+    throw new Error(`HeyGen voices fetch failed: ${resp.status}`);
+  }
+
+  const json = await resp.json() as { data?: { voices?: unknown[] }, error?: unknown };
+  const raw = Array.isArray(json?.data?.voices) ? json.data!.voices! : [];
+
+  const voices: Voice[] = raw.map((r) => {
+    const v = r as Record<string, unknown>;
+    const id = String(v.voice_id ?? v.id ?? '');
+    if (!id) return null;
+    const language = String(v.language ?? v.language_code ?? 'English');
+    return {
+      id,
+      name: String(v.name ?? v.display_name ?? id),
+      provider: 'heygen' as const,
+      gender: toGender(v.gender as string | undefined),
+      language: toShortLang(language),
+      accent: (typeof v.accent === 'string' ? v.accent : undefined)
+        || (typeof v.language === 'string' ? v.language : undefined),
+      preview_url: typeof v.preview_audio === 'string'
+        ? v.preview_audio
+        : (typeof v.sample === 'string' ? v.sample : undefined),
+      support_pause: Boolean(v.support_pause),
+      emotion_support: Boolean(v.emotion_support),
+    };
+  }).filter(Boolean) as Voice[];
+
+  return voices;
+}
+
+async function getVoices(): Promise<Voice[]> {
+  const now = Date.now();
+  if (voiceCache && voiceCache.expiresAt > now) return voiceCache.value;
+  try {
+    const voices = await fetchHeygenVoices();
+    voiceCache = { value: voices, expiresAt: now + CACHE_MS };
+    return voices;
+  } catch (err) {
+    // On failure, serve stale cache if we have one; otherwise empty.
+    if (voiceCache) return voiceCache.value;
+    logger.error({ err: (err as Error).message }, 'voices cache miss + fetch failed');
+    return [];
+  }
+}
+
+/**
+ * GET /api/voices?gender=&language=&search=
+ * Returns HeyGen's voice catalog, cached for 1 hour. All voices are HeyGen
+ * since that's the only provider in this deployment.
  */
 router.get(
   '/',
   wrap(async (req: AuthenticatedRequest, res: Response) => {
-    const provider = typeof req.query.provider === 'string' ? req.query.provider : undefined;
     const gender = typeof req.query.gender === 'string' ? req.query.gender : undefined;
     const language = typeof req.query.language === 'string' ? req.query.language : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
 
-    let filtered = VOICES;
-    if (provider) filtered = filtered.filter((v) => v.provider === provider);
+    const all = await getVoices();
+    let filtered = all;
     if (gender)   filtered = filtered.filter((v) => v.gender === gender);
-    if (language) filtered = filtered.filter((v) => (v.language || 'en') === language);
+    if (language) filtered = filtered.filter((v) => v.language === language.slice(0, 2).toLowerCase());
+    if (search) {
+      filtered = filtered.filter((v) =>
+        v.name.toLowerCase().includes(search) ||
+        (v.accent || '').toLowerCase().includes(search),
+      );
+    }
+
+    const languages = Array.from(new Set(all.map((v) => v.language))).sort();
 
     res.json({
       success: true,
       data: filtered,
       meta: {
         total: filtered.length,
-        providers: ['deepgram', 'openai'],
-        languages: ['en'],
+        total_in_catalog: all.length,
+        providers: ['heygen'],
+        languages,
       },
     });
   }),
