@@ -1,0 +1,180 @@
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
+import { JWTService } from '../services/jwt-service';
+import { verifyGoogleIdToken } from '../services/google-auth';
+import { upsertGoogleUser } from '../services/user-service';
+import { rateLimit } from '../middleware/rate-limit';
+import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { db } from '../config/database';
+import { logger } from '../config/logger';
+
+type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
+const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
+
+const ACCESS_COOKIE_MAX_AGE = 60 * 60 * 1000; // 1h, matches JWT
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7d
+const isProd = process.env.NODE_ENV === 'production';
+
+// In production the frontend (Vercel) and API (Render) are on different domains,
+// so cookies must be SameSite=None; Secure to be sent on cross-site requests.
+// On localhost both are same-site, so Lax works without requiring HTTPS.
+const COOKIE_SAMESITE = isProd ? 'none' : 'lax';
+
+function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+  res.cookie('refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: COOKIE_SAMESITE,
+    maxAge: REFRESH_COOKIE_MAX_AGE,
+    path: '/api/auth',
+  });
+  res.cookie('access_token', accessToken, {
+    httpOnly: false, // readable by Next.js middleware for route protection
+    secure: isProd,
+    sameSite: COOKIE_SAMESITE,
+    maxAge: ACCESS_COOKIE_MAX_AGE,
+    path: '/',
+  });
+}
+
+const router: Router = Router();
+
+router.use(rateLimit(isProd ? 20 : 200));
+
+/**
+ * POST /api/auth/google
+ * Body: { credential: <Google ID token> }
+ * Verifies the Google ID token, upserts the user, issues app tokens.
+ */
+router.post('/google', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const credential = req.body?.credential;
+    if (!credential || typeof credential !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_CREDENTIAL', message: 'Google credential is required' },
+      });
+    }
+
+    const profile = await verifyGoogleIdToken(credential);
+    const user = await upsertGoogleUser(profile);
+    const { accessToken, refreshToken } = await JWTService.issueTokens(user);
+    setAuthCookies(res, accessToken, refreshToken);
+
+    res.json({
+      success: true,
+      data: {
+        accessToken,
+        user: { id: user.id, email: user.email, name: user.name, picture: user.picture },
+      },
+    });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Google login failed');
+    return res.status(401).json({
+      success: false,
+      error: { code: 'GOOGLE_AUTH_FAILED', message: 'Could not verify Google sign-in' },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/dev-login (non-production only)
+ * Body: { email, name? } — creates/loads a user without Google. Local testing.
+ */
+router.post('/dev-login', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (isProd && process.env.ENABLE_DEV_LOGIN !== 'true') {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+    }
+    const { email, name } = req.body || {};
+    if (!email) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'email is required' } });
+    }
+
+    const result = await db.query(
+      `INSERT INTO users (email, name, last_login_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (email) WHERE deleted_at IS NULL DO UPDATE SET last_login_at = NOW(), updated_at = NOW()
+       RETURNING id, email, name, picture`,
+      [email, name || email.split('@')[0]],
+    );
+    const user = result.rows[0];
+    const { accessToken, refreshToken } = await JWTService.issueTokens(user);
+    setAuthCookies(res, accessToken, refreshToken);
+
+    logger.info({ email, userId: user.id }, 'Dev login successful');
+    res.json({
+      success: true,
+      data: { accessToken, user: { id: user.id, email: user.email, name: user.name, picture: user.picture } },
+    });
+  } catch (err) {
+    logger.error({ err }, 'Dev login failed');
+    next(err);
+  }
+});
+
+/**
+ * POST /api/auth/refresh — rotate refresh token, issue new access token.
+ */
+router.post('/refresh', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const refreshToken = req.cookies?.refresh_token;
+    if (!refreshToken) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'NO_REFRESH_TOKEN', message: 'Refresh token not found' },
+      });
+    }
+
+    const result = await JWTService.rotateRefreshToken(refreshToken);
+    if (!result) {
+      res.clearCookie('refresh_token', { path: '/api/auth' });
+      return res.status(401).json({
+        success: false,
+        error: { code: 'INVALID_REFRESH_TOKEN', message: 'Refresh token invalid or expired' },
+      });
+    }
+
+    setAuthCookies(res, result.accessToken, result.refreshToken);
+    res.json({ success: true, data: { accessToken: result.accessToken } });
+  } catch (err) {
+    logger.error({ err }, 'Token refresh failed');
+    next(err);
+  }
+});
+
+/**
+ * POST /api/auth/logout — revoke all refresh tokens, clear cookies.
+ */
+router.post('/logout', authMiddleware as unknown as RequestHandler, wrap(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.sub) {
+      await JWTService.revokeAllUserTokens(req.user.sub);
+    }
+    res.clearCookie('refresh_token', { path: '/api/auth' });
+    res.clearCookie('access_token', { path: '/' });
+    res.json({ success: true, data: { message: 'Logged out' } });
+  } catch (err) {
+    logger.error({ err }, 'Logout failed');
+    next(err);
+  }
+}));
+
+/**
+ * GET /api/auth/me — current user.
+ */
+router.get('/me', authMiddleware as unknown as RequestHandler, wrap(async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
+  }
+  const result = await db.query(
+    `SELECT id, email, name, picture, is_active, last_login_at, metadata
+     FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [req.user.sub],
+  );
+  if (result.rows.length === 0) {
+    return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } });
+  }
+  res.json({ success: true, data: result.rows[0] });
+}));
+
+export const authRoutes: Router = router;

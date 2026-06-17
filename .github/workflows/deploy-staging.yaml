@@ -1,0 +1,50 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: aws eks update-kubeconfig --name avatar-staging --region ${{ secrets.AWS_REGION }}
+
+      - name: Update image tags in manifests
+        run: |
+          sed -i "s|IMAGE_TAG|${{ github.sha }}|g" k8s/frontend/*.yaml k8s/api/*.yaml k8s/ai/*.yaml
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/namespaces.yaml
+          kubectl apply -f k8s/frontend/ --recursive
+          kubectl apply -f k8s/api/ --recursive
+          kubectl apply -f k8s/ai/ --recursive
+          kubectl apply -f k8s/ingress.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/web -n frontend --timeout=300s
+          kubectl rollout status deployment/api -n api --timeout=300s
+          kubectl rollout status deployment/ai-service -n ai --timeout=300s
+
+      - name: Smoke tests
+        run: |
+          API_URL=$(kubectl get ingress -n api -o jsonpath='{.items[0].spec.rules[0].host}')
+          curl -sf "https://${API_URL}/health" || exit 1
+          echo "Smoke tests passed"

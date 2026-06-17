@@ -1,0 +1,22 @@
+services:
+  # PostgreSQL 16 — the only stateful dependency.
+  postgres:
+    image: postgres:16-alpine
+    container_name: speakcoach-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: avatar_platform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d avatar_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
