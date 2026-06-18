@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Manrope, Fraunces } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
 
-const inter = Inter({ subsets: ['latin'] });
+// Premium pairing: a refined grotesk for body + an editorial serif for display.
+const manrope = Manrope({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
+const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-serif', display: 'swap', axes: ['opsz'] });
 
 export const metadata: Metadata = {
   title: {
@@ -15,8 +17,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" className={`${manrope.variable} ${fraunces.variable}`}>
+      <body className="font-sans">
         <Providers>{children}</Providers>
       </body>
     </html>

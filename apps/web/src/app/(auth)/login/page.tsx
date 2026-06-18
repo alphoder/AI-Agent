@@ -59,28 +59,28 @@ function LoginInner() {
 
   return (
     <main className="min-h-screen grid lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-between bg-gradient-to-br from-indigo-600 to-violet-700 text-white p-12">
+      <div className="hidden lg:flex flex-col justify-between bg-gradient-to-br from-blue-600 to-blue-700 text-white p-12">
         <div className="flex items-center gap-2 font-semibold text-lg">
           <Mic className="h-6 w-6" /> SpeakCoach
         </div>
         <div className="space-y-4 max-w-md">
           <h1 className="text-4xl font-bold leading-tight">Practice speaking. Out loud. With an AI that listens and watches.</h1>
-          <p className="text-indigo-100 text-lg">
+          <p className="text-blue-100 text-lg">
             Pick a scenario, turn on your mic and camera, and have a real spoken conversation. Get scored on what you said
             <span className="font-semibold"> and</span> how you carried yourself.
           </p>
-          <ul className="text-indigo-100 space-y-1.5 pt-2">
+          <ul className="text-blue-100 space-y-1.5 pt-2">
             <li className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Real-time, multilingual voice</li>
             <li className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Body-language feedback</li>
             <li className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Free to use</li>
           </ul>
         </div>
-        <p className="text-indigo-200 text-sm">No avatars. Just your voice, your presence, and honest feedback.</p>
+        <p className="text-blue-200 text-sm">No avatars. Just your voice, your presence, and honest feedback.</p>
       </div>
 
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm space-y-6">
-          <div className="lg:hidden flex items-center gap-2 font-semibold text-lg text-indigo-600">
+          <div className="lg:hidden flex items-center gap-2 font-semibold text-lg text-blue-600">
             <Mic className="h-6 w-6" /> SpeakCoach
           </div>
           <div>

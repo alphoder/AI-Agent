@@ -30,7 +30,7 @@ export function RichEmptyState({
       <div className="relative inline-flex items-center justify-center">
         {/* animated halo */}
         <div className={`absolute inset-0 rounded-full ${`bg-grad-${accent}`} opacity-20 blur-xl`} />
-        <div className={`relative ${compact ? 'w-14 h-14' : 'w-20 h-20'} rounded-2xl ${`bg-grad-${accent}`} flex items-center justify-center shadow-lg shadow-indigo-500/10`}>
+        <div className={`relative ${compact ? 'w-14 h-14' : 'w-20 h-20'} rounded-2xl ${`bg-grad-${accent}`} flex items-center justify-center shadow-lg shadow-blue-500/10`}>
           <Icon className={`${compact ? 'w-6 h-6' : 'w-9 h-9'} text-white`} strokeWidth={2} />
         </div>
       </div>

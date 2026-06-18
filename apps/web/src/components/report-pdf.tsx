@@ -17,14 +17,14 @@ export interface ReportData {
 
 // Default score bands (defined by the app; rubric itself is user-editable).
 export function band(score: number): { label: string; color: string } {
-  if (score >= 85) return { label: 'Excellent', color: '#4f46e5' };
+  if (score >= 85) return { label: 'Excellent', color: '#2563eb' };
   if (score >= 70) return { label: 'Proficient', color: '#059669' };
   if (score >= 40) return { label: 'Developing', color: '#d97706' };
   return { label: 'Needs work', color: '#e11d48' };
 }
 
 const C = {
-  indigo: '#4f46e5',
+  indigo: '#2563eb',
   ink: '#0f172a',
   slate: '#475569',
   light: '#94a3b8',

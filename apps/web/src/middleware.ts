@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Routes that do not require authentication.
-const PUBLIC_PATHS = ['/login'];
+const PUBLIC_PATHS = ['/', '/login'];
 
 const PUBLIC_PREFIXES = ['/api/', '/_next/', '/favicon.ico'];
 const STATIC_EXTENSIONS = /\.(ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|otf|css|js|map)$/;

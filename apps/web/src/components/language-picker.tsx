@@ -40,13 +40,13 @@ export function LanguagePicker({
             key={l.code}
             onClick={() => onChange(l.code)}
             className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-muted/40 ${
-              value === l.code ? 'bg-indigo-50 text-indigo-700 font-medium' : ''
+              value === l.code ? 'bg-blue-50 text-blue-700 font-medium' : ''
             }`}
           >
             <span>{l.name}</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               {l.code}
-              {value === l.code && <Check className="h-4 w-4 text-indigo-600" />}
+              {value === l.code && <Check className="h-4 w-4 text-blue-600" />}
             </span>
           </button>
         ))}

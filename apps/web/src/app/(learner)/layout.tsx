@@ -42,13 +42,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="relative min-h-screen bg-background">
       {/* Soft premium background glow */}
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -top-32 -left-24 h-96 w-96 rounded-full bg-indigo-300/20 blur-3xl" />
-        <div className="absolute top-1/3 -right-24 h-96 w-96 rounded-full bg-violet-300/20 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-fuchsia-200/20 blur-3xl" />
+        <div className="absolute -top-32 -left-24 h-96 w-96 rounded-full bg-blue-300/20 blur-3xl" />
+        <div className="absolute top-1/3 -right-24 h-96 w-96 rounded-full bg-blue-300/20 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-slate-300/20 blur-3xl" />
       </div>
       <header className="sticky top-0 z-30 border-b border-border/60 bg-card/80 backdrop-blur-lg">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
-          <Link href="/scenarios" className="flex items-center gap-2 font-semibold text-indigo-600">
+          <Link href="/scenarios" className="flex items-center gap-2 font-semibold text-blue-600">
             <Mic className="h-5 w-5" /> SpeakCoach
           </Link>
           <nav className="flex items-center gap-1">
@@ -59,7 +59,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                    active ? 'bg-indigo-50 text-indigo-700' : 'text-muted-foreground hover:bg-muted'
+                    active ? 'bg-blue-50 text-blue-700' : 'text-muted-foreground hover:bg-muted'
                   }`}
                 >
                   {item.label}
@@ -67,7 +67,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               );
             })}
             <div className="ml-2 flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-semibold">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white text-sm font-semibold">
                 {initial}
               </span>
               <button

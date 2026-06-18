@@ -26,7 +26,7 @@ interface SessionRow {
 }
 
 function scoreColor(s: number) {
-  if (s >= 85) return 'text-indigo-600';
+  if (s >= 85) return 'text-blue-600';
   if (s >= 70) return 'text-emerald-600';
   if (s >= 40) return 'text-amber-600';
   return 'text-rose-600';
@@ -100,7 +100,7 @@ function ReportView({ sessionId }: { sessionId: string }) {
   if (waiting) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted-foreground">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         <p className="text-sm">Scoring your conversation and body language…</p>
       </div>
     );
@@ -116,7 +116,7 @@ function ReportView({ sessionId }: { sessionId: string }) {
         <button
           onClick={downloadPdf}
           disabled={downloading}
-          className="inline-flex items-center gap-2 rounded-full bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
         >
           {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           {downloading ? 'Preparing…' : 'Download PDF'}
@@ -126,14 +126,14 @@ function ReportView({ sessionId }: { sessionId: string }) {
       {/* Scores */}
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="rounded-2xl border border-border/50 bg-card p-6 flex items-center gap-5">
-          <Trophy className="h-8 w-8 text-indigo-600" />
+          <Trophy className="h-8 w-8 text-blue-600" />
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Overall</p>
             <p className={`text-4xl font-bold ${scoreColor(report.overall_score)}`}>{Math.round(report.overall_score)}<span className="text-lg text-muted-foreground">/100</span></p>
           </div>
         </div>
         <div className="rounded-2xl border border-border/50 bg-card p-6 flex items-center gap-5">
-          <PersonStanding className="h-8 w-8 text-violet-600" />
+          <PersonStanding className="h-8 w-8 text-blue-600" />
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Body language</p>
             {report.body_language_score != null ? (
@@ -178,7 +178,7 @@ function ReportView({ sessionId }: { sessionId: string }) {
               <span className="text-muted-foreground">{c.score}/5 · weight {c.weight}%</span>
             </div>
             <div className="h-1.5 rounded-full bg-muted mt-1.5 overflow-hidden">
-              <div className="h-full bg-indigo-600" style={{ width: `${(c.score / 5) * 100}%` }} />
+              <div className="h-full bg-blue-600" style={{ width: `${(c.score / 5) * 100}%` }} />
             </div>
             <p className="text-xs text-muted-foreground mt-1.5">{c.justification}</p>
           </div>
@@ -215,7 +215,7 @@ function HistoryView() {
         <div className="rounded-2xl border border-border/50 bg-card p-12 text-center">
           <p className="font-semibold">No sessions yet</p>
           <p className="text-sm text-muted-foreground mt-1">Practice a scenario to see your feedback here.</p>
-          <Link href="/scenarios" className="inline-block mt-4 rounded-full bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">Browse scenarios</Link>
+          <Link href="/scenarios" className="inline-block mt-4 rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700">Browse scenarios</Link>
         </div>
       ) : (
         <div className="rounded-2xl border border-border/50 bg-card overflow-hidden divide-y divide-border/50">

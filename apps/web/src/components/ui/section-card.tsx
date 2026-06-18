@@ -5,7 +5,7 @@ import { LucideIcon } from 'lucide-react';
 
 interface SectionCardProps {
   icon?: LucideIcon;
-  iconTint?: string;      // tailwind class like 'text-indigo-600'
+  iconTint?: string;      // tailwind class like 'text-blue-600'
   title: string;
   subtitle?: string;
   action?: { label: string; href?: string; onClick?: () => void };

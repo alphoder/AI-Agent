@@ -12,8 +12,8 @@
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
 
-    /* Primary: indigo-600 — sophisticated, used by modern SaaS/LMS */
-    --primary: 243 75% 59%;
+    /* Primary: blue-600 — black/white/grey/blue theme (no purple) */
+    --primary: 217 91% 53%;
     --primary-foreground: 0 0% 100%;
 
     /* Secondary / Muted */
@@ -33,7 +33,7 @@
     /* Chrome */
     --border: 220 16% 90%;
     --input: 220 16% 90%;
-    --ring: 243 75% 59%;
+    --ring: 217 91% 53%;
     --radius: 0.5rem;
   }
 
@@ -42,7 +42,7 @@
     --foreground: 210 40% 98%;
     --card: 222 47% 9%;
     --card-foreground: 210 40% 98%;
-    --primary: 243 75% 65%;
+    --primary: 213 94% 64%;
     --primary-foreground: 0 0% 100%;
     --secondary: 217 32% 17%;
     --secondary-foreground: 210 40% 98%;
@@ -54,7 +54,7 @@
     --destructive-foreground: 210 40% 98%;
     --border: 217 32% 17%;
     --input: 217 32% 17%;
-    --ring: 243 75% 65%;
+    --ring: 213 94% 64%;
   }
 }
 
@@ -83,9 +83,9 @@
 }
 
 @keyframes pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.35); }
-  70% { box-shadow: 0 0 0 10px rgba(79, 70, 229, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35); }
+  70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 
 @keyframes slide-in-right {
@@ -129,9 +129,9 @@
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Gradient text — used on hero titles */
+/* Gradient text — used on hero titles (blue/steel, no purple) */
 .text-gradient-indigo {
-  background: linear-gradient(90deg, #4f46e5 0%, #8b5cf6 50%, #ec4899 100%);
+  background: linear-gradient(90deg, #93c5fd 0%, #3b82f6 45%, #1e3a8a 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -156,9 +156,9 @@
 .bg-grad-analytics { background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%); }
 .bg-grad-settings  { background: linear-gradient(135deg, #64748b 0%, #475569 100%); }
 
-/* Learner-side warm gradients */
-.bg-grad-learner-hero  { background: linear-gradient(135deg, #4f46e5 0%, #a855f7 50%, #ec4899 100%); }
-.bg-grad-learner-card  { background: linear-gradient(135deg, #faf5ff 0%, #eff6ff 100%); }
+/* Learner-side gradients (blue/steel/grey, no purple) */
+.bg-grad-learner-hero  { background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #0f172a 100%); }
+.bg-grad-learner-card  { background: linear-gradient(135deg, #f1f5f9 0%, #eff6ff 100%); }
 
 /* Card hover lift + glow */
 .card-interactive {
@@ -168,9 +168,9 @@
 }
 .card-interactive:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.12),
-              0 8px 10px -6px rgba(79, 70, 229, 0.08);
-  border-color: rgb(165 180 252 / 0.5);
+  box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.14),
+              0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  border-color: rgb(147 197 253 / 0.6);
 }
 
 /* ------------------------------------------------------------------ */

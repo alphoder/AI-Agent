@@ -204,7 +204,7 @@ export function ScenarioForm({ initial, mode }: { initial: ScenarioFormValue; mo
               type="button"
               onClick={improveWithAI}
               disabled={improving}
-              className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 text-violet-700 px-2.5 py-1 text-xs font-medium hover:bg-violet-100 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 text-blue-700 px-2.5 py-1 text-xs font-medium hover:bg-blue-100 disabled:opacity-60"
             >
               {improving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {improving ? 'Improving…' : 'Improve with AI'}
@@ -272,7 +272,7 @@ export function ScenarioForm({ initial, mode }: { initial: ScenarioFormValue; mo
             Cancel
           </button>
           <button onClick={submit} disabled={saving}
-            className="inline-flex items-center gap-2 rounded-full bg-indigo-600 text-white px-5 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
+            className="inline-flex items-center gap-2 rounded-full bg-blue-600 text-white px-5 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} {mode === 'create' ? 'Create' : 'Save changes'}
           </button>
         </div>

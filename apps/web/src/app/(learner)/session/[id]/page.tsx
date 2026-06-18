@@ -281,7 +281,7 @@ function SessionInner() {
             </div>
           )}
           <div className="absolute bottom-3 left-3 text-xs bg-black/50 px-2 py-1 rounded-full">You</div>
-          <div className={`absolute top-3 right-3 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors ${coachSpeaking ? 'bg-indigo-500' : 'bg-white/10'}`}>
+          <div className={`absolute top-3 right-3 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors ${coachSpeaking ? 'bg-blue-500' : 'bg-white/10'}`}>
             <Mic className="h-3 w-3" /> {coachSpeaking ? 'Coach speaking' : 'Coach listening'}
           </div>
         </div>
@@ -295,14 +295,14 @@ function SessionInner() {
             )}
             {transcripts.map((t, i) => (
               <div key={i} className={`flex ${t.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${t.role === 'user' ? 'bg-indigo-600' : 'bg-white/10'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${t.role === 'user' ? 'bg-blue-600' : 'bg-white/10'}`}>
                   {t.text}
                 </div>
               </div>
             ))}
             {interim && (
               <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl px-3.5 py-2 text-sm bg-indigo-600/40 italic">{interim}</div>
+                <div className="max-w-[80%] rounded-2xl px-3.5 py-2 text-sm bg-blue-600/40 italic">{interim}</div>
               </div>
             )}
             <div ref={transcriptEndRef} />

@@ -16,7 +16,7 @@ const PARTICLES = Array.from({ length: 7 }, (_, i) => {
     cx: 60 + 42 * Math.cos(a),
     cy: 60 + 42 * Math.sin(a),
     r: 1.4 + (i % 2),
-    fill: ['#a5b4fc', '#c4b5fd', '#f5d0fe'][i % 3],
+    fill: ['#bfdbfe', '#93c5fd', '#e2e8f0'][i % 3],
     delay: (i % 3) * 0.4,
   };
 });
@@ -38,7 +38,7 @@ function Eyes({ face, look }: { face: Face; look: { dx: number; dy: number } }) 
           <g key={cx}>
             <ellipse cx={cx} cy={EYE_Y} rx="7" ry="7.5" fill="#ffffff" />
             <g className="orb-spin orb-vb" style={{ transformOrigin: `${cx}px ${EYE_Y}px`, animationDuration: '1.1s' }}>
-              <circle cx={cx} cy={EYE_Y - 2.8} r="2.6" fill="#312e81" />
+              <circle cx={cx} cy={EYE_Y - 2.8} r="2.6" fill="#0b1220" />
             </g>
           </g>
         ))}
@@ -59,7 +59,7 @@ function Eyes({ face, look }: { face: Face; look: { dx: number; dy: number } }) 
       {[EYE_L, EYE_R].map((cx) => (
         <g key={cx}>
           <ellipse cx={cx} cy={EYE_Y} rx="7.5" ry={ry} fill="#ffffff" />
-          <circle cx={cx + look.dx} cy={EYE_Y + 1 + look.dy} r="4.4" fill="#312e81" style={{ transition: 'cx 90ms linear, cy 90ms linear' }} />
+          <circle cx={cx + look.dx} cy={EYE_Y + 1 + look.dy} r="4.4" fill="#0b1220" style={{ transition: 'cx 90ms linear, cy 90ms linear' }} />
           <circle cx={cx + look.dx - 1.4} cy={EYE_Y + look.dy - 0.8} r="1.5" fill="#ffffff" style={{ transition: 'cx 90ms linear, cy 90ms linear' }} />
         </g>
       ))}
@@ -106,14 +106,14 @@ export function AssistantOrb({ state = 'asleep', size = 88 }: { state?: OrbState
     <svg ref={svgRef} width={size} height={size} viewBox="0 0 120 120" className="orb-float select-none">
       <defs>
         <radialGradient id="bixyBall" cx="38%" cy="32%" r="72%">
-          <stop offset="0%" stopColor="#c7d2fe" />
-          <stop offset="38%" stopColor="#818cf8" />
-          <stop offset="72%" stopColor="#6366f1" />
-          <stop offset="100%" stopColor="#4338ca" />
+          <stop offset="0%" stopColor="#dbeafe" />
+          <stop offset="38%" stopColor="#60a5fa" />
+          <stop offset="72%" stopColor="#2563eb" />
+          <stop offset="100%" stopColor="#1e3a8a" />
         </radialGradient>
         <radialGradient id="bixyHalo" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#a78bfa" stopOpacity="0.5" />
-          <stop offset="100%" stopColor="#818cf8" stopOpacity="0" />
+          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.5" />
+          <stop offset="100%" stopColor="#60a5fa" stopOpacity="0" />
         </radialGradient>
       </defs>
 
@@ -121,7 +121,7 @@ export function AssistantOrb({ state = 'asleep', size = 88 }: { state?: OrbState
 
       {/* Loading spinner ring around Bixy */}
       {loading && (
-        <circle cx="60" cy="60" r="50" fill="none" stroke="#6366f1" strokeWidth="4.5" strokeLinecap="round"
+        <circle cx="60" cy="60" r="50" fill="none" stroke="#2563eb" strokeWidth="4.5" strokeLinecap="round"
           strokeDasharray="55 240" className="orb-spin orb-tb" style={{ animationDuration: '0.9s' }} />
       )}
 
@@ -139,7 +139,7 @@ export function AssistantOrb({ state = 'asleep', size = 88 }: { state?: OrbState
         <Eyes face={face} look={look} />
 
         {(face === 'happy' || talking) && (
-          <g fill="#f9a8d4" opacity="0.55">
+          <g fill="#93c5fd" opacity="0.55">
             <ellipse cx={EYE_L - 2} cy={EYE_Y + 11} rx="3.2" ry="2" />
             <ellipse cx={EYE_R + 2} cy={EYE_Y + 11} rx="3.2" ry="2" />
           </g>
@@ -149,7 +149,7 @@ export function AssistantOrb({ state = 'asleep', size = 88 }: { state?: OrbState
           <path d="M 54 75 q 2 -2.5 4 0 q 2 2.5 4 0 q 2 -2.5 4 0" stroke="#ffffff" strokeWidth="1.8" fill="none" strokeLinecap="round" opacity="0.85" />
         ) : talking ? (
           <g className="mouth-talk orb-tb">
-            <ellipse cx="60" cy="75" rx="5" ry="4.5" fill="#312e81" />
+            <ellipse cx="60" cy="75" rx="5" ry="4.5" fill="#0b1220" />
           </g>
         ) : face === 'happy' ? (
           <path d="M 55 73 Q 60 78 65 73" stroke="#ffffff" strokeWidth="2" fill="none" strokeLinecap="round" />

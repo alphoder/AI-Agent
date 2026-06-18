@@ -31,7 +31,9 @@ _MAX_MESSAGE_BYTES = 2_000_000
 _MAX_MESSAGES_PER_SEC = 60
 _MAX_SECONDS = 1800
 
-_ACTIVE: set[str] = set()
+# Newest connection per user wins — close the previous socket instead of
+# rejecting the new one (rejecting deadlocks the auto-reconnect loop).
+_ACTIVE: dict[str, WebSocket] = {}
 
 
 def _origin_allowed(origin: str | None) -> bool:
@@ -48,11 +50,15 @@ async def assistant_ws(websocket: WebSocket):
         return
 
     sid = str(ticket["sid"])
-    if sid in _ACTIVE:
-        await websocket.close(code=1008)
-        return
-    _ACTIVE.add(sid)
+    # Supersede any previous socket for this user (handles reconnects/reloads).
+    old = _ACTIVE.get(sid)
+    if old is not None:
+        try:
+            await old.close(code=1000)
+        except Exception:
+            pass
     await websocket.accept()
+    _ACTIVE[sid] = websocket
     started = time.monotonic()
     logger.info("assistant.connected", sid=sid)
 
@@ -218,7 +224,8 @@ async def assistant_ws(websocket: WebSocket):
         except Exception:
             pass
     finally:
-        _ACTIVE.discard(sid)
+        if _ACTIVE.get(sid) is websocket:
+            _ACTIVE.pop(sid, None)
         if receiver_task:
             receiver_task.cancel()
         if gemini_ws and gemini_ws.state.name == "OPEN":

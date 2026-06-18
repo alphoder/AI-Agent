@@ -75,7 +75,7 @@ export function TutorialTour() {
         {/* Progress dots */}
         <div className="flex items-center justify-center gap-1.5 pb-5">
           {STEPS.map((_, idx) => (
-            <span key={idx} className={`h-1.5 rounded-full transition-all ${idx === i ? 'w-5 bg-indigo-600' : 'w-1.5 bg-indigo-200'}`} />
+            <span key={idx} className={`h-1.5 rounded-full transition-all ${idx === i ? 'w-5 bg-blue-600' : 'w-1.5 bg-blue-200'}`} />
           ))}
         </div>
 
@@ -87,7 +87,7 @@ export function TutorialTour() {
             )}
             <button
               onClick={() => (last ? finish() : setI(i + 1))}
-              className="rounded-full bg-indigo-600 text-white px-5 py-2 text-sm font-medium hover:bg-indigo-700"
+              className="rounded-full bg-blue-600 text-white px-5 py-2 text-sm font-medium hover:bg-blue-700"
             >
               {last ? 'Let’s go' : 'Next'}
             </button>

@@ -58,7 +58,7 @@ export function PageHeader({
       <div className="flex items-start gap-4">
         {Icon && (
           <div
-            className={`w-12 h-12 rounded-2xl ${gradClass} flex items-center justify-center shadow-lg shadow-indigo-500/10 shrink-0`}
+            className={`w-12 h-12 rounded-2xl ${gradClass} flex items-center justify-center shadow-lg shadow-blue-500/10 shrink-0`}
           >
             <Icon className="w-6 h-6 text-white" strokeWidth={2.2} />
           </div>

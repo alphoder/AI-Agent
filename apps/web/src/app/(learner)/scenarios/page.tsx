@@ -74,7 +74,7 @@ export default function ScenariosPage() {
         </div>
         <Link
           href="/scenarios/create"
-          className="inline-flex items-center gap-2 rounded-full bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700"
+          className="inline-flex items-center gap-2 rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700"
         >
           <Plus className="h-4 w-4" /> Create scenario
         </Link>
@@ -92,13 +92,13 @@ export default function ScenariosPage() {
         </div>
         <button
           onClick={() => setMine(false)}
-          className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${!mine ? 'bg-indigo-600 text-white' : 'bg-card border border-border text-muted-foreground'}`}
+          className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${!mine ? 'bg-blue-600 text-white' : 'bg-card border border-border text-muted-foreground'}`}
         >
           All
         </button>
         <button
           onClick={() => setMine(true)}
-          className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${mine ? 'bg-indigo-600 text-white' : 'bg-card border border-border text-muted-foreground'}`}
+          className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${mine ? 'bg-blue-600 text-white' : 'bg-card border border-border text-muted-foreground'}`}
         >
           Mine
         </button>
@@ -144,7 +144,7 @@ export default function ScenariosPage() {
                 <button
                   onClick={() => openPicker(s)}
                   disabled={starting === s.id}
-                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
                 >
                   <Mic className="h-4 w-4" /> {starting === s.id ? 'Starting…' : 'Practice'}
                 </button>
@@ -187,7 +187,7 @@ export default function ScenariosPage() {
             />
             <button
               onClick={start}
-              className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-full bg-indigo-600 text-white px-4 py-2.5 text-sm font-medium hover:bg-indigo-700"
+              className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-full bg-blue-600 text-white px-4 py-2.5 text-sm font-medium hover:bg-blue-700"
             >
               <Mic className="h-4 w-4" /> Start in {languageName(picker.lang)}
             </button>
