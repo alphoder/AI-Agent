@@ -77,42 +77,6 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
 });
 
 /**
- * POST /api/auth/dev-login (non-production only)
- * Body: { email, name? } — creates/loads a user without Google. Local testing.
- */
-router.post('/dev-login', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    if (isProd && process.env.ENABLE_DEV_LOGIN !== 'true') {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
-    }
-    const { email, name } = req.body || {};
-    if (!email) {
-      return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'email is required' } });
-    }
-
-    const result = await db.query(
-      `INSERT INTO users (email, name, last_login_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (email) WHERE deleted_at IS NULL DO UPDATE SET last_login_at = NOW(), updated_at = NOW()
-       RETURNING id, email, name, picture`,
-      [email, name || email.split('@')[0]],
-    );
-    const user = result.rows[0];
-    const { accessToken, refreshToken } = await JWTService.issueTokens(user);
-    setAuthCookies(res, accessToken, refreshToken);
-
-    logger.info({ email, userId: user.id }, 'Dev login successful');
-    res.json({
-      success: true,
-      data: { accessToken, user: { id: user.id, email: user.email, name: user.name, picture: user.picture } },
-    });
-  } catch (err) {
-    logger.error({ err }, 'Dev login failed');
-    next(err);
-  }
-});
-
-/**
  * POST /api/auth/refresh — rotate refresh token, issue new access token.
  */
 router.post('/refresh', async (req: Request, res: Response, next: NextFunction) => {
@@ -170,6 +134,68 @@ router.get('/me', authMiddleware as unknown as RequestHandler, wrap(async (req: 
     `SELECT id, email, name, picture, is_active, last_login_at, metadata
      FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [req.user.sub],
+  );
+  if (result.rows.length === 0) {
+    return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } });
+  }
+  res.json({ success: true, data: result.rows[0] });
+}));
+
+/**
+ * PATCH /api/auth/me/onboarding — persist the first-run questionnaire answers
+ * into users.metadata.onboarding (JSONB merge). Idempotent; safe to call again.
+ * Body: { persona?: string, goals?: string[] }
+ */
+router.patch('/me/onboarding', authMiddleware as unknown as RequestHandler, wrap(async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
+  }
+
+  const body = req.body ?? {};
+  const persona = typeof body.persona === 'string' ? body.persona.trim().slice(0, 40) : null;
+  const goals = Array.isArray(body.goals)
+    ? body.goals.filter((g: unknown): g is string => typeof g === 'string').map((g: string) => g.trim().slice(0, 40)).slice(0, 12)
+    : [];
+
+  const onboarding = {
+    persona: persona || null,
+    goals,
+    completed: true,
+    completed_at: new Date().toISOString(),
+  };
+
+  const result = await db.query(
+    `UPDATE users
+       SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('onboarding', $2::jsonb),
+           updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL
+     RETURNING id, email, name, picture, is_active, last_login_at, metadata`,
+    [req.user.sub, JSON.stringify(onboarding)],
+  );
+  if (result.rows.length === 0) {
+    return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } });
+  }
+  res.json({ success: true, data: result.rows[0] });
+}));
+
+/**
+ * PATCH /api/auth/me/metadata — general metadata update (JSONB merge).
+ * Body: any object containing keys to merge (e.g. settings, billing, teams, goals).
+ */
+router.patch('/me/metadata', authMiddleware as unknown as RequestHandler, wrap(async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
+  }
+
+  const payload = req.body ?? {};
+  
+  const result = await db.query(
+    `UPDATE users
+       SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+           updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL
+     RETURNING id, email, name, picture, is_active, last_login_at, metadata`,
+    [req.user.sub, JSON.stringify(payload)],
   );
   if (result.rows.length === 0) {
     return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } });

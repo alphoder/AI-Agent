@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -35,7 +36,21 @@ class Settings(BaseSettings):
     metrics_api_key: str = ""
     metrics_allowed_cidrs: list[str] = ["127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:4000"]
+    # Browser origins allowed to open the WS relays. Loopback hosts are always
+    # allowed (see core/origins.py); set CORS_ORIGINS (comma-separated) in
+    # production to add the deployed web origin, e.g. the Vercel domain.
+    cors_origins: list[str] = [
+        "http://localhost:3000", "http://localhost:4000",
+        "http://127.0.0.1:3000", "http://127.0.0.1:4000",
+    ]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, v):
+        # Accept a comma-separated string from the CORS_ORIGINS env var.
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
 
     class Config:
         env_file = ("../../.env", ".env")

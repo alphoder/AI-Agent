@@ -43,6 +43,7 @@ function SessionInner() {
   const search = useSearchParams();
   const scenarioId = params.id as string;
   const chosenLang = search.get('lang') || undefined;
+  const chosenVoice = search.get('voice') || undefined;
 
   const [phase, setPhase] = useState<'connecting' | 'live' | 'ending'>('connecting');
   const [status, setStatus] = useState('Setting up…');
@@ -125,7 +126,7 @@ function SessionInner() {
     async function boot() {
       try {
         // 1. Create the session on the server (strict language from the picker).
-        const { data } = await apiClient.post('/sessions', { scenario_id: scenarioId, language: chosenLang });
+        const { data } = await apiClient.post('/sessions', { scenario_id: scenarioId, language: chosenLang, voice: chosenVoice });
         if (disposed) return;
         const { sessionId, wsUrl, sessionConfig } = data.data;
         sessionIdRef.current = sessionId;

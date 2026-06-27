@@ -28,7 +28,7 @@ const CATEGORIES = ['Job interviews', 'Sales & cold calls', 'Negotiation', 'Publ
 export default function Landing() {
   const [dest, setDest] = useState('/login');
   useEffect(() => {
-    try { if (localStorage.getItem('access_token')) setDest('/scenarios'); } catch { /* ignore */ }
+    try { if (localStorage.getItem('access_token')) setDest('/home'); } catch { /* ignore */ }
   }, []);
 
   return (
@@ -54,17 +54,14 @@ export default function Landing() {
       <section className="relative mx-auto max-w-6xl px-6 pt-24 pb-28 grid lg:grid-cols-12 gap-12 items-center">
         <div className="lg:col-span-7">
           <Reveal>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400 mb-6">AI speaking coach</p>
-          </Reveal>
-          <Reveal delay={60}>
-            <h1 className="font-display text-6xl sm:text-7xl leading-[0.98] tracking-tight text-zinc-900">
+            <h1 className="font-display text-6xl sm:text-7xl leading-[0.98] tracking-tight text-zinc-900 text-balance">
               Practice speaking.<br />
               <span className="italic text-blue-600">Out loud.</span>
             </h1>
           </Reveal>
           <Reveal delay={140}>
             <p className="mt-7 text-lg text-zinc-500 max-w-md leading-relaxed">
-              Have a real spoken conversation with a coach that hears your words and watches how you hold yourself — then tells you the truth about both.
+              Have a real spoken conversation with a coach that hears your words and watches how you hold yourself — then tells you the truth about both. Build a streak, and watch your confidence climb.
             </p>
           </Reveal>
           <Reveal delay={220}>
@@ -168,9 +165,11 @@ export default function Landing() {
       <section className="relative mx-auto max-w-6xl px-6 py-24">
         <Reveal>
           <div className="rounded-3xl border border-zinc-200 bg-white p-10 flex flex-col md:flex-row items-center gap-8 shadow-sm">
-            <AssistantOrb state="listening" size={140} />
+            <div className="relative shrink-0">
+              <div aria-hidden className="bixy-halo absolute inset-0 m-auto h-32 w-32" />
+              <AssistantOrb state="listening" size={140} />
+            </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400 mb-3">Your concierge</p>
               <h2 className="font-display text-4xl tracking-tight">Meet Bixy.</h2>
               <p className="mt-3 text-zinc-500 max-w-xl leading-relaxed">Tap the orb anywhere and simply talk — “show my scenarios”, “start a job interview in Hindi”, “open my history”. Bixy navigates, searches, and sets things up so you can just practise.</p>
             </div>

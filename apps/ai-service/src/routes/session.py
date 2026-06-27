@@ -25,6 +25,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.config import settings
 from src.core.body_language import analyze_frame
+from src.core.origins import origin_allowed
 from src.core.ws_ticket import verify_ticket
 
 logger = structlog.get_logger(__name__)
@@ -35,6 +36,24 @@ _LIVE_VOICES = {"Puck", "Charon", "Kore", "Fenrir", "Aoede"}
 _DEFAULT_VOICE = "Aoede"
 
 _MIN_FRAME_INTERVAL_SEC = 6.0          # ignore body-language frames faster than this
+
+# Lock Gemini Live to the selected language (else it auto-detects and drifts).
+# Our 2-letter codes -> the BCP-47 codes Gemini Live's speech_config accepts.
+_BCP47 = {
+    "ar": "ar-XA", "bn": "bn-IN", "cmn": "cmn-CN", "zh": "cmn-CN", "de": "de-DE",
+    "en": "en-US", "es": "es-US", "fr": "fr-FR", "gu": "gu-IN", "hi": "hi-IN",
+    "id": "id-ID", "it": "it-IT", "ja": "ja-JP", "kn": "kn-IN", "ko": "ko-KR",
+    "ml": "ml-IN", "mr": "mr-IN", "nl": "nl-NL", "pl": "pl-PL", "pt": "pt-BR",
+    "ru": "ru-RU", "ta": "ta-IN", "te": "te-IN", "th": "th-TH", "tr": "tr-TR",
+    "vi": "vi-VN",
+}
+
+
+def _bcp47(lang: str) -> str | None:
+    """Selected lang -> BCP-47 for Gemini, or None to leave it auto-detected."""
+    if "-" in lang:
+        return lang  # already region-qualified
+    return _BCP47.get(lang)
 _MAX_MESSAGE_BYTES = 2_000_000         # ~2 MB cap per inbound message
 _MAX_MESSAGES_PER_SEC = 60             # flood guard
 _MAX_SESSION_SECONDS = 1800            # hard 30-min cap
@@ -51,22 +70,16 @@ def _internal_client() -> httpx.AsyncClient:
     )
 
 
-def _origin_allowed(origin: str | None) -> bool:
-    # Browsers always send Origin; if present it must be allow-listed. (The ticket
-    # is the primary auth; this is defence-in-depth against CSWSH.)
-    if not origin:
-        return True
-    return origin in settings.cors_origins
-
-
 @router.websocket("/ws/session")
 async def session_ws(websocket: WebSocket):
     # ---- Authenticate BEFORE accepting the socket ----
+    # The ticket is the primary auth; the origin check is defence-in-depth
+    # against CSWSH (loopback + allow-listed origins only).
     ticket = verify_ticket(websocket.query_params.get("ticket", ""))
     if not ticket:
         await websocket.close(code=1008)  # policy violation
         return
-    if not _origin_allowed(websocket.headers.get("origin")):
+    if not origin_allowed(websocket.headers.get("origin")):
         await websocket.close(code=1008)
         return
 
@@ -209,14 +222,16 @@ async def session_ws(websocket: WebSocket):
         )
         gemini_ws = await websockets.connect(gemini_url, max_size=None)
 
+        bcp = _bcp47(lang)
+        speech_config = {"voice_config": {"prebuilt_voice_config": {"voice_name": state["voice"]}}}
+        if bcp:
+            speech_config["language_code"] = bcp  # pin understanding + output to the chosen language
         setup_msg = {
             "setup": {
                 "model": settings.gemini_live_model,
                 "generation_config": {
                     "response_modalities": ["AUDIO"],
-                    "speech_config": {
-                        "voice_config": {"prebuilt_voice_config": {"voice_name": state["voice"]}}
-                    },
+                    "speech_config": speech_config,
                 },
                 "system_instruction": {"parts": [{"text": state["system_prompt"]}]},
                 "input_audio_transcription": {},

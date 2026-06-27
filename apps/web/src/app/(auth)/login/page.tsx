@@ -3,16 +3,18 @@
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { GoogleLogin } from '@react-oauth/google';
-import { Mic, Sparkles } from 'lucide-react';
+import { Mic, Check } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { setAccessToken } from '@/lib/auth';
 import { useAuth } from '@/hooks/use-auth';
+import { AssistantOrb } from '@/components/assistant/assistant-orb';
+import { Accent } from '@/components/ui/accent';
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
 
 function safeRedirect(target: string | null): string {
   if (target && target.startsWith('/') && !target.startsWith('//')) return target;
-  return '/scenarios';
+  return '/home';
 }
 
 function LoginInner() {
@@ -21,13 +23,19 @@ function LoginInner() {
   const setUser = useAuth((s) => s.setUser);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [devEmail, setDevEmail] = useState('');
 
   const dest = safeRedirect(params.get('redirect'));
 
-  function finish(token: string, user: unknown) {
+  async function finish(token: string, fallbackUser: unknown) {
     setAccessToken(token);
-    setUser(user as never);
+    // Pull the full user (incl. metadata.onboarding) so the app shell knows
+    // whether to route to /welcome or straight to /home.
+    try {
+      const { data } = await apiClient.get('/auth/me');
+      setUser(data.data);
+    } catch {
+      setUser(fallbackUser as never);
+    }
     router.push(dest);
   }
 
@@ -44,51 +52,48 @@ function LoginInner() {
     }
   }
 
-  async function onDevLogin() {
-    if (!devEmail.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const { data } = await apiClient.post('/auth/dev-login', { email: devEmail.trim() });
-      finish(data.data.accessToken, data.data.user);
-    } catch {
-      setError('Dev login failed.');
-      setBusy(false);
-    }
-  }
 
   return (
-    <main className="min-h-screen grid lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-between bg-gradient-to-br from-blue-600 to-blue-700 text-white p-12">
-        <div className="flex items-center gap-2 font-semibold text-lg">
+    <main className="grid min-h-screen lg:grid-cols-2">
+      {/* Calm grey/white brand panel with a blue Bixy — no drenched colour. */}
+      <div className="relative hidden flex-col justify-between overflow-hidden border-r border-border bg-card p-12 lg:flex">
+        <div className="flex items-center gap-2 text-lg font-semibold text-primary">
           <Mic className="h-6 w-6" /> SpeakCoach
         </div>
-        <div className="space-y-4 max-w-md">
-          <h1 className="text-4xl font-bold leading-tight">Practice speaking. Out loud. With an AI that listens and watches.</h1>
-          <p className="text-blue-100 text-lg">
-            Pick a scenario, turn on your mic and camera, and have a real spoken conversation. Get scored on what you said
-            <span className="font-semibold"> and</span> how you carried yourself.
+        <div className="relative max-w-md space-y-6">
+          <div className="relative inline-flex">
+            <div aria-hidden className="bixy-halo absolute inset-0 m-auto h-24 w-24" />
+            <AssistantOrb state="listening" size={88} />
+          </div>
+          <h1 className="text-balance text-[2.75rem] font-bold leading-[1.05] tracking-tight">
+            Practice speaking. <Accent>Out loud.</Accent>
+          </h1>
+          <p className="text-[17px] leading-relaxed text-muted-foreground">
+            Real spoken conversations with an AI coach that listens to what you say and watches how you carry yourself — then scores both.
           </p>
-          <ul className="text-blue-100 space-y-1.5 pt-2">
-            <li className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Real-time, multilingual voice</li>
-            <li className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Body-language feedback</li>
-            <li className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Free to use</li>
+          <ul className="space-y-2.5 text-sm text-foreground/80">
+            {['Real-time, multilingual voice', 'Live body-language feedback', 'Always free'].map((t) => (
+              <li key={t} className="flex items-center gap-2.5">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary"><Check className="h-3 w-3" strokeWidth={3} /></span>
+                {t}
+              </li>
+            ))}
           </ul>
         </div>
-        <p className="text-blue-200 text-sm">No avatars. Just your voice, your presence, and honest feedback.</p>
+        <p className="text-sm text-muted-foreground">No avatars. Just your voice, your presence, and honest feedback.</p>
       </div>
 
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-sm space-y-6">
-          <div className="lg:hidden flex items-center gap-2 font-semibold text-lg text-blue-600">
+          <div className="flex items-center gap-2 text-lg font-semibold text-primary lg:hidden">
             <Mic className="h-6 w-6" /> SpeakCoach
           </div>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Sign in</h2>
-            <p className="text-sm text-muted-foreground mt-1">Use your Google account to get started.</p>
+            <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Sign in with Google to start practising.</p>
           </div>
 
-          {error && <div className="rounded-lg bg-rose-50 text-rose-700 text-sm px-3 py-2">{error}</div>}
+          {error && <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
 
           <div className={busy ? 'opacity-50 pointer-events-none' : ''}>
             {GOOGLE_CLIENT_ID ? (
@@ -103,28 +108,6 @@ function LoginInner() {
               </p>
             )}
           </div>
-
-          {process.env.NODE_ENV !== 'production' && (
-            <div className="pt-4 border-t border-border space-y-2">
-              <p className="text-xs text-muted-foreground">Dev login (local only)</p>
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  value={devEmail}
-                  onChange={(e) => setDevEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="flex-1 rounded-lg border border-border px-3 py-2 text-sm"
-                />
-                <button
-                  onClick={onDevLogin}
-                  disabled={busy}
-                  className="rounded-lg bg-slate-900 text-white px-3 py-2 text-sm font-medium disabled:opacity-50"
-                >
-                  Enter
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </main>

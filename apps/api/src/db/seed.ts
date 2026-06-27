@@ -6,6 +6,10 @@
  * Idempotent on title for the public (owner-less) rows.
  */
 import { Pool } from 'pg';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 const DATABASE_URL =
   process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5433/avatar_platform';
@@ -501,6 +505,47 @@ async function seed() {
     }
 
     console.log(`\nSeed complete — ${created} created, ${skipped} skipped.`);
+
+    // Seed some mock users and completed sessions for a realistic dynamic leaderboard
+    console.log('\nSeeding leaderboard community members...');
+    const mockCommunityUsers = [
+      { name: 'Sarah Jenkins', email: 'sarah.j@example.com', minutes: 78 },
+      { name: 'Alex K. (Tech Recruiter)', email: 'alex.recruits@example.com', minutes: 64 },
+      { name: 'David Miller', email: 'david.m@example.com', minutes: 52 },
+      { name: 'Chloe Chen', email: 'chloe.chen@example.com', minutes: 30 },
+      { name: 'Emma Watson', email: 'emma@example.com', minutes: 22 },
+      { name: 'Rajesh Kumar', email: 'rajesh@example.com', minutes: 12 },
+    ];
+
+    const scenarioIdResult = await pool.query('SELECT id FROM scenarios WHERE deleted_at IS NULL LIMIT 1');
+    const linkedScenarioId = scenarioIdResult.rows[0]?.id;
+
+    if (linkedScenarioId) {
+      for (const mu of mockCommunityUsers) {
+        let userResult = await pool.query('SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1', [mu.email]);
+        let userId = userResult.rows[0]?.id;
+        
+        if (!userId) {
+          const insertUser = await pool.query(
+            `INSERT INTO users (id, email, name, is_active, google_sub)
+             VALUES (generate_uuidv7(), $1, $2, true, $3)
+             RETURNING id`,
+            [mu.email, mu.name, `google-sub-mock-${mu.email}`]
+          );
+          userId = insertUser.rows[0].id;
+        }
+
+        const sessCheck = await pool.query('SELECT 1 FROM sessions WHERE user_id = $1 LIMIT 1', [userId]);
+        if (sessCheck.rows.length === 0) {
+          await pool.query(
+            `INSERT INTO sessions (id, user_id, scenario_id, status, language, started_at, ended_at, duration_sec)
+             VALUES (generate_uuidv7(), $1, $2, 'completed', 'en', NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days', $3)`,
+            [userId, linkedScenarioId, mu.minutes * 60]
+          );
+        }
+      }
+      console.log('Leaderboard community members seeded.');
+    }
   } catch (err) {
     console.error('Seed failed:', err);
     process.exit(1);

@@ -75,6 +75,16 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
     params.push(`%${String(req.query.q).toLowerCase()}%`);
     where.push(`(LOWER(title) LIKE $${params.length} OR LOWER(COALESCE(description,'')) LIKE $${params.length})`);
   }
+  // tags=a,b,c — match scenarios carrying ANY of these tags (overlap). Powers
+  // goal-based recommendations from the onboarding questionnaire.
+  if (req.query.tags) {
+    const tagList = String(req.query.tags)
+      .split(',').map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 20);
+    if (tagList.length) {
+      params.push(tagList);
+      where.push(`tags && $${params.length}::text[]`);
+    }
+  }
   const whereSql = where.join(' AND ');
 
   const countResult = await db.query(`SELECT COUNT(*)::int AS total FROM scenarios WHERE ${whereSql}`, params);

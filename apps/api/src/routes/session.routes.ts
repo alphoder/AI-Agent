@@ -7,7 +7,9 @@ import { validateUuidParam } from '../middleware/validate-uuid';
 import { aiServiceWsUrl, callAIServiceBackground } from '../utils/ai-service-client';
 import { buildSystemPrompt } from '../utils/prompt-bundle';
 import { signWsTicket } from '../utils/ws-ticket';
-import { languageName } from '@avatar-platform/shared';
+import { languageName, VOICE_IDS } from '@avatar-platform/shared';
+
+const MIN_REPORT_SEC = 90; // sessions shorter than 1m30s aren't scored
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -15,6 +17,24 @@ const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandle
 const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);
 router.use(rateLimit(60, 60));
+
+/**
+ * GET /api/sessions/leaderboard — weekly practice leaderboard of all users.
+ */
+router.get('/leaderboard', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const result = await db.query(
+    `SELECT u.name, COALESCE(SUM(s.duration_sec)/60, 0)::int AS minutes, (u.id = $1) AS is_current_user
+     FROM users u
+     LEFT JOIN sessions s ON s.user_id = u.id AND s.status = 'completed' AND s.ended_at >= NOW() - INTERVAL '7 days'
+     WHERE u.deleted_at IS NULL
+     GROUP BY u.id, u.name
+     ORDER BY minutes DESC
+     LIMIT 10`,
+    [me],
+  );
+  res.json({ success: true, data: result.rows });
+}));
 
 /**
  * GET /api/sessions — the caller's recent sessions (history).
@@ -43,7 +63,7 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
  */
 router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
-  const { scenario_id, language } = req.body;
+  const { scenario_id, language, voice } = req.body;
   if (!scenario_id) {
     return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'scenario_id required' } });
   }
@@ -60,6 +80,7 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   }
   const sc = scenarioResult.rows[0];
   const sessionLanguage = (language || sc.language || 'en').slice(0, 10);
+  const sessionVoice = VOICE_IDS.includes(voice) ? voice : sc.voice; // user override, else scenario default
 
   const sessionResult = await db.query(
     `INSERT INTO sessions (user_id, scenario_id, language, status, started_at)
@@ -84,7 +105,7 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
         scenarioTitle: sc.title,
         systemPrompt,
         openingMessage: sc.opening_message,
-        voice: sc.voice,
+        voice: sessionVoice,
         language: sessionLanguage,
         maxDurationSec: sc.max_duration_sec,
         maxTurns: sc.max_turns,
@@ -104,7 +125,7 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
          duration_sec = EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at)))::int,
          updated_at = NOW()
      WHERE id = $1 AND user_id = $2 AND status != 'completed'
-     RETURNING id, scenario_id, language, body_language_notes`,
+     RETURNING id, scenario_id, language, body_language_notes, duration_sec`,
     [req.params.id, me],
   );
   if (result.rows.length === 0) {
@@ -112,27 +133,31 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
   }
   const session = result.rows[0];
 
-  const sc = await db.query(
-    'SELECT objective, system_prompt, scoring_rubric FROM scenarios WHERE id = $1',
-    [session.scenario_id],
-  );
-  const scenario = sc.rows[0];
+  // Only score sessions long enough to be meaningful (>= 90s).
+  const scored = (session.duration_sec ?? 0) >= MIN_REPORT_SEC;
+  if (scored) {
+    const sc = await db.query(
+      'SELECT objective, system_prompt, scoring_rubric FROM scenarios WHERE id = $1',
+      [session.scenario_id],
+    );
+    const scenario = sc.rows[0];
 
-  // Fire-and-forget scoring (Gemini). The AI service fetches the transcript and
-  // persists the score back via the internal API.
-  callAIServiceBackground({
-    path: '/scoring/evaluate',
-    body: {
-      session_id: session.id,
-      rubric: scenario?.scoring_rubric ?? [],
-      persona_context: scenario?.system_prompt ?? '',
-      scenario_objective: scenario?.objective ?? '',
-      language: session.language,
-      body_language_notes: session.body_language_notes ?? [],
-    },
-  });
+    // Fire-and-forget scoring (Gemini). The AI service fetches the transcript and
+    // persists the score back via the internal API.
+    callAIServiceBackground({
+      path: '/scoring/evaluate',
+      body: {
+        session_id: session.id,
+        rubric: scenario?.scoring_rubric ?? [],
+        persona_context: scenario?.system_prompt ?? '',
+        scenario_objective: scenario?.objective ?? '',
+        language: session.language,
+        body_language_notes: session.body_language_notes ?? [],
+      },
+    });
+  }
 
-  res.json({ success: true, data: { id: session.id } });
+  res.json({ success: true, data: { id: session.id, scored, durationSec: session.duration_sec, minReportSec: MIN_REPORT_SEC } });
 }));
 
 /**

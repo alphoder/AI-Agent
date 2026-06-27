@@ -4,57 +4,75 @@
 
 @layer base {
   :root {
-    /* Background: subtle cool blue-tint (like premium LMS — Docebo, TalentLMS) */
-    --background: 220 33% 97%;
+    /* Surfaces: clean white + calm cool-grey. Premium greyscale, faint cool tint. */
+    --background: 210 20% 98%;
     --foreground: 222 47% 11%;
 
-    /* Cards: pure white for contrast against background */
+    /* Cards: pure white, lifted off the grey background */
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
 
-    /* Primary: blue-600 — black/white/grey/blue theme (no purple) */
+    /* Primary: the single accent — blue-600 (no purple, ever) */
     --primary: 217 91% 53%;
     --primary-foreground: 0 0% 100%;
 
-    /* Secondary / Muted */
-    --secondary: 220 20% 94%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 220 16% 93%;
-    --muted-foreground: 215 16% 47%;
+    /* Secondary / muted greys */
+    --secondary: 220 16% 95%;
+    --secondary-foreground: 222 30% 20%;
+    --muted: 220 16% 95%;
+    --muted-foreground: 215 18% 42%; /* darkened for ≥4.5:1 body/secondary contrast */
 
-    /* Accent (same indigo family) */
-    --accent: 220 20% 94%;
-    --accent-foreground: 222 47% 11%;
+    /* Accent surface — neutral grey (NOT indigo) */
+    --accent: 220 16% 95%;
+    --accent-foreground: 222 30% 20%;
 
-    /* Semantic */
-    --destructive: 0 84% 60%;
+    /* Semantic states — standardized vocabulary */
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
+    --success: 152 56% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 92% 42%;
+    --warning-foreground: 0 0% 100%;
+    --info: 217 91% 53%;
+    --info-foreground: 0 0% 100%;
 
     /* Chrome */
     --border: 220 16% 90%;
-    --input: 220 16% 90%;
+    --input: 220 16% 88%;
     --ring: 217 91% 53%;
     --radius: 0.5rem;
+
+    /* Motion — Emil Kowalski curves (strong, no bounce) */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   }
 
+  /* Professional grey + black SaaS theme. White is the accent (mono). */
   .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 9%;
-    --card-foreground: 210 40% 98%;
-    --primary: 213 94% 64%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217 32% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 32% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 32% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 32% 17%;
-    --input: 217 32% 17%;
-    --ring: 213 94% 64%;
+    --background: 240 6% 7%;        /* charcoal canvas */
+    --foreground: 0 0% 96%;
+    --card: 240 5% 11%;             /* raised panel */
+    --card-foreground: 0 0% 96%;
+    --primary: 0 0% 98%;            /* white = the accent (primary actions, active) */
+    --primary-foreground: 240 6% 10%;
+    --secondary: 240 4% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 4% 15%;
+    --muted-foreground: 240 5% 65%; /* mid grey, ≥4.5:1 on the charcoal */
+    --accent: 240 4% 15%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 46% 48%;
+    --success-foreground: 240 6% 10%;
+    --warning: 38 92% 58%;
+    --warning-foreground: 240 6% 10%;
+    --info: 0 0% 80%;               /* monochrome info */
+    --info-foreground: 240 6% 10%;
+    --border: 240 4% 18%;
+    --input: 240 4% 20%;
+    --ring: 0 0% 70%;
   }
 }
 
@@ -113,9 +131,9 @@
 /* ------------------------------------------------------------------ */
 
 .animate-float-slow { animation: float-slow 4s ease-in-out infinite; }
-.animate-slide-in-right { animation: slide-in-right 250ms ease-out both; }
-.animate-slide-up { animation: slide-up 300ms ease-out both; }
-.animate-fade-in { animation: fade-in 400ms ease-out both; }
+.animate-slide-in-right { animation: slide-in-right 250ms var(--ease-out) both; }
+.animate-slide-up { animation: slide-up 300ms var(--ease-out) both; }
+.animate-fade-in { animation: fade-in 400ms var(--ease-out) both; }
 .animate-pulse-ring { animation: pulse-ring 2s ease-out infinite; }
 
 .shimmer-bg {
@@ -129,32 +147,32 @@
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Gradient text — used on hero titles (blue/steel, no purple) */
-.text-gradient-indigo {
-  background: linear-gradient(90deg, #93c5fd 0%, #3b82f6 45%, #1e3a8a 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
+/* Emphasis: colour the important word(s) in blue. Solid colour, never gradient
+   (gradient text is a banned AI tell). Legacy gradient class names kept as solid
+   aliases so existing markup stays on-brand without hunting every usage. */
+.text-accent,
+.text-gradient-indigo { color: hsl(var(--primary)); }
+.text-gradient-emerald { color: hsl(var(--success)); }
 
-.text-gradient-emerald {
-  background: linear-gradient(90deg, #059669 0%, #0d9488 50%, #0891b2 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-/* Domain gradient icon backgrounds — each admin section gets its own. */
-.bg-grad-dashboard { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); }
+/* Domain icon backgrounds (blue/steel/grey only — no purple). */
+.bg-grad-dashboard { background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%); }
 .bg-grad-learners  { background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%); }
 .bg-grad-avatars   { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
-.bg-grad-personas  { background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%); }
+.bg-grad-personas  { background: linear-gradient(135deg, #3b82f6 0%, #0891b2 100%); }
 .bg-grad-scenarios { background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); }
-.bg-grad-assign    { background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%); }
-.bg-grad-analytics { background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%); }
+.bg-grad-assign    { background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); }
+.bg-grad-analytics { background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); }
 .bg-grad-settings  { background: linear-gradient(135deg, #64748b 0%, #475569 100%); }
+
+/* Press feedback for any pressable element (Emil: scale 0.97 on :active). */
+.press { transition: transform 160ms var(--ease-out); }
+.press:active { transform: scale(0.97); }
+
+/* Bixy's soft blue glow — a blurred radial halo placed behind the orb. */
+.bixy-halo {
+  background: radial-gradient(circle, hsl(var(--primary) / 0.30), transparent 70%);
+  filter: blur(28px);
+}
 
 /* Learner-side gradients (blue/steel/grey, no purple) */
 .bg-grad-learner-hero  { background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #0f172a 100%); }
@@ -202,14 +220,14 @@
 .mouth-talk { animation: mouth-talk 0.5s ease-in-out infinite; }
 .tooltip-bob { animation: tooltip-bob 2.4s ease-in-out infinite; }
 
-/* Soft entrance for panels / popups */
-@keyframes pop-in { from { transform: scale(0.92) translateY(8px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
-.animate-pop-in { animation: pop-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+/* Soft entrance for panels / popups (strong ease-out, no bounce). */
+@keyframes pop-in { from { transform: scale(0.96) translateY(8px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+.animate-pop-in { animation: pop-in 220ms var(--ease-out) both; }
 @keyframes chip-in { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-.animate-chip-in { animation: chip-in 300ms ease-out both; }
+.animate-chip-in { animation: chip-in 300ms var(--ease-out) both; }
 
 /* Premium page content entrance */
-.page-enter { animation: slide-up 360ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.page-enter { animation: slide-up 360ms var(--ease-out) both; }
 
 @media (prefers-reduced-motion: reduce) {
   .orb-spin, .orb-spin-rev, .orb-pulse, .orb-glow, .orb-float, .orb-blink,

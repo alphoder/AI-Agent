@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { LANGUAGES, languageName } from '@avatar-platform/shared';
 import { useAuth } from '@/hooks/use-auth';
@@ -12,6 +11,7 @@ interface Entry { role: 'user' | 'assistant'; text: string }
 
 const BIXY_VOICE = 'Leda';
 const WAKE = /\bbix(y|ie|i|ee)\b/i; // "hey bixy", "bixy", ...
+const IDLE_MS = 45000;             // close the session only after this much true silence
 
 const HINTS = [
   'Say “Hey Bixy” to wake me',
@@ -19,7 +19,6 @@ const HINTS = [
   '“Hey Bixy, start a job interview”',
   '“Hey Bixy, open my history”',
 ];
-const SUGGESTIONS = ['Show my scenarios', 'Practise a job interview in Hindi', 'Create a scenario to say no to my boss', 'Open my history'];
 
 function systemPrompt(name: string) {
   return `You are Bixy — a cheerful, playful, slightly childlike voice helper for SpeakCoach, a speaking-practice app.
@@ -65,12 +64,11 @@ export function AssistantWidget() {
   const nameRef = useRef('there');
   useEffect(() => { nameRef.current = (user?.name || user?.email?.split('@')[0] || 'there').split(' ')[0]; }, [user]);
 
-  const [ready, setReady] = useState(false);   // Gemini WS connected (voice output)
-  const [panel, setPanel] = useState(false);    // conversation panel visible / awake
+  const [ready, setReady] = useState(false);   // Gemini session live
+  const [awake, setAwake] = useState(false);     // in a conversation
   const [speaking, setSpeaking] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
-  const [transcripts, setTranscripts] = useState<Entry[]>([]);
-  const [actions, setActions] = useState<string[]>([]);
+  const [last, setLast] = useState<Entry | null>(null); // latest line, for the inline caption
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState(0);
 
@@ -80,19 +78,21 @@ export function AssistantWidget() {
   const awakeRef = useRef(false);
   const recRef = useRef<any>(null);
   const speakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const connectingRef = useRef(false);
+  const pendingRef = useRef<string[]>([]);
+  const connectRef = useRef<() => void>(() => {});
 
-  const orbState: OrbState = !ready ? 'loading' : speaking ? 'speaking' : panel ? 'listening' : 'asleep';
+  const orbState: OrbState = !awake ? 'asleep' : !ready ? 'loading' : speaking ? 'speaking' : 'listening';
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [transcripts, actions]);
+  // Rotate idle hints only while asleep.
   useEffect(() => {
-    if (panel) return;
+    if (awake) return;
     const t = setInterval(() => setHint((h) => (h + 1) % HINTS.length), 4200);
     return () => clearInterval(t);
-  }, [panel]);
+  }, [awake]);
 
   const playAudio = useCallback((b64: string) => {
     const ctx = outCtxRef.current;
@@ -116,32 +116,42 @@ export function AssistantWidget() {
     speakTimerRef.current = setTimeout(() => setSpeaking(false), (playCursorRef.current - ctx.currentTime) * 1000 + 200);
   }, []);
 
-  const logAction = (msg: string) => setActions((a) => [...a.slice(-5), msg]);
-
-  const sleepSoon = useCallback(() => {
-    if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
-    sleepTimerRef.current = setTimeout(() => { awakeRef.current = false; setPanel(false); }, 16000);
+  // Tear down the Gemini session and go quiet (only after real silence, or manual stop).
+  const goToSleep = useCallback(() => {
+    awakeRef.current = false;
+    setAwake(false);
+    setReady(false);
+    setSpeaking(false);
+    pendingRef.current = [];
+    if (reconnectRef.current) clearTimeout(reconnectRef.current);
+    try { wsRef.current?.close(1000); } catch { /* ignore */ }
+    wsRef.current = null;
   }, []);
+
+  // Keep-alive: any speech (or Bixy talking) pushes the silence deadline out.
+  const bumpIdle = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => goToSleep(), IDLE_MS);
+  }, [goToSleep]);
 
   const executeTool = useCallback(async (name: string, args: Record<string, unknown>) => {
     try {
       if (name === 'navigate') {
         const map: Record<string, string> = { scenarios: '/scenarios', reports: '/reports', create_scenario: '/scenarios/create' };
         const path = map[String(args.page)] || '/scenarios';
-        logAction(`Opening ${path}`); router.push(path); return { ok: true, navigated_to: path };
+        router.push(path); return { ok: true, navigated_to: path };
       }
       if (name === 'list_scenarios') {
         const q = args.query ? `?q=${encodeURIComponent(String(args.query))}` : '';
         const { data } = await apiClient.get(`/scenarios${q}`);
         const list = data.data.slice(0, 10).map((s: { id: string; title: string; language: string; difficulty_level: string }) => ({ id: s.id, title: s.title, language: s.language, difficulty: s.difficulty_level }));
-        logAction(`Found ${list.length} scenario(s)`); return { scenarios: list };
+        return { scenarios: list };
       }
       if (name === 'start_practice') {
         const { data } = await apiClient.get(`/scenarios?q=${encodeURIComponent(String(args.scenario))}`);
         const match = data.data[0];
         if (!match) return { error: `No scenario found matching "${args.scenario}". Offer to create one.` };
         const lang = resolveLang(args.language as string) || match.language || 'en';
-        logAction(`Starting "${match.title}" in ${languageName(lang)}`);
         router.push(`/session/${match.id}?lang=${lang}`); return { ok: true, started: match.title, language: lang };
       }
       if (name === 'create_scenario') {
@@ -154,10 +164,10 @@ export function AssistantWidget() {
           visibility: 'private', tags: [], scoring_rubric: DEFAULT_RUBRIC,
         };
         const { data } = await apiClient.post('/scenarios', payload);
-        logAction(`Created "${payload.title}"`); return { ok: true, id: data.data.id, title: payload.title };
+        return { ok: true, id: data.data.id, title: payload.title };
       }
       if (name === 'view_history') {
-        logAction('Opening your history'); router.push('/reports');
+        router.push('/reports');
         const { data } = await apiClient.get('/sessions');
         return { sessions: data.data.slice(0, 8).map((s: { scenario_title: string; overall_score: number | null }) => ({ scenario: s.scenario_title, score: s.overall_score })) };
       }
@@ -168,24 +178,40 @@ export function AssistantWidget() {
     }
   }, [router]);
 
-  // Send a user utterance to Gemini (text-in, voice-out). Local Web Speech does the STT.
+  // Send a recognised utterance to Gemini (local Web Speech does STT; Bixy replies in voice).
   const sendToGemini = useCallback((text: string) => {
-    if (!text.trim() || wsRef.current?.readyState !== WebSocket.OPEN) return;
+    if (!text.trim()) return;
     outCtxRef.current?.resume().catch(() => {});
-    setTranscripts((t) => [...t, { role: 'user', text }]);
-    wsRef.current.send(JSON.stringify({ type: 'text', text }));
+    setLast({ role: 'user', text });
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'text', text }));
+    } else {
+      pendingRef.current.push(text);
+      connectRef.current();
+    }
   }, []);
 
-  // Heard locally (Web Speech). Wake on "Hey Bixy", then keep the conversation going.
+  const wake = useCallback(() => {
+    if (!awakeRef.current) {
+      awakeRef.current = true;
+      setAwake(true);
+      setError(null);
+      outCtxRef.current?.resume().catch(() => {});
+      connectRef.current();
+    }
+    bumpIdle();
+  }, [bumpIdle]);
+
+  // Heard locally. Wake on "Hey Bixy"; once awake, every utterance keeps the chat going.
   const onHeard = useCallback((text: string) => {
     if (!awakeRef.current) {
-      if (!WAKE.test(text)) return;            // not addressed → ignore
-      awakeRef.current = true;
-      setPanel(true);
+      if (!WAKE.test(text)) return;     // not addressed → stay asleep
+      wake();
     }
     sendToGemini(text);
-    sleepSoon();
-  }, [sendToGemini, sleepSoon]);
+    bumpIdle();
+  }, [wake, sendToGemini, bumpIdle]);
 
   const startRecognizer = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -193,24 +219,34 @@ export function AssistantWidget() {
     if (recRef.current) return;
     const rec = new SR();
     rec.continuous = true;
-    rec.interimResults = false;
+    rec.interimResults = true;   // interim activity keeps Bixy awake mid-sentence
     rec.lang = 'en-US';
     rec.onresult = (e: any) => {
       const r = e.results[e.results.length - 1];
-      if (r && r.isFinal) onHeard((r[0].transcript || '').trim());
+      if (!r) return;
+      const text = (r[0].transcript || '').trim();
+      if (awakeRef.current) bumpIdle();              // ANY speech (even mid-word) defers sleep
+      if (!r.isFinal) {
+        if (!awakeRef.current && WAKE.test(text)) wake(); // wake snappily on interim
+        return;
+      }
+      onHeard(text);
     };
     rec.onerror = () => { /* keep going */ };
     rec.onend = () => { if (mountedRef.current) { try { rec.start(); } catch { /* already running */ } } };
     try { rec.start(); } catch { /* ignore */ }
     recRef.current = rec;
-  }, [onHeard]);
+  }, [onHeard, wake, bumpIdle]);
 
+  // Open the Gemini session lazily, on wake. One session at a time; queued lines flush
+  // on `listening`; retry only while awake (idle timer guarantees no infinite spin).
   const connect = useCallback(() => {
-    if (wsRef.current) return;
+    if (wsRef.current || connectingRef.current) return;
+    connectingRef.current = true;
     apiClient
       .post('/assistant/session')
       .then(({ data }) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || !awakeRef.current) { connectingRef.current = false; return; }
         outCtxRef.current = outCtxRef.current || new AudioContext({ sampleRate: 24000 });
         const ws = new WebSocket(data.data.wsUrl);
         wsRef.current = ws;
@@ -218,38 +254,47 @@ export function AssistantWidget() {
         ws.onmessage = async (ev) => {
           const msg = JSON.parse(ev.data);
           switch (msg.type) {
-            case 'listening': setReady(true); setError(null); break;
-            case 'response_text': if (msg.text) setTranscripts((t) => [...t, { role: 'assistant', text: msg.text }]); break;
-            case 'audio_out': playAudio(msg.data); break;
+            case 'listening': {
+              connectingRef.current = false;
+              setReady(true); setError(null); bumpIdle();
+              const queued = pendingRef.current; pendingRef.current = [];
+              queued.forEach((text) => ws.send(JSON.stringify({ type: 'text', text })));
+              break;
+            }
+            case 'response_text': if (msg.text) { setLast({ role: 'assistant', text: msg.text }); bumpIdle(); } break;
+            case 'audio_out': playAudio(msg.data); bumpIdle(); break;
             case 'tool_call': {
               const responses = [];
               for (const c of (msg.calls || [])) responses.push({ id: c.id, name: c.name, response: await executeTool(c.name, c.args || {}) });
               ws.send(JSON.stringify({ type: 'tool_response', responses }));
+              bumpIdle();
               break;
             }
-            case 'response_end': sleepSoon(); break;
-            case 'error': setError(msg.message || 'assistant error'); break;
+            case 'response_end': bumpIdle(); break;   // keep the chat open; don't hang up
+            case 'error': setError(msg.message || 'Hmm, that glitched — keep talking.'); break;
           }
         };
         ws.onclose = () => {
-          wsRef.current = null; setReady(false); setSpeaking(false);
-          if (mountedRef.current) {
+          wsRef.current = null; connectingRef.current = false; setReady(false); setSpeaking(false);
+          // Reconnect only if the user is still in the conversation.
+          if (mountedRef.current && awakeRef.current) {
             if (reconnectRef.current) clearTimeout(reconnectRef.current);
-            reconnectRef.current = setTimeout(() => connect(), 4000);
+            reconnectRef.current = setTimeout(() => connect(), 2000);
           }
         };
       })
-      .catch(() => { if (mountedRef.current) setError('Bixy is offline right now.'); });
-  }, [executeTool, playAudio, sleepSoon]);
+      .catch(() => { connectingRef.current = false; if (mountedRef.current) setError('Bixy is offline right now.'); });
+  }, [executeTool, playAudio, bumpIdle]);
+  connectRef.current = connect;
 
-  function say(text: string) {
-    awakeRef.current = true; setPanel(true);
-    sendToGemini(text); sleepSoon();
+  function toggle() {
+    if (awakeRef.current) goToSleep();
+    else wake();
   }
 
   useEffect(() => {
     mountedRef.current = true;
-    connect();
+    // Local wake-word recogniser runs at rest — NO Gemini session until "Hey Bixy".
     startRecognizer();
     const resume = () => outCtxRef.current?.resume().catch(() => {});
     window.addEventListener('pointerdown', resume);
@@ -258,58 +303,39 @@ export function AssistantWidget() {
       mountedRef.current = false;
       window.removeEventListener('pointerdown', resume);
       window.removeEventListener('keydown', resume);
-      [reconnectRef, speakTimerRef, sleepTimerRef].forEach((r) => r.current && clearTimeout(r.current));
+      [reconnectRef, speakTimerRef, idleTimerRef].forEach((r) => r.current && clearTimeout(r.current));
       try { recRef.current?.stop(); } catch { /* ignore */ }
       try { wsRef.current?.close(); } catch { /* ignore */ }
       outCtxRef.current?.close().catch(() => {});
     };
-  }, [connect, startRecognizer]);
+  }, [startRecognizer]);
+
+  // Inline caption (no panel) — speaks for itself right on the orb.
+  let caption: string;
+  if (unsupported) caption = 'Tap me — voice needs Chrome';
+  else if (error) caption = error;
+  else if (!awake) caption = HINTS[hint];
+  else if (!ready) caption = 'Waking up…';
+  else if (speaking) caption = last?.role === 'assistant' ? last.text : 'Mm-hmm…';
+  else caption = last?.role === 'user' ? `“${last.text}”` : 'Listening — just talk';
 
   return (
-    <>
-      {!panel && (
-        <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
-          <div key={hint} className="tooltip-bob animate-pop-in max-w-[230px] rounded-2xl rounded-br-sm bg-zinc-900 text-white text-xs font-medium px-3.5 py-2 shadow-lg text-right">
-            {unsupported ? 'Tap me to chat (voice needs Chrome)' : !ready ? 'Bixy is waking up…' : HINTS[hint]}
-          </div>
-          <button onClick={() => { awakeRef.current = true; setPanel(true); outCtxRef.current?.resume().catch(() => {}); }}
-            className="grid place-items-center h-40 w-40 hover:scale-105 active:scale-95 transition-transform" aria-label="Bixy">
-            <AssistantOrb state={orbState} size={160} />
-          </button>
-        </div>
-      )}
-
-      {panel && (
-        <div className="fixed bottom-5 right-5 z-40 w-[360px] max-h-[80vh] rounded-3xl border border-zinc-200/70 bg-white/95 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden animate-pop-in">
-          <div className="relative flex flex-col items-center pt-6 pb-3 bg-gradient-to-b from-blue-50 to-transparent">
-            <button onClick={() => { setPanel(false); awakeRef.current = false; }} className="absolute right-3 top-3 rounded-full p-1.5 text-zinc-400 hover:bg-zinc-100"><X className="h-4 w-4" /></button>
-            <AssistantOrb state={orbState} size={104} />
-            <p className="mt-1 text-sm font-semibold">Bixy</p>
-            <p className="text-[11px] text-zinc-400">{speaking ? 'talking…' : 'listening — just speak'}</p>
-          </div>
-
-          <div className="flex-1 overflow-y-auto thin-scroll px-4 space-y-2 text-sm min-h-[40px]">
-            {transcripts.map((t, i) => (
-              <div key={i} className={`flex ${t.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-2xl px-3 py-1.5 ${t.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-800'}`}>{t.text}</div>
-              </div>
-            ))}
-            {actions.map((a, i) => (<div key={`a${i}`} className="text-[11px] text-blue-600 flex items-center gap-1.5">✨ {a}</div>))}
-            {error && <div className="text-xs text-rose-600">{error}</div>}
-            <div ref={endRef} />
-          </div>
-
-          <div className="px-4 pt-3 pb-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">Or tap to ask</p>
-            <div className="flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((s, i) => (
-                <button key={s} onClick={() => say(s)} disabled={!ready} style={{ animationDelay: `${i * 60}ms` }}
-                  className="animate-chip-in rounded-full border border-blue-200 bg-blue-50 text-blue-700 px-3 py-1 text-xs font-medium hover:bg-blue-100 disabled:opacity-50 transition-colors">{s}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+    <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+      <div
+        key={caption}
+        className="tooltip-bob animate-pop-in max-w-[260px] rounded-2xl rounded-br-sm bg-zinc-900 text-white text-xs font-medium px-3.5 py-2 shadow-lg text-right line-clamp-3"
+      >
+        {caption}
+      </div>
+      <button
+        onClick={toggle}
+        className="relative grid h-32 w-32 place-items-center transition-transform hover:scale-105 active:scale-95"
+        aria-label={awake ? 'Stop Bixy' : 'Wake Bixy'}
+        title={awake ? 'Tap to stop' : 'Tap or say “Hey Bixy”'}
+      >
+        <span aria-hidden className="bixy-halo absolute inset-0 m-auto h-24 w-24" />
+        <AssistantOrb state={orbState} size={128} />
+      </button>
+    </div>
   );
 }

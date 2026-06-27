@@ -18,6 +18,7 @@ import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.config import settings
+from src.core.origins import origin_allowed
 from src.core.ws_ticket import verify_ticket
 
 logger = structlog.get_logger(__name__)
@@ -36,16 +37,10 @@ _MAX_SECONDS = 1800
 _ACTIVE: dict[str, WebSocket] = {}
 
 
-def _origin_allowed(origin: str | None) -> bool:
-    if not origin:
-        return True
-    return origin in settings.cors_origins
-
-
 @router.websocket("/ws/assistant")
 async def assistant_ws(websocket: WebSocket):
     ticket = verify_ticket(websocket.query_params.get("ticket", ""))
-    if not ticket or not _origin_allowed(websocket.headers.get("origin")):
+    if not ticket or not origin_allowed(websocket.headers.get("origin")):
         await websocket.close(code=1008)
         return
 
@@ -64,7 +59,7 @@ async def assistant_ws(websocket: WebSocket):
 
     if not settings.gemini_prompt_api_key:
         await websocket.send_json({"type": "error", "message": "assistant is not configured"})
-        _ACTIVE.discard(sid)
+        _ACTIVE.pop(sid, None)
         return
 
     mic_active = True
