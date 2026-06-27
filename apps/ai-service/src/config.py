@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
@@ -39,7 +41,10 @@ class Settings(BaseSettings):
     # Browser origins allowed to open the WS relays. Loopback hosts are always
     # allowed (see core/origins.py); set CORS_ORIGINS (comma-separated) in
     # production to add the deployed web origin, e.g. the Vercel domain.
-    cors_origins: list[str] = [
+    # NoDecode: take the raw CORS_ORIGINS string as-is (pydantic-settings would
+    # otherwise JSON-decode a list-typed env var and crash on a plain string);
+    # the validator below splits it on commas.
+    cors_origins: Annotated[list[str], NoDecode] = [
         "http://localhost:3000", "http://localhost:4000",
         "http://127.0.0.1:3000", "http://127.0.0.1:4000",
     ]
