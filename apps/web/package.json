@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "pnpm --filter @avatar-platform/shared build && next build",
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
