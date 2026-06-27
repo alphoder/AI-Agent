@@ -38,7 +38,9 @@ services:
     runtime: node
     # pnpm monorepo: npm can't resolve the `workspace:*` shared dep, so build from
     # the repo root with pnpm (shared first, then api).
-    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @avatar-platform/shared build && pnpm --filter @avatar-platform/api build
+    # --frozen-lockfile pins the tested versions (a newer TS than the lock breaks
+    # the build); --prod=false keeps devDeps (tsc) despite NODE_ENV=production.
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @avatar-platform/shared build && pnpm --filter @avatar-platform/api build
     startCommand: node apps/api/dist/index.js
     plan: free
     healthCheckPath: /health
