@@ -1,15 +1,22 @@
+databases:
+  - name: speakcoach-db
+    plan: free
+    databaseName: speakcoach
+    user: speakcoach
+
 services:
   # AI Service — FastAPI relay for Gemini Live (voice) + Gemini Flash (vision/scoring)
   - type: web
     name: speakcoach-ai
     runtime: python
-    pythonVersion: "3.11"
     rootDir: apps/ai-service
     buildCommand: pip install --upgrade pip && pip install -e .
     startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
     plan: free
     healthCheckPath: /health/ready
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
       - key: PORT
         value: 8000
       - key: GEMINI_API_KEY
@@ -29,21 +36,22 @@ services:
   - type: web
     name: speakcoach-api
     runtime: node
-    nodeVersion: "20"
     rootDir: apps/api
     buildCommand: npm install && npm run build
     startCommand: node dist/index.js
     plan: free
     healthCheckPath: /health
-    dependencies:
-      - speakcoach-ai
     envVars:
+      - key: NODE_VERSION
+        value: "20"
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 4000
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: speakcoach-db
+          property: connectionString
       - key: JWT_PRIVATE_KEY
         sync: false
       - key: JWT_PUBLIC_KEY
