@@ -14,9 +14,15 @@ services:
         value: 8000
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_PROMPT_API_KEY   # KEY 2 — Bixy + prompt-improve
+        sync: false
       - key: API_GATEWAY_URL
         sync: false
       - key: INTERNAL_API_KEY
+        sync: false
+      - key: WS_TICKET_SECRET        # MUST equal speakcoach-api's value
+        sync: false
+      - key: CORS_ORIGINS            # Vercel web origin(s), comma-separated
         sync: false
 
   # API Gateway — Express: Google auth, scenarios, sessions, scoring callbacks
@@ -49,6 +55,8 @@ services:
       - key: AI_SERVICE_URL
         sync: false
       - key: INTERNAL_API_KEY
+        sync: false
+      - key: WS_TICKET_SECRET        # MUST equal speakcoach-ai's value
         sync: false
       - key: CORS_ORIGINS
         sync: false
