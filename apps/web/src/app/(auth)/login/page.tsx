@@ -1,11 +1,12 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { GoogleLogin } from '@react-oauth/google';
 import { Mic, Check } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { setAccessToken } from '@/lib/auth';
+import { warmBackend } from '@/lib/warm-backend';
 import { useAuth } from '@/hooks/use-auth';
 import { AssistantOrb } from '@/components/assistant/assistant-orb';
 import { Accent } from '@/components/ui/accent';
@@ -25,6 +26,8 @@ function LoginInner() {
   const [busy, setBusy] = useState(false);
 
   const dest = safeRedirect(params.get('redirect'));
+
+  useEffect(() => { warmBackend(); }, []); // wake the backend while the user signs in
 
   async function finish(token: string, fallbackUser: unknown) {
     setAccessToken(token);

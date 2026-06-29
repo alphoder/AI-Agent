@@ -8,6 +8,7 @@ import { Reveal } from '@/components/landing/reveal';
 import { TiltCard } from '@/components/landing/tilt-card';
 import { AssistantOrb } from '@/components/assistant/assistant-orb';
 import { SessionDemo } from '@/components/landing/session-demo';
+import { warmBackend } from '@/lib/warm-backend';
 
 const FEATURES = [
   { icon: Mic, title: 'Real-time voice', body: 'Speak out loud; the coach replies instantly in a natural voice. No typing, no scripts.' },
@@ -35,6 +36,7 @@ export default function Landing() {
 
   useEffect(() => {
     try { if (localStorage.getItem('access_token')) setDest('/home'); } catch { /* ignore */ }
+    warmBackend(); // wake the backend now, while the visitor reads the page
   }, []);
 
   // Cycle the headline scenario (paused when the visitor prefers reduced motion).

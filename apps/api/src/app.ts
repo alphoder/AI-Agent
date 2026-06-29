@@ -50,6 +50,14 @@ export function createApp(): express.Express {
     res.json({ status: 'ok' });
   });
 
+  // Public pre-warm: hitting this wakes the API (free-tier cold start), and we
+  // fire-and-forget a ping to wake the AI service too. The landing page calls
+  // it on load so both services are warm by the time the visitor clicks Start.
+  app.get('/warmup', (_req, res) => {
+    fetch(`${config.AI_SERVICE_URL.replace(/\/$/, '')}/health/ready`).catch(() => {});
+    res.json({ status: 'warming' });
+  });
+
   app.get('/health', async (_req, res) => {
     const checks: Record<string, string> = {};
     let healthy = true;
