@@ -229,9 +229,13 @@
 /* Premium page content entrance */
 .page-enter { animation: slide-up 360ms var(--ease-out) both; }
 
+/* Rotating hero word: swaps in with a soft upward fade. */
+@keyframes word-swap { from { opacity: 0; transform: translateY(0.5em); filter: blur(4px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+.word-swap { animation: word-swap 480ms var(--ease-out); }
+
 @media (prefers-reduced-motion: reduce) {
   .orb-spin, .orb-spin-rev, .orb-pulse, .orb-glow, .orb-float, .orb-blink,
-  .orb-twinkle, .eye-blink, .mouth-talk, .tooltip-bob, .page-enter { animation: none !important; }
+  .orb-twinkle, .eye-blink, .mouth-talk, .tooltip-bob, .page-enter, .word-swap { animation: none !important; }
 }
 
 /* Subtle scrollbar */

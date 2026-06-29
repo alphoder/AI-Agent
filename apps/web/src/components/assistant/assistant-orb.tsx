@@ -21,8 +21,8 @@ const PARTICLES = Array.from({ length: 7 }, (_, i) => {
   };
 });
 
-// Mostly tracks the cursor; occasionally beams happy.
-const IDLE_FACES = ['normal', 'normal', 'normal', 'happy'] as const;
+// Tracks the cursor and keeps making little faces: attentive, then beams happy.
+const IDLE_FACES = ['normal', 'happy', 'normal', 'attentive', 'happy', 'normal'] as const;
 type Face = (typeof IDLE_FACES)[number] | 'attentive' | 'talk' | 'loading';
 
 const EYE_L = 48;
@@ -67,14 +67,14 @@ function Eyes({ face, look }: { face: Face; look: { dx: number; dy: number } }) 
   );
 }
 
-export function AssistantOrb({ state = 'asleep', size = 88 }: { state?: OrbState; size?: number }) {
+export function AssistantOrb({ state = 'asleep', size = 88, className = '' }: { state?: OrbState; size?: number; className?: string }) {
   const [idle, setIdle] = useState(0);
   const [look, setLook] = useState({ dx: 0, dy: 0 });
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     if (state !== 'asleep') return;
-    const t = setInterval(() => setIdle((i) => (i + 1) % IDLE_FACES.length), 3000);
+    const t = setInterval(() => setIdle((i) => (i + 1) % IDLE_FACES.length), 2200);
     return () => clearInterval(t);
   }, [state]);
 
@@ -103,7 +103,7 @@ export function AssistantOrb({ state = 'asleep', size = 88 }: { state?: OrbState
   const talking = state === 'speaking';
 
   return (
-    <svg ref={svgRef} width={size} height={size} viewBox="0 0 120 120" className="orb-float select-none">
+    <svg ref={svgRef} width={size} height={size} viewBox="0 0 120 120" className={`orb-float select-none ${className}`}>
       <defs>
         <radialGradient id="bixyBall" cx="38%" cy="32%" r="72%">
           <stop offset="0%" stopColor="#dbeafe" />

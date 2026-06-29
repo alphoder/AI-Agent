@@ -1,0 +1,25 @@
+name: keep-warm
+
+# Render free-tier services spin down after ~15 min idle, and the cold start
+# (~30-60s) makes the first user's WebSocket connection fail. This pings the API
+# and AI health endpoints every 10 minutes so the services stay awake.
+#
+# Note on cost: on a PRIVATE repo this consumes ~144 Actions minutes/day. If that
+# matters, prefer a free external uptime monitor (UptimeRobot / cron-job.org)
+# pointed at the same two URLs, and disable this workflow.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API and AI health
+        run: |
+          set +e
+          curl -fsS --max-time 90 https://speakcoach-api.onrender.com/health      && echo " api ok"
+          curl -fsS --max-time 90 https://speakcoach-ai.onrender.com/health/ready  && echo " ai ok"
+          exit 0

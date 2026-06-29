@@ -283,7 +283,14 @@ export function AssistantWidget() {
           }
         };
       })
-      .catch(() => { connectingRef.current = false; if (mountedRef.current) setError('Bixy is offline right now.'); });
+      .catch(() => {
+        connectingRef.current = false;
+        if (!mountedRef.current || !awakeRef.current) return;
+        // The API may be waking from a cold start — keep retrying quietly.
+        setError('Waking Bixy…');
+        if (reconnectRef.current) clearTimeout(reconnectRef.current);
+        reconnectRef.current = setTimeout(() => connectRef.current(), 3000);
+      });
   }, [executeTool, playAudio, bumpIdle]);
   connectRef.current = connect;
 

@@ -142,19 +142,17 @@ function SessionInner() {
         // 3. Audio out context (Gemini returns 24kHz PCM).
         outCtxRef.current = new AudioContext({ sampleRate: 24000 });
 
-        // 4. Open the WS to the AI service.
-        setStatus('Connecting to your coach…');
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
+        // 4. Open the WS to the AI service — with retry. A free-tier service can
+        //    be waking from a cold start (~30-60s), during which the first
+        //    upgrade fails; we retry a few times before giving up.
+        const MAX_ATTEMPTS = 6;
+        let attempt = 0;
+        let live = false;
 
-        ws.onopen = () => {
-          ws.send(JSON.stringify({
-            type: 'config',
-            system_prompt: sessionConfig.systemPrompt,
-            voice: sessionConfig.voice,
-            language: sessionConfig.language,
-          }));
-          // Mic capture → PCM16 @ 16kHz.
+        // Mic + body-language capture — wired once, the moment the coach is
+        // actually listening (so failed/cold attempts never leak an AudioContext).
+        const startCapture = (ws: WebSocket) => {
+          if (inCtxRef.current) return;
           const inCtx = new AudioContext({ sampleRate: 16000 });
           inCtxRef.current = inCtx;
           const source = inCtx.createMediaStreamSource(stream);
@@ -166,8 +164,6 @@ function SessionInner() {
             const pcm = floatTo16BitPCM(e.inputBuffer.getChannelData(0));
             ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(pcm) }));
           };
-
-          // Periodic body-language frame.
           frameTimerRef.current = setInterval(() => {
             const video = videoRef.current;
             if (!video || video.readyState < 2 || ws.readyState !== WebSocket.OPEN) return;
@@ -182,38 +178,64 @@ function SessionInner() {
           }, FRAME_INTERVAL_MS);
         };
 
-        ws.onmessage = (event) => {
-          const msg = JSON.parse(event.data);
-          switch (msg.type) {
-            case 'listening':
-              setPhase('live');
-              setStatus('');
-              break;
-            case 'transcript_interim':
-              setInterim(msg.text);
-              break;
-            case 'transcript':
-              setInterim('');
-              if (msg.text) setTranscripts((t) => [...t, { role: 'user', text: msg.text }]);
-              break;
-            case 'response_text':
-              if (msg.text) setTranscripts((t) => [...t, { role: 'assistant', text: msg.text }]);
-              break;
-            case 'audio_out':
-              playAudioChunk(msg.data);
-              break;
-            case 'response_end':
-              break;
-            case 'error':
-              setError(msg.message || 'Coach connection error');
-              break;
-          }
+        const openWs = () => {
+          attempt += 1;
+          setStatus(attempt === 1 ? 'Connecting to your coach…' : 'Waking your coach… the first connection can take up to a minute.');
+          const ws = new WebSocket(wsUrl);
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            ws.send(JSON.stringify({
+              type: 'config',
+              system_prompt: sessionConfig.systemPrompt,
+              voice: sessionConfig.voice,
+              language: sessionConfig.language,
+            }));
+          };
+
+          ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            switch (msg.type) {
+              case 'listening':
+                live = true;
+                setPhase('live');
+                setStatus('');
+                startCapture(ws);
+                break;
+              case 'transcript_interim':
+                setInterim(msg.text);
+                break;
+              case 'transcript':
+                setInterim('');
+                if (msg.text) setTranscripts((t) => [...t, { role: 'user', text: msg.text }]);
+                break;
+              case 'response_text':
+                if (msg.text) setTranscripts((t) => [...t, { role: 'assistant', text: msg.text }]);
+                break;
+              case 'audio_out':
+                playAudioChunk(msg.data);
+                break;
+              case 'response_end':
+                break;
+              case 'error':
+                setError(msg.message || 'Coach connection error');
+                break;
+            }
+          };
+
+          ws.onerror = () => { /* surfaced via onclose so we can retry */ };
+          ws.onclose = () => {
+            if (disposed || endedRef.current) return;
+            if (live) { setStatus('Connection closed.'); return; }
+            if (attempt < MAX_ATTEMPTS) {
+              setTimeout(() => { if (!disposed && !endedRef.current) openWs(); }, 2500);
+            } else {
+              setError('Could not reach the coach. It may be waking up. Please try again in a minute.');
+            }
+          };
         };
 
-        ws.onerror = () => setError('Lost connection to the coach.');
-        ws.onclose = () => {
-          if (!endedRef.current) setStatus('Connection closed.');
-        };
+        openWs();
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
         setError(msg || 'Could not start the session. Please allow mic & camera access and try again.');
