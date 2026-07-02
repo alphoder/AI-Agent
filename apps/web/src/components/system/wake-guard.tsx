@@ -37,22 +37,29 @@ export function WakeGuard() {
       if (cancelled) return;
 
       setCold(true);
-      // Poll until the server is up, then reload once (guarded against loops).
-      while (!cancelled) {
-        if (await probe(8000)) {
+      // Poll a BOUNDED number of times, then fail open no matter what. A health
+      // gate must never trap the user: if the probe keeps failing (cold start,
+      // CORS, blocked storage, offline), we still reveal the app and let its own
+      // retries handle things.
+      const MAX_ATTEMPTS = 6; // ~ up to ~50s of cold-start grace
+      for (let i = 0; i < MAX_ATTEMPTS && !cancelled; i++) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (cancelled) return;
+        if (await probe(6000)) {
           if (cancelled) return;
-          let last = 0;
-          try { last = Number(sessionStorage.getItem(RELOAD_KEY)) || 0; } catch { /* ignore */ }
-          if (Date.now() - last > 120000) {
-            try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch { /* ignore */ }
-            window.location.reload();
-          } else {
-            setCold(false); // reloaded recently — just reveal the app
-          }
+          // Server is up. Reload ONCE per session so failed initial fetches re-run
+          // — but only if storage works (else a reload would loop, so just reveal).
+          let alreadyReloaded = true;
+          try {
+            alreadyReloaded = sessionStorage.getItem(RELOAD_KEY) === '1';
+            if (!alreadyReloaded) sessionStorage.setItem(RELOAD_KEY, '1');
+          } catch { alreadyReloaded = true; /* storage blocked — do NOT reload */ }
+          if (!alreadyReloaded) window.location.reload();
+          else setCold(false);
           return;
         }
-        await new Promise((r) => setTimeout(r, 2500));
       }
+      if (!cancelled) setCold(false); // gave up waiting — never trap the user
     })();
 
     return () => { cancelled = true; };
