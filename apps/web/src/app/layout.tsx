@@ -1,11 +1,19 @@
 import type { Metadata } from 'next';
-import { Manrope, Fraunces } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { Providers } from '@/components/providers';
 
-// Premium pairing: a refined grotesk for body + an editorial serif for display.
-const manrope = Manrope({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
-const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-serif', display: 'swap', axes: ['opsz'] });
+// Satoshi — one grotesk across the whole site (body + display). Self-hosted.
+const satoshi = localFont({
+  src: [
+    { path: './fonts/Satoshi-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/Satoshi-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/Satoshi-700.woff2', weight: '700', style: 'normal' },
+    { path: './fonts/Satoshi-900.woff2', weight: '900', style: 'normal' },
+  ],
+  variable: '--font-sans',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: {
@@ -17,7 +25,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${manrope.variable} ${fraunces.variable}`}>
+    <html lang="en" className={satoshi.variable}>
       <body className="font-sans">
         <Providers>{children}</Providers>
       </body>

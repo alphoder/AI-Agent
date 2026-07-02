@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import { floatTo16BitPCM, arrayBufferToBase64 } from '@/lib/audio';
 import { LANGUAGES, languageName } from '@avatar-platform/shared';
 import { useAuth } from '@/hooks/use-auth';
 import { AssistantOrb, OrbState } from './assistant-orb';
@@ -74,6 +75,9 @@ export function AssistantWidget() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const inCtxRef = useRef<AudioContext | null>(null);
+  const procRef = useRef<ScriptProcessorNode | null>(null);
   const playCursorRef = useRef(0);
   const awakeRef = useRef(false);
   const recRef = useRef<any>(null);
@@ -116,6 +120,41 @@ export function AssistantWidget() {
     speakTimerRef.current = setTimeout(() => setSpeaking(false), (playCursorRef.current - ctx.currentTime) * 1000 + 200);
   }, []);
 
+  // Stream raw mic audio straight to Gemini — browser-agnostic, works wherever the
+  // mic does (unlike the Web Speech API, which Brave/Firefox block). Gemini does
+  // the transcription and replies in voice.
+  const stopMic = useCallback(() => {
+    try { procRef.current?.disconnect(); } catch { /* ignore */ }
+    procRef.current = null;
+    try { inCtxRef.current?.close(); } catch { /* ignore */ }
+    inCtxRef.current = null;
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+  }, []);
+
+  const startMic = useCallback(async (ws: WebSocket) => {
+    if (inCtxRef.current) return; // already streaming
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!awakeRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+      micStreamRef.current = stream;
+      const inCtx = new AudioContext({ sampleRate: 16000 });
+      inCtxRef.current = inCtx;
+      const source = inCtx.createMediaStreamSource(stream);
+      const proc = inCtx.createScriptProcessor(4096, 1, 1);
+      procRef.current = proc;
+      source.connect(proc);
+      proc.connect(inCtx.destination);
+      proc.onaudioprocess = (e) => {
+        if (!awakeRef.current || ws.readyState !== WebSocket.OPEN) return;
+        const pcm = floatTo16BitPCM(e.inputBuffer.getChannelData(0));
+        ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(pcm) }));
+      };
+    } catch {
+      setError('I need mic access to hear you.');
+    }
+  }, []);
+
   // Tear down the Gemini session and go quiet (only after real silence, or manual stop).
   const goToSleep = useCallback(() => {
     awakeRef.current = false;
@@ -123,10 +162,11 @@ export function AssistantWidget() {
     setReady(false);
     setSpeaking(false);
     pendingRef.current = [];
+    stopMic();
     if (reconnectRef.current) clearTimeout(reconnectRef.current);
     try { wsRef.current?.close(1000); } catch { /* ignore */ }
     wsRef.current = null;
-  }, []);
+  }, [stopMic]);
 
   // Keep-alive: any speech (or Bixy talking) pushes the silence deadline out.
   const bumpIdle = useCallback(() => {
@@ -203,14 +243,18 @@ export function AssistantWidget() {
     bumpIdle();
   }, [bumpIdle]);
 
-  // Heard locally. Wake on "Hey Bixy"; once awake, every utterance keeps the chat going.
+  // Web Speech (Chrome only) is used just for hands-free "Hey Bixy" wake. Once
+  // awake, the raw mic stream feeds Gemini directly, so we must NOT also send the
+  // recognised text (that would double every utterance). We only send the wake
+  // utterance itself, since the mic isn't streaming yet at that instant.
   const onHeard = useCallback((text: string) => {
     if (!awakeRef.current) {
       if (!WAKE.test(text)) return;     // not addressed → stay asleep
       wake();
+      sendToGemini(text);               // carry the first request in the wake phrase
+      return;
     }
-    sendToGemini(text);
-    bumpIdle();
+    bumpIdle();                          // already streaming audio — just stay awake
   }, [wake, sendToGemini, bumpIdle]);
 
   const startRecognizer = useCallback(() => {
@@ -257,10 +301,12 @@ export function AssistantWidget() {
             case 'listening': {
               connectingRef.current = false;
               setReady(true); setError(null); bumpIdle();
+              startMic(ws); // stream mic straight to Gemini — no browser Speech API needed
               const queued = pendingRef.current; pendingRef.current = [];
               queued.forEach((text) => ws.send(JSON.stringify({ type: 'text', text })));
               break;
             }
+            case 'transcript': if (msg.text) { setLast({ role: 'user', text: msg.text }); bumpIdle(); } break;
             case 'response_text': if (msg.text) { setLast({ role: 'assistant', text: msg.text }); bumpIdle(); } break;
             case 'audio_out': playAudio(msg.data); bumpIdle(); break;
             case 'tool_call': {
@@ -276,6 +322,7 @@ export function AssistantWidget() {
         };
         ws.onclose = () => {
           wsRef.current = null; connectingRef.current = false; setReady(false); setSpeaking(false);
+          stopMic();
           // Reconnect only if the user is still in the conversation.
           if (mountedRef.current && awakeRef.current) {
             if (reconnectRef.current) clearTimeout(reconnectRef.current);
@@ -291,7 +338,7 @@ export function AssistantWidget() {
         if (reconnectRef.current) clearTimeout(reconnectRef.current);
         reconnectRef.current = setTimeout(() => connectRef.current(), 3000);
       });
-  }, [executeTool, playAudio, bumpIdle]);
+  }, [executeTool, playAudio, bumpIdle, startMic, stopMic]);
   connectRef.current = connect;
 
   function toggle() {
@@ -313,13 +360,14 @@ export function AssistantWidget() {
       [reconnectRef, speakTimerRef, idleTimerRef].forEach((r) => r.current && clearTimeout(r.current));
       try { recRef.current?.stop(); } catch { /* ignore */ }
       try { wsRef.current?.close(); } catch { /* ignore */ }
+      stopMic();
       outCtxRef.current?.close().catch(() => {});
     };
-  }, [startRecognizer]);
+  }, [startRecognizer, stopMic]);
 
   // Inline caption (no panel) — speaks for itself right on the orb.
   let caption: string;
-  if (unsupported) caption = 'Tap me — voice needs Chrome';
+  if (unsupported && !awake) caption = 'Tap me to talk';
   else if (error) caption = error;
   else if (!awake) caption = HINTS[hint];
   else if (!ready) caption = 'Waking up…';
