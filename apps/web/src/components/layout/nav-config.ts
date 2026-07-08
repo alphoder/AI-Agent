@@ -1,4 +1,4 @@
-import { Mic, AudioLines, FileText, Settings, LifeBuoy, type LucideIcon } from 'lucide-react';
+import { Mic, AudioLines, FileText, BarChart3, Users, Building2, Settings, LifeBuoy, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   href: string;
@@ -12,8 +12,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** Lean IA for the insurance sales-training focus — practice, review, done.
- *  No dashboards or vanity sections. */
+/** Lean IA for the insurance sales-training focus — practice, review, team. */
 export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Train',
@@ -26,6 +25,14 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'Review',
     items: [
       { href: '/reports', label: 'Reports', icon: FileText },
+      { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+    ],
+  },
+  {
+    title: 'Team',
+    items: [
+      { href: '/teams', label: 'Teams', icon: Building2 },
+      { href: '/community', label: 'Community', icon: Users },
     ],
   },
   {

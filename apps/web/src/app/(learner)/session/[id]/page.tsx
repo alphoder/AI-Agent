@@ -43,7 +43,7 @@ function SessionInner() {
   const scenarioId = params.id as string;
   const chosenLang = search.get('lang') || undefined;
   const chosenVoice = search.get('voice') || undefined;
-  const gradeBody = search.get('grade') !== '0'; // body-language grading on unless explicitly off
+  const gradeBody = search.get('grade') === '1'; // body-language grading OFF by default; on only when opted in
 
   const [phase, setPhase] = useState<'connecting' | 'live' | 'ending'>('connecting');
   const [status, setStatus] = useState('Setting up…');
@@ -68,6 +68,7 @@ function SessionInner() {
   const endedRef = useRef(false);
   const captionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const gradeBodyActiveRef = useRef(gradeBody);
 
   const showCaption = useCallback((role: 'you' | 'customer', text: string) => {
     if (!text) return;
@@ -231,10 +232,22 @@ function SessionInner() {
 
         // Mic always; camera only when body-language grading is on.
         setStatus(gradeBody ? 'Requesting mic & camera…' : 'Requesting microphone…');
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: gradeBody });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: gradeBody });
+          gradeBodyActiveRef.current = gradeBody;
+        } catch (mediaErr) {
+          if (gradeBody) {
+            console.warn('Camera failed or denied, falling back to audio only:', mediaErr);
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            gradeBodyActiveRef.current = false;
+          } else {
+            throw mediaErr;
+          }
+        }
         if (disposed) { stream.getTracks().forEach((t) => t.stop()); return; }
         micStreamRef.current = stream;
-        if (gradeBody && videoRef.current) videoRef.current.srcObject = stream;
+        if (gradeBodyActiveRef.current && videoRef.current) videoRef.current.srcObject = stream;
 
         // Audio out (Gemini returns 24kHz PCM) + analyser for the sphere.
         const outCtx = new AudioContext({ sampleRate: 24000 });
@@ -263,10 +276,18 @@ function SessionInner() {
             if (!micOnRef.current || ws.readyState !== WebSocket.OPEN) return;
             ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(floatTo16BitPCM(ch)) }));
           };
-          if (gradeBody) {
+          if (gradeBodyActiveRef.current) {
             frameTimerRef.current = setInterval(() => {
               const video = videoRef.current;
               if (!video || video.readyState < 2 || ws.readyState !== WebSocket.OPEN) return;
+              
+              // Verify the video track is enabled and running
+              const videoStream = video.srcObject as MediaStream | null;
+              const videoTrack = videoStream?.getVideoTracks()[0];
+              if (!videoTrack || !videoTrack.enabled || videoTrack.readyState === 'ended') {
+                return;
+              }
+
               const canvas = document.createElement('canvas');
               canvas.width = 320;
               canvas.height = Math.round((video.videoHeight / video.videoWidth) * 320) || 240;

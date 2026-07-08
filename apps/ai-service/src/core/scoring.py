@@ -2,6 +2,7 @@
 rubric and the accumulated body-language notes."""
 from __future__ import annotations
 
+from datetime import datetime
 import json
 
 import httpx
@@ -13,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 EVALUATION_SYSTEM_PROMPT = """You are an expert INSURANCE SALES coach (BFSI, India) evaluating a practice sales call.
 The learner is the insurance agent; the AI character played the customer/prospect. You are given the
-conversation transcript, a scoring rubric, the character context, the scenario objective, and real-time
+conversation transcript (with relative timestamps in [MM:SS] format), a scoring rubric, the character context, the scenario objective, and real-time
 body-language observations from the learner's webcam.
 
 Evaluate the learner strictly against the rubric, and separately assess their non-verbal/body language.
@@ -26,30 +27,73 @@ Insurance-sales judgement to apply throughout:
   Compliant, needs-based, honest selling must always score higher than a pushy "close at any cost".
 - Judge in the scenario's language; do not penalise natural code-switching (e.g. Hinglish) if it aids clarity.
 - Make every strength/improvement a concrete, coachable sales action ("open by acknowledging their time,
-  then ask about dependants before mentioning premium"), not generic praise.
+  then ask about dependants before mentioning premium"), referencing the exact timestamps (e.g. "[01:12]") where the moment happened.
 
 Respond with VALID JSON ONLY — no markdown, no code fences, no commentary. Schema:
 {
   "criteria_scores": [
-    {"criterion_name": "<rubric criterion>", "score": <integer 1-5>, "weight": <weight from rubric>, "justification": "<2-3 sentences>"}
+    {"criterion_name": "<rubric criterion>", "score": <integer 1-5>, "weight": <weight from rubric>, "justification": "<2-3 sentences referencing specific timestamps [MM:SS]>"}
   ],
-  "strengths": ["<s1>", "<s2>", "<s3>"],
-  "improvements": ["<i1>", "<i2>", "<i3>"],
-  "narrative_feedback": "<2-3 paragraphs of specific, actionable feedback>",
+  "strengths": ["<s1 with timestamp reference>", "<s2 with timestamp reference>", "<s3 with timestamp reference>"],
+  "improvements": ["<i1 with timestamp reference>", "<i2 with timestamp reference>", "<i3 with timestamp reference>"],
+  "narrative_feedback": "<CONVERSATIONAL ANALYTICS DASHBOARD, followed by 2-3 paragraphs of specific, actionable feedback>",
   "body_language_score": <number 0-100, or null if no observations were provided>,
   "body_language_feedback": "<2-3 sentences on posture, eye contact, gestures, expression and engagement; or note the camera was off if no observations>"
 }
 
 Rules:
 - Exactly one criteria_scores entry per rubric criterion; score is an integer 1-5.
-- Exactly 3 strengths and 3 improvements.
-- Reference actual moments from the transcript.
-- Base body_language_score and feedback ONLY on the provided observations; if the list is empty, set the score to null.
+- Exactly 3 strengths and 3 improvements, each referencing at least one timestamp [MM:SS] from the transcript.
+- Every criterion justification MUST reference at least one timestamp [MM:SS] to justify the score.
+- In "narrative_feedback", you MUST prepend a neat, structured text-based CONVERSATIONAL ANALYTICS DASHBOARD before the paragraphs. Format it exactly like this:
+### 📊 CONVERSATIONAL ANALYTICS
+- **Talk-to-Listen Ratio:** <learner word count / total word count in %> Learner / <avatar word count / total word count in %> Avatar (ideal learner ratio is 35%-45% in discovery)
+- **Question Frequency:** <count of total questions asked by learner> questions asked (<count> open-ended, <count> closed-ended)
+- **Filler Word Usage:** <count> filler words detected (e.g., "um", "uh", "like", "you know")
+- **Ethical Compliance Flag:** <"✅ PASSED (No mis-selling, deceptive claims, or omission of exclusions/waiting periods)" OR "⚠️ WARNING / VIOLATION (Highlight specific mis-selling/guaranteed return promises made at [MM:SS])">
+
+- Base body_language_score and feedback ONLY on the provided observations; if the list is empty or the camera was disabled/not allowed, set the score to null and set the feedback to "Webcam was disabled or not allowed during the session."
 """
 
 
 def _format_transcript(transcript: list[dict]) -> str:
-    return "\n".join(f"{t.get('role', '?')}: {t.get('content', '')}" for t in transcript)
+    if not transcript:
+        return "(Empty transcript)"
+
+    start_time = None
+    formatted_lines = []
+
+    for t in transcript:
+        role = t.get("role", "?")
+        content = t.get("content", "")
+        created_at_raw = t.get("created_at")
+
+        timestamp_str = ""
+        if created_at_raw:
+            try:
+                # Handle potential datetime object or ISO string
+                if isinstance(created_at_raw, str):
+                    clean_ts = created_at_raw
+                    if clean_ts.endswith("Z"):
+                        clean_ts = clean_ts[:-1] + "+00:00"
+                    clean_ts = clean_ts.replace(" ", "T")
+                    dt = datetime.fromisoformat(clean_ts)
+                else:
+                    dt = created_at_raw
+
+                if start_time is None:
+                    start_time = dt
+
+                elapsed_sec = int((dt - start_time).total_seconds())
+                mm = elapsed_sec // 60
+                ss = elapsed_sec % 60
+                timestamp_str = f"[{mm:02d}:{ss:02d}] "
+            except Exception:
+                pass
+
+        formatted_lines.append(f"{timestamp_str}{role}: {content}")
+
+    return "\n".join(formatted_lines)
 
 
 def _format_rubric(rubric: list[dict]) -> str:

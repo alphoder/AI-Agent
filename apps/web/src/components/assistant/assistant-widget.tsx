@@ -22,11 +22,19 @@ const HINTS = [
 ];
 
 function systemPrompt(name: string) {
-  return `You are Bixy — a cheerful, playful, slightly childlike voice helper for SpeakCoach, a speaking-practice app.
-The user's name is ${name}. When they first wake you (e.g. "Hey Bixy"), greet them warmly BY NAME — like "Hey ${name}, how can I help you?" — then assist.
-Speak in a warm, bubbly, youthful tone with short sentences. CALL the provided tools to actually do things —
-search/list scenarios, start a practice session (optionally in a language), create a scenario, show history, or navigate.
-Briefly confirm what you did. If a wake phrase like "hey bixy" appears in the message, ignore those words and act on the rest.`;
+  return `You are Bixy — a cheerful, upbeat voice helper for SpeakCoach, an INSURANCE SALES-CALL training app (BFSI, India). The trainee practises selling insurance by talking to AI "customers".
+The user's name is ${name}. Greet them warmly by name, then help. Speak in short, warm sentences.
+
+You can CALL tools to: search/list scenarios, start a practice call, show history, navigate, and — most importantly — BUILD a custom scenario.
+
+BUILD A SCENARIO (do this whenever the user wants custom/specific practice, or says "help me build a scenario"):
+Ask 2-3 quick questions, ONE at a time, to design a realistic insurance customer:
+  1) What kind of call? (e.g. term-life cold call, health price objection, motor renewal, an angry customer)
+  2) What language should the customer speak in?
+  3) How tough — beginner, intermediate, or advanced?
+Keep it fast. Then CALL create_scenario with a vivid character_prompt (an in-character insurance customer with a clear objection), a short title, the language, difficulty, and a fitting voice. create_scenario immediately LAUNCHES the call — so once you have enough, just build it and say it's starting now.
+
+Always CALL tools to actually do things; never just describe. Ignore any wake phrase like "hey bixy" and act on the rest.`;
 }
 
 const TOOLS = [
@@ -38,8 +46,8 @@ const TOOLS = [
         parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'optional search text' } } } },
       { name: 'start_practice', description: 'Start a practice session for a scenario the user names, optionally in a chosen language.',
         parameters: { type: 'OBJECT', properties: { scenario: { type: 'STRING', description: 'name or topic' }, language: { type: 'STRING', description: 'ISO code e.g. en, hi, es' } }, required: ['scenario'] } },
-      { name: 'create_scenario', description: 'Create a new private practice scenario for the user.',
-        parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, description: { type: 'STRING' }, objective: { type: 'STRING' }, character_prompt: { type: 'STRING', description: 'who the AI role-plays and how' }, language: { type: 'STRING' }, difficulty: { type: 'STRING', enum: ['beginner', 'intermediate', 'advanced'] } }, required: ['title', 'character_prompt'] } },
+      { name: 'create_scenario', description: 'Design a custom insurance practice scenario AND immediately launch the call. Use it once you know what the user wants to practise.',
+        parameters: { type: 'OBJECT', properties: { title: { type: 'STRING', description: 'short title, e.g. "Angry motor-renewal customer"' }, description: { type: 'STRING' }, objective: { type: 'STRING', description: 'what the agent should achieve on this call' }, character_prompt: { type: 'STRING', description: 'the in-character insurance customer: who they are, their situation, and their main objection' }, language: { type: 'STRING', description: 'e.g. en, hi, ta, mr, te' }, difficulty: { type: 'STRING', enum: ['beginner', 'intermediate', 'advanced'] }, voice: { type: 'STRING', enum: ['Charon', 'Orus', 'Puck', 'Fenrir', 'Kore', 'Aoede', 'Leda', 'Zephyr'], description: 'customer voice — male: Charon/Orus/Puck/Fenrir, female: Kore/Aoede/Leda/Zephyr' } }, required: ['title', 'character_prompt'] } },
       { name: 'view_history', description: "Open the user's past practice sessions and scores.", parameters: { type: 'OBJECT', properties: {} } },
     ],
   },
@@ -195,16 +203,20 @@ export function AssistantWidget() {
         router.push(`/session/${match.id}?lang=${lang}`); return { ok: true, started: match.title, language: lang };
       }
       if (name === 'create_scenario') {
+        const lang = resolveLang(args.language as string) || 'en';
+        const voice = ['Charon', 'Orus', 'Puck', 'Fenrir', 'Kore', 'Aoede', 'Leda', 'Zephyr'].includes(String(args.voice)) ? String(args.voice) : 'Charon';
         const payload = {
           title: String(args.title), description: args.description ? String(args.description) : '',
           objective: args.objective ? String(args.objective) : `Practise: ${args.title}`,
           system_prompt: String(args.character_prompt), opening_message: '',
-          language: resolveLang(args.language as string) || 'en', voice: 'Aoede',
+          language: lang, voice,
           difficulty_level: ['beginner', 'intermediate', 'advanced'].includes(String(args.difficulty)) ? String(args.difficulty) : 'intermediate',
-          visibility: 'private', tags: [], scoring_rubric: DEFAULT_RUBRIC,
+          visibility: 'private', tags: ['custom'], scoring_rubric: DEFAULT_RUBRIC,
         };
         const { data } = await apiClient.post('/scenarios', payload);
-        return { ok: true, id: data.data.id, title: payload.title };
+        // Create AND launch the call — "build it and run it" in one step.
+        router.push(`/session/${data.data.id}?lang=${lang}&voice=${voice}&grade=0`);
+        return { ok: true, launching: payload.title };
       }
       if (name === 'view_history') {
         router.push('/reports');
@@ -345,6 +357,14 @@ export function AssistantWidget() {
     if (awakeRef.current) goToSleep();
     else wake();
   }
+
+  // "Build with Bixy" button (anywhere in the app) → wake Bixy and start the
+  // scenario-building interview.
+  useEffect(() => {
+    const onBuild = () => { wake(); sendToGemini('Help me build a custom insurance practice scenario, then run it.'); };
+    window.addEventListener('bixy:build', onBuild);
+    return () => window.removeEventListener('bixy:build', onBuild);
+  }, [wake, sendToGemini]);
 
   useEffect(() => {
     mountedRef.current = true;

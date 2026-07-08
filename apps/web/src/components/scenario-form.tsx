@@ -235,8 +235,8 @@ export function ScenarioForm({ initial, mode }: { initial: ScenarioFormValue; mo
           <div key={ci} className="rounded-xl border border-border/60 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <input className={inputCls} value={c.name} placeholder="Criterion name" onChange={(e) => updateCriterion(ci, { name: e.target.value })} />
-              <input type="number" className="w-24 rounded-lg border border-border px-3 py-2 text-sm" value={c.weight}
-                onChange={(e) => updateCriterion(ci, { weight: Number(e.target.value) })} placeholder="Weight" />
+              <input type="number" min={0} max={100} className="w-24 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20" value={c.weight}
+                onChange={(e) => updateCriterion(ci, { weight: Math.max(0, Number(e.target.value) || 0) })} placeholder="Weight" />
               <button onClick={() => set('scoring_rubric', v.scoring_rubric.filter((_, i) => i !== ci))}
                 className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-muted" title="Remove">
                 <Trash2 className="h-4 w-4" />

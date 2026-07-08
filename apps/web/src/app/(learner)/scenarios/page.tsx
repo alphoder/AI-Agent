@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Plus, Search, Mic, Pencil, Globe, Lock, Languages, X,
-  Briefcase, TrendingUp, Users, Headphones, Megaphone, Stethoscope,
-  MessageCircle, GraduationCap, Compass, Volume2, Square,
+  Plus, Search, Mic, Pencil, Globe, Lock, Languages, X, Sparkles,
+  Shield, HeartPulse, Car, PiggyBank, RefreshCw, Handshake, Building2, Headphones,
+  Compass, Volume2, Square,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { LanguagePicker } from '@/components/language-picker';
@@ -33,23 +33,23 @@ const DIFFICULTY_STYLE: Record<string, string> = {
 const DIFFICULTIES = ['beginner', 'intermediate', 'advanced'] as const;
 
 // Scenario tags cluster into friendly categories. First matching tag wins.
-const CATEGORIES: { key: string; label: string; blurb: string; icon: typeof Briefcase; match: string[] }[] = [
-  { key: 'career', label: 'Interviews & Career', blurb: 'Land the role and grow into the next one.', icon: Briefcase,
-    match: ['interview', 'career', 'promotion', 'salary', 'negotiation', 'behavioural', 'workplace', 'entrevista', 'carrera', 'entretien', 'carrière', 'करियर', 'इंटरव्यू'] },
-  { key: 'sales', label: 'Sales & Persuasion', blurb: 'Win attention, handle objections, close.', icon: TrendingUp,
-    match: ['sales', 'cold-calling', 'b2b', 'pitch', 'fundraising', 'startup', 'objection-handling', 'real-estate', 'persuasion', 'ventas', 'negociación'] },
-  { key: 'leadership', label: 'Leadership & Feedback', blurb: 'Hard conversations, handled with care.', icon: Users,
-    match: ['leadership', 'feedback', 'delegation', 'management', 'conflict'] },
-  { key: 'support', label: 'Customer & Support', blurb: 'De-escalate and make it right.', icon: Headphones,
-    match: ['support', 'de-escalation', 'service', 'hospitality'] },
-  { key: 'speaking', label: 'Public Speaking', blurb: 'Command the room under pressure.', icon: Megaphone,
-    match: ['public-speaking', 'q-and-a', 'media', 'pr', 'confidence'] },
-  { key: 'healthcare', label: 'Healthcare', blurb: 'Clear, compassionate clinical talk.', icon: Stethoscope,
-    match: ['healthcare', 'self-advocacy'] },
-  { key: 'social', label: 'Social & Networking', blurb: 'Break the ice and keep it flowing.', icon: MessageCircle,
-    match: ['networking', 'small-talk', 'social', 'dating'] },
-  { key: 'learning', label: 'Education & Research', blurb: 'Teach, defend and discover.', icon: GraduationCap,
-    match: ['education', 'academic', 'defense', 'product', 'research', 'discovery', 'tech'] },
+const CATEGORIES: { key: string; label: string; blurb: string; icon: typeof Shield; match: string[] }[] = [
+  { key: 'life', label: 'Life & Term', blurb: 'Protect the family that depends on them.', icon: Shield,
+    match: ['term-life', 'family'] },
+  { key: 'health', label: 'Health', blurb: 'Cover for hospital bills and peace of mind.', icon: HeartPulse,
+    match: ['health', 'senior'] },
+  { key: 'motor', label: 'Motor', blurb: 'Renew, retain and upsell car cover.', icon: Car,
+    match: ['motor'] },
+  { key: 'invest', label: 'Savings & Investments', blurb: 'ULIP, endowment, child and savings plans.', icon: PiggyBank,
+    match: ['ulip', 'investment', 'endowment', 'savings', 'child-plan', 'compliance'] },
+  { key: 'renewal', label: 'Renewals & Retention', blurb: 'Keep customers and grow the relationship.', icon: RefreshCw,
+    match: ['renewal', 'upsell', 'retention'] },
+  { key: 'service', label: 'Service & Claims', blurb: 'Reassure, resolve, and earn cross-sell.', icon: Headphones,
+    match: ['claims', 'service', 'cross-sell'] },
+  { key: 'closing', label: 'Objections & Closing', blurb: 'Handle pushback and lock the next step.', icon: Handshake,
+    match: ['objection-handling', 'follow-up', 'closing', 'cold-call'] },
+  { key: 'business', label: 'Group & Business', blurb: 'Corporate and SME insurance sales.', icon: Building2,
+    match: ['group', 'b2b', 'sme'] },
 ];
 const MORE = { key: 'more', label: 'More to explore', blurb: 'A few extras to round things out.', icon: Compass };
 
@@ -112,7 +112,7 @@ export default function ScenariosPage() {
     return [...CATEGORIES, MORE].map((c) => ({ ...c, items: buckets.get(c.key) ?? [] })).filter((c) => c.items.length > 0);
   }, [filtered]);
 
-  function openPicker(s: Scenario) { setPicker({ scenario: s, lang: s.language || 'en', voice: s.voice || 'Charon', grade: true }); }
+  function openPicker(s: Scenario) { setPicker({ scenario: s, lang: s.language || 'en', voice: s.voice || 'Charon', grade: false }); }
   function start() {
     if (!picker) return;
     setStarting(picker.scenario.id);
@@ -126,10 +126,23 @@ export default function ScenariosPage() {
           <h1 className="text-2xl font-bold tracking-tight">Practice library</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Pick a scenario and start talking. Your mic and camera stay on your device.</p>
         </div>
-        <Link href="/scenarios/create" className="press inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-          <Plus className="h-4 w-4" /> Create scenario
+        <Link href="/scenarios/create" className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
+          <Plus className="h-4 w-4" /> Create manually
         </Link>
       </div>
+
+      {/* Build-your-own banner — says exactly what it does */}
+      <button
+        onClick={() => window.dispatchEvent(new CustomEvent('bixy:build'))}
+        className="press flex w-full items-center gap-4 rounded-2xl border border-primary/30 bg-primary/5 p-4 text-left transition-colors hover:bg-primary/10"
+      >
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Sparkles className="h-5 w-5" /></span>
+        <span className="flex-1">
+          <span className="block font-semibold">Build your own practice call</span>
+          <span className="block text-sm text-muted-foreground">Just tell Bixy the situation — it designs the customer and starts a live call for you in seconds.</span>
+        </span>
+        <span className="hidden shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground sm:inline-block">Talk to Bixy</span>
+      </button>
 
       {/* Controls */}
       <div className="space-y-3">
