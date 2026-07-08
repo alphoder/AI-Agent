@@ -15,11 +15,12 @@ export function LanguagePicker({
   className?: string;
 }) {
   const [q, setQ] = useState('');
+  const sorted = useMemo(() => [...LANGUAGES].sort((a, b) => a.name.localeCompare(b.name)), []);
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
-    if (!term) return LANGUAGES;
-    return LANGUAGES.filter((l) => l.name.toLowerCase().includes(term) || l.code.includes(term));
-  }, [q]);
+    if (!term) return sorted;
+    return sorted.filter((l) => l.name.toLowerCase().includes(term) || l.code.includes(term));
+  }, [q, sorted]);
 
   return (
     <div className={className}>

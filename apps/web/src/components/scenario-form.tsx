@@ -1,12 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Loader2, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Loader2, Sparkles, Volume2, Square } from 'lucide-react';
 import apiClient from '@/lib/api-client';
-import { LANGUAGES } from '@avatar-platform/shared';
-
-const VOICES = ['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'];
+import { LANGUAGES, MALE_VOICES, FEMALE_VOICES, GEMINI_VOICES, voiceSampleUrl } from '@avatar-platform/shared';
 
 interface Level { score: number; label: string; description: string }
 interface Criterion { name: string; description: string; weight: number; levels: Level[] }
@@ -55,6 +53,17 @@ export function ScenarioForm({ initial, mode }: { initial: ScenarioFormValue; mo
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [improving, setImproving] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function playSample(id: string) {
+    audioRef.current?.pause();
+    if (playing) { setPlaying(false); return; }
+    const a = new Audio(voiceSampleUrl(id));
+    audioRef.current = a;
+    a.onended = () => setPlaying(false);
+    a.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+  }
 
   const totalWeight = v.scoring_rubric.reduce((s, c) => s + (Number(c.weight) || 0), 0);
 
@@ -166,10 +175,22 @@ export function ScenarioForm({ initial, mode }: { initial: ScenarioFormValue; mo
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground">Coach voice</label>
-            <select className={inputCls} value={v.voice} onChange={(e) => set('voice', e.target.value)}>
-              {VOICES.map((x) => <option key={x} value={x}>{x}</option>)}
-            </select>
+            <label className="text-xs font-medium text-muted-foreground">Customer voice</label>
+            <div className="flex items-center gap-1.5">
+              <select className={`${inputCls} flex-1`} value={v.voice} onChange={(e) => set('voice', e.target.value)}>
+                <optgroup label="Male">
+                  {MALE_VOICES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                </optgroup>
+                <optgroup label="Female">
+                  {FEMALE_VOICES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                </optgroup>
+              </select>
+              <button type="button" onClick={() => playSample(v.voice)} title="Hear this voice"
+                className="press inline-flex shrink-0 items-center justify-center rounded-lg border border-border p-2.5 hover:bg-muted">
+                {playing ? <Square className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{GEMINI_VOICES.find((x) => x.id === v.voice)?.description}</p>
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground">Difficulty</label>
