@@ -17,8 +17,8 @@ const IDLE_MS = 45000;             // close the session only after this much tru
 const HINTS = [
   'Say “Hey Bixy” to wake me',
   '“Hey Bixy, show my scenarios”',
-  '“Hey Bixy, start a job interview”',
-  '“Hey Bixy, open my history”',
+  '“Hey Bixy, start a term-life cold call”',
+  '“Hey Bixy, open my reports”',
 ];
 
 function systemPrompt(name: string) {
@@ -51,12 +51,6 @@ const TOOLS = [
       { name: 'view_history', description: "Open the user's past practice sessions and scores.", parameters: { type: 'OBJECT', properties: {} } },
     ],
   },
-];
-
-const DEFAULT_RUBRIC = [
-  { name: 'Clarity', description: 'How clear and well-structured the responses are', weight: 34, levels: [{ score: 1, label: 'Needs work', description: 'Confusing or rambling' }, { score: 3, label: 'Solid', description: 'Generally clear' }, { score: 5, label: 'Excellent', description: 'Crisp and compelling' }] },
-  { name: 'Relevance', description: 'How well the learner addresses the goal', weight: 33, levels: [{ score: 1, label: 'Needs work', description: 'Off-topic' }, { score: 3, label: 'Solid', description: 'Mostly on-task' }, { score: 5, label: 'Excellent', description: 'Sharply on-point' }] },
-  { name: 'Engagement', description: 'Confidence, rapport and responsiveness', weight: 33, levels: [{ score: 1, label: 'Needs work', description: 'Flat or passive' }, { score: 3, label: 'Solid', description: 'Engaged' }, { score: 5, label: 'Excellent', description: 'Confident and compelling' }] },
 ];
 
 function resolveLang(input?: string): string | undefined {
@@ -211,7 +205,9 @@ export function AssistantWidget() {
           system_prompt: String(args.character_prompt), opening_message: '',
           language: lang, voice,
           difficulty_level: ['beginner', 'intermediate', 'advanced'].includes(String(args.difficulty)) ? String(args.difficulty) : 'intermediate',
-          visibility: 'private', tags: ['custom'], scoring_rubric: DEFAULT_RUBRIC,
+          // Empty rubric → the AI service scores against its insurance BEGINNER/
+          // INTERMEDIATE/ADVANCED default for the chosen difficulty.
+          visibility: 'private', tags: ['custom'], scoring_rubric: [],
         };
         const { data } = await apiClient.post('/scenarios', payload);
         // Create AND launch the call — "build it and run it" in one step.
