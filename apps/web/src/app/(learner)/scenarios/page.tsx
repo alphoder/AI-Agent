@@ -251,7 +251,8 @@ export default function ScenariosPage() {
                 onClick={() => setPicker((p) => (p ? { ...p, grade: !p.grade } : p))}
                 className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${picker.grade ? 'bg-primary' : 'bg-muted'}`}
               >
-                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${picker.grade ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+                {/* Knob color flips per state so it contrasts on both the white (on) and dark (off) track — primary is white in the dark theme, so a fixed white knob vanished when on. */}
+                <span className={`absolute top-0.5 h-5 w-5 rounded-full shadow transition-transform ${picker.grade ? 'translate-x-[22px] bg-primary-foreground' : 'translate-x-0.5 bg-foreground'}`} />
               </button>
             </div>
             <button onClick={start} disabled={starting === picker.scenario.id}
