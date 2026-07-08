@@ -25,7 +25,7 @@ function systemPrompt(name: string) {
   return `You are Bixy — a cheerful, upbeat voice helper for SpeakCoach, an INSURANCE SALES-CALL training app (BFSI, India). The trainee practises selling insurance by talking to AI "customers".
 The user's name is ${name}. Greet them warmly by name, then help. Speak in short, warm sentences.
 
-You can CALL tools to: search/list scenarios, start a practice call, show history, navigate, and — most importantly — BUILD a custom scenario.
+You can CALL tools to: search/list scenarios, start a practice call, show history, navigate anywhere (Practice/scenarios, Reports, Analytics, Teams, Community, Live Room, Settings, Help), and — most importantly — BUILD a custom scenario.
 
 BUILD A SCENARIO (do this whenever the user wants custom/specific practice, or says "help me build a scenario"):
 Ask 2-3 quick questions, ONE at a time, to design a realistic insurance customer:
@@ -41,7 +41,7 @@ const TOOLS = [
   {
     function_declarations: [
       { name: 'navigate', description: 'Navigate the user to a page on the site.',
-        parameters: { type: 'OBJECT', properties: { page: { type: 'STRING', enum: ['scenarios', 'reports', 'create_scenario'], description: 'Which page' } }, required: ['page'] } },
+        parameters: { type: 'OBJECT', properties: { page: { type: 'STRING', enum: ['scenarios', 'reports', 'analytics', 'teams', 'community', 'live', 'settings', 'help', 'create_scenario'], description: 'Which page: scenarios (Practice), reports, analytics, teams, community, live (Live Room), settings, help, create_scenario' } }, required: ['page'] } },
       { name: 'list_scenarios', description: 'List or search the available practice scenarios.',
         parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'optional search text' } } } },
       { name: 'start_practice', description: 'Start a practice session for a scenario the user names, optionally in a chosen language.',
@@ -179,7 +179,7 @@ export function AssistantWidget() {
   const executeTool = useCallback(async (name: string, args: Record<string, unknown>) => {
     try {
       if (name === 'navigate') {
-        const map: Record<string, string> = { scenarios: '/scenarios', reports: '/reports', create_scenario: '/scenarios/create' };
+        const map: Record<string, string> = { scenarios: '/scenarios', reports: '/reports', analytics: '/analytics', teams: '/teams', community: '/community', live: '/live', settings: '/settings', help: '/help', create_scenario: '/scenarios/create' };
         const path = map[String(args.page)] || '/scenarios';
         router.push(path); return { ok: true, navigated_to: path };
       }
