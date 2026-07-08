@@ -281,51 +281,51 @@ function SessionInner() {
   const ss = String(elapsed % 60).padStart(2, '0');
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-slate-950 text-white flex flex-col">
+    <div className="h-[100dvh] overflow-hidden bg-black text-white flex flex-col antialiased">
       {/* Top bar */}
       <div className="flex items-center justify-between px-5 h-14 border-b border-white/10">
         <div className="text-sm font-medium truncate">{config?.scenarioTitle || 'Session'}</div>
         <div className="flex items-center gap-3 text-sm">
-          <span className={`flex items-center gap-1.5 ${phase === 'live' ? 'text-emerald-400' : 'text-amber-400'}`}>
-            <span className={`h-2 w-2 rounded-full ${phase === 'live' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+          <span className={`flex items-center gap-1.5 transition-colors ${phase === 'live' ? 'text-blue-400' : 'text-white/50'}`}>
+            <span className={`h-2 w-2 rounded-full transition-colors ${phase === 'live' ? 'bg-blue-500 animate-pulse' : 'bg-white/40'}`} />
             {phase === 'live' ? 'Live' : phase === 'ending' ? 'Wrapping up' : 'Connecting'}
           </span>
-          <span className="tabular-nums text-white/70">{mm}:{ss}</span>
+          <span className="tabular-nums text-white/60">{mm}:{ss}</span>
         </div>
       </div>
 
       <div className="flex-1 min-h-0 grid grid-rows-[minmax(0,1fr)_minmax(0,1.4fr)] lg:grid-rows-1 lg:grid-cols-2 gap-4 p-4 overflow-hidden">
         {/* Self-view */}
-        <div className="relative rounded-2xl overflow-hidden bg-black flex items-center justify-center">
+        <div className="relative rounded-2xl overflow-hidden bg-zinc-950 ring-1 ring-white/10 flex items-center justify-center">
           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
           {!camOn && (
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-white/50">
+            <div className="absolute inset-0 flex items-center justify-center bg-zinc-950 text-white/40">
               <VideoOff className="h-10 w-10" />
             </div>
           )}
-          <div className="absolute bottom-3 left-3 text-xs bg-black/50 px-2 py-1 rounded-full">You</div>
-          <div className={`absolute top-3 right-3 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors ${coachSpeaking ? 'bg-blue-500' : 'bg-white/10'}`}>
-            <Mic className="h-3 w-3" /> {coachSpeaking ? 'Coach speaking' : 'Coach listening'}
+          <div className="absolute bottom-3 left-3 text-xs bg-black/60 backdrop-blur px-2.5 py-1 rounded-full">You</div>
+          <div className={`absolute top-3 right-3 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-all duration-300 ${coachSpeaking ? 'bg-blue-600 shadow-lg shadow-blue-600/30' : 'bg-white/10'}`}>
+            <Mic className="h-3 w-3" /> {coachSpeaking ? 'Customer speaking' : 'Customer listening'}
           </div>
         </div>
 
         {/* Transcript */}
-        <div className="min-h-0 rounded-2xl bg-white/5 flex flex-col overflow-hidden">
-          <div className="shrink-0 px-4 py-3 border-b border-white/10 text-sm font-medium">Transcript</div>
+        <div className="min-h-0 rounded-2xl bg-white/[0.03] ring-1 ring-white/10 flex flex-col overflow-hidden">
+          <div className="shrink-0 px-4 py-3 border-b border-white/10 text-sm font-medium text-white/80">Transcript</div>
           <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth p-4 space-y-3">
             {transcripts.length === 0 && !interim && (
-              <p className="text-white/40 text-sm">Say hello to begin the conversation.</p>
+              <p className="text-white/40 text-sm">Start the call — greet the customer to begin.</p>
             )}
             {transcripts.map((t, i) => (
-              <div key={i} className={`flex ${t.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${t.role === 'user' ? 'bg-blue-600' : 'bg-white/10'}`}>
+              <div key={i} className={`flex animate-chip-in ${t.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed transition-colors ${t.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white/[0.08] text-white/90 rounded-bl-sm'}`}>
                   {t.text}
                 </div>
               </div>
             ))}
             {interim && (
               <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl px-3.5 py-2 text-sm bg-blue-600/40 italic">{interim}</div>
+                <div className="max-w-[80%] rounded-2xl rounded-br-sm px-3.5 py-2 text-sm bg-blue-600/40 italic">{interim}</div>
               </div>
             )}
             <div ref={transcriptEndRef} />
@@ -341,17 +341,17 @@ function SessionInner() {
         {error && <div className="text-rose-400 text-sm">{error}</div>}
         {phase === 'live' && (
           <>
-            <button onClick={toggleMic} className={`rounded-full p-4 ${micOn ? 'bg-white/10 hover:bg-white/20' : 'bg-rose-500'}`} title="Toggle mic">
+            <button onClick={toggleMic} className={`rounded-full p-4 transition-all active:scale-95 ${micOn ? 'bg-white/10 hover:bg-white/20' : 'bg-white/20 ring-1 ring-white/30'}`} title="Toggle mic">
               {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
             </button>
-            <button onClick={toggleCam} className={`rounded-full p-4 ${camOn ? 'bg-white/10 hover:bg-white/20' : 'bg-rose-500'}`} title="Toggle camera">
+            <button onClick={toggleCam} className={`rounded-full p-4 transition-all active:scale-95 ${camOn ? 'bg-white/10 hover:bg-white/20' : 'bg-white/20 ring-1 ring-white/30'}`} title="Toggle camera">
               {camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </button>
           </>
         )}
         {(phase === 'live' || error) && (
-          <button onClick={endSession} className="rounded-full bg-rose-600 hover:bg-rose-700 px-6 py-4 flex items-center gap-2 text-sm font-medium" title="End session">
-            <PhoneOff className="h-5 w-5" /> End & get feedback
+          <button onClick={endSession} className="rounded-full bg-blue-600 hover:bg-blue-700 px-6 py-4 flex items-center gap-2 text-sm font-medium shadow-lg shadow-blue-600/25 transition-all active:scale-95" title="End session">
+            <PhoneOff className="h-5 w-5" /> End &amp; get feedback
           </button>
         )}
         {phase === 'ending' && (

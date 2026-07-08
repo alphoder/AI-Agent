@@ -1,9 +1,9 @@
 /**
- * Seed script: public scenario library for the free voice-only product.
+ * Seed script: SpeakCoach for BFSI / Insurance sales training (India).
  *
- * No tenants, users, avatars or personas — just a handful of ready-to-practice
- * public scenarios (created_by = NULL) that every signed-in user can start.
- * Idempotent on title for the public (owner-less) rows.
+ * Every scenario is a realistic insurance sales call. The AI plays the CUSTOMER
+ * / prospect (in character, in an Indian language); the trainee is the agent.
+ * Public rows (created_by = NULL). Idempotent on title.
  */
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
@@ -17,7 +17,6 @@ const DATABASE_URL =
 type Level = { score: number; label: string; description: string };
 type Criterion = { name: string; description: string; weight: number; levels: Level[] };
 
-/** Compact 3-level rubric builder (1 = weak, 3 = solid, 5 = excellent). */
 function criterion(name: string, description: string, weight: number, weak: string, solid: string, great: string): Criterion {
   return {
     name,
@@ -31,50 +30,74 @@ function criterion(name: string, description: string, weight: number, weak: stri
   };
 }
 
-// Reusable rubric templates (read-only; shared across scenarios).
-const INTERVIEW_RUBRIC: Criterion[] = [
-  criterion('Clarity & Structure', 'Answers are organised and easy to follow (e.g. STAR).', 35,
-    'Rambling, no structure.', 'Mostly structured with a clear point.', 'Crisp, well-structured, compelling.'),
-  criterion('Specificity & Evidence', 'Backs claims with concrete examples and outcomes.', 35,
-    'Vague generalities.', 'Some concrete examples.', 'Rich, quantified examples that prove impact.'),
-  criterion('Engagement & Curiosity', 'Listens, builds rapport, asks good questions.', 30,
-    'Passive, no questions.', 'Polite, asks a relevant question.', 'Genuinely curious with insightful questions.'),
+// --- Insurance-sales rubrics (BFSI). Weights sum to 100. ---------------------
+
+// New-business calls (cold + warm leads).
+const SALES_RUBRIC: Criterion[] = [
+  criterion('Rapport & Trust', 'Opens professionally, is warm and respectful, earns permission to continue.', 20,
+    'Jumps into a pitch, pushy or robotic, no trust built.',
+    'Polite opening, introduces self and reason for the call.',
+    'Genuine warmth and credibility; the customer feels at ease quickly.'),
+  criterion('Needs Discovery', 'Asks about family, income, dependants, existing cover and goals BEFORE pitching.', 25,
+    'Pitches a product with no questions about the customer.',
+    'Asks a few questions and uncovers one real need.',
+    'Skilful questions that surface the real financial need and existing gaps.'),
+  criterion('Simple, Honest Explanation', 'Explains the plan in plain language, correct facts, no jargon or false promises.', 20,
+    'Confusing jargon, vague, or over-promises guaranteed returns.',
+    'Explains the core benefit clearly and mostly accurately.',
+    'Crystal-clear, honest, tailored explanation the customer truly understands.'),
+  criterion('Objection Handling', 'Handles price, "I already have insurance", "I will think about it" calmly and persuasively.', 25,
+    'Gets flustered, argues, or gives up at the first objection.',
+    'Addresses the objection reasonably and stays composed.',
+    'Turns objections into reasons to buy, with empathy and proof.'),
+  criterion('Ethical Close & Next Step', 'No mis-selling; secures a clear, committed next step (form, meeting, payment link).', 10,
+    'No ask, or pressures/mis-sells to force a yes.',
+    'Asks for a tentative next step.',
+    'Locks a specific, committed next step the customer is happy with.'),
 ];
 
-const PERSUASION_RUBRIC: Criterion[] = [
-  criterion('Opening & Rapport', 'Earns attention and sets a positive frame.', 30,
-    'Weak or abrupt opening.', 'Clear, courteous opening.', 'Sharp hook that earns genuine interest.'),
-  criterion('Argument & Objection Handling', 'Makes the case and addresses pushback.', 40,
-    'Caves or argues poorly.', 'Handles basic objections.', 'Turns objections into opportunities.'),
-  criterion('Close & Next Step', 'Secures a concrete, committed next step.', 30,
-    'No clear ask or close.', 'Agrees a tentative next step.', 'Locks a specific, committed outcome.'),
+// Renewals / upsell of existing policies.
+const RENEWAL_RUBRIC: Criterion[] = [
+  criterion('Rapport & Recall', 'Reconnects warmly, references the existing policy and relationship.', 20,
+    'Treats a loyal customer like a cold lead.',
+    'Friendly, acknowledges they are an existing customer.',
+    'Personal, appreciative, makes the customer feel valued.'),
+  criterion('Value Reminder', 'Reminds the customer why the cover matters and what they would lose by lapsing.', 25,
+    'Just asks for money with no value shown.',
+    'Mentions a benefit or two of continuing.',
+    'Compelling, specific reminder of protection and continuity benefits.'),
+  criterion('Relevant Upsell', 'Suggests a genuinely fitting add-on or top-up (not a random push).', 20,
+    'No suggestion, or an irrelevant hard push.',
+    'Suggests one relevant add-on with a reason.',
+    'Tailored, well-timed upsell the customer sees clear value in.'),
+  criterion('Objection Handling', 'Handles "premium increased", "I may switch", "not now" calmly.', 25,
+    'Defensive or dismissive about price/complaints.',
+    'Acknowledges the concern and responds reasonably.',
+    'Empathetic, justifies the value, retains the customer.'),
+  criterion('Close & Next Step', 'Secures the renewal or a firm follow-up.', 10,
+    'Leaves it open with no next step.',
+    'Agrees a tentative follow-up.',
+    'Confirms renewal or a specific committed action.'),
 ];
 
-const EMPATHY_RUBRIC: Criterion[] = [
-  criterion('Empathy & Tone', 'Stays calm, warm and respectful.', 30,
-    'Cold, harsh or dismissive.', 'Generally respectful and calm.', 'Warm, steady, psychologically safe.'),
-  criterion('Ownership & Honesty', 'Is direct and takes responsibility appropriately.', 30,
-    'Evasive or blaming.', 'Honest and accountable.', 'Fully owns it and rebuilds trust.'),
-  criterion('Resolution', 'Drives to a clear, mutual way forward.', 40,
-    'No resolution.', 'Reasonable next steps.', 'Clear, mutually owned plan.'),
-];
-
-const DELIVERY_RUBRIC: Criterion[] = [
-  criterion('Hook & Clarity', 'Grabs attention and is instantly understandable.', 40,
-    'Confusing or buried lead.', 'Clear core message.', 'Memorable hook, crystal-clear message.'),
-  criterion('Confidence & Delivery', 'Calm, paced and present.', 30,
-    'Rushed, hesitant or monotone.', 'Steady and clear.', 'Commanding, natural, engaging.'),
-  criterion('Handling Questions', 'Answers follow-ups with poise.', 30,
-    'Thrown off, vague answers.', 'Reasonable, on-topic answers.', 'Confident, sharp, persuasive answers.'),
-];
-
-const CONVERSATION_RUBRIC: Criterion[] = [
-  criterion('Listening & Rapport', 'Listens, reflects and connects.', 40,
-    'Talks over, no rapport.', 'Polite and attentive.', 'Warm, curious, builds real rapport.'),
-  criterion('Clarity & Relevance', 'Stays clear and on-topic.', 30,
-    'Off-topic or muddled.', 'Mostly clear and relevant.', 'Sharp, relevant and easy to follow.'),
-  criterion('Confidence & Warmth', 'Comes across confident and likeable.', 30,
-    'Flat or anxious.', 'Comfortable and pleasant.', 'Confident, warm and engaging.'),
+// Service + trust moments (claims worry, cross-sell to existing customers).
+const SERVICE_RUBRIC: Criterion[] = [
+  criterion('Empathy & Reassurance', 'Listens, acknowledges worry, reassures with facts.', 30,
+    'Cold, scripted, dismisses the concern.',
+    'Calm and reassuring, addresses the worry.',
+    'Deeply reassuring and human; the customer feels supported.'),
+  criterion('Clarity & Accuracy', 'Explains the process / facts simply and correctly.', 30,
+    'Vague, wrong, or confusing information.',
+    'Mostly clear and correct explanation.',
+    'Precise, simple, confidence-building explanation.'),
+  criterion('Trust-Led Cross-Sell', 'Only after helping, suggests a relevant additional cover naturally.', 25,
+    'Pushes a product while the customer is still worried.',
+    'Mentions a relevant option after resolving the concern.',
+    'Earns the right to cross-sell; the offer feels helpful, not salesy.'),
+  criterion('Close & Next Step', 'Ends with a clear resolution and next step.', 15,
+    'No clear resolution or next step.',
+    'Reasonable next step agreed.',
+    'Clear resolution and a specific committed next step.'),
 ];
 
 interface SeedScenario {
@@ -90,387 +113,122 @@ interface SeedScenario {
   rubric: Criterion[];
 }
 
+// Voice pool: male [Charon, Orus, Puck, Fenrir] · female [Aoede, Kore, Leda, Zephyr]
 const SCENARIOS: SeedScenario[] = [
   {
-    title: 'Job Interview: Software Engineer',
-    description: 'Practice a behavioural tech interview with a friendly but probing hiring manager.',
-    objective: 'Communicate your experience clearly, answer behavioural questions with structure, and ask thoughtful questions.',
+    title: 'Term Life — Cold Call (Hindi)',
+    description: 'Ek naye lead ko cold call par term insurance samjhaayein. Customer vyast aur sceptical hai.',
+    objective: 'Pehle 30 second mein bharosa jeetein, zaroorat samjhein, aur ek next step tay karein.',
     system_prompt:
-      'You are Maya, a senior engineering manager interviewing the user for a software engineer role. Ask one question at a time: start with "tell me about yourself", then dig into a past project, a conflict, and how they handle failure. Be warm but probe for specifics. Stay in character; never mention being an AI.',
-    opening_message: "Thanks for joining today! To start, can you tell me a little about yourself and what drew you to this role?",
-    language: 'en',
-    voice: 'Aoede',
-    difficulty_level: 'intermediate',
-    tags: ['interview', 'career', 'behavioural'],
-    rubric: [
-      criterion('Clarity & Structure', 'Answers are organised and easy to follow (e.g. STAR).', 35,
-        'Rambling, no structure, hard to follow.',
-        'Mostly structured with a clear point.',
-        'Crisp, well-structured, compelling answers throughout.'),
-      criterion('Specificity & Evidence', 'Backs claims with concrete examples and outcomes.', 35,
-        'Vague generalities, no examples.',
-        'Some concrete examples with results.',
-        'Rich, quantified examples that prove impact.'),
-      criterion('Engagement & Curiosity', 'Listens, builds rapport, asks good questions.', 30,
-        'Passive, no questions, low energy.',
-        'Polite, asks at least one relevant question.',
-        'Genuinely curious, strong rapport, insightful questions.'),
-    ],
+      'You are Suresh Nair, a 38-year-old salaried man in Pune with a wife and two young kids. You get a cold call from an insurance agent. Start busy and mildly annoyed ("main abhi busy hoon"). Objection 1: "mere paas already LIC policy hai". Objection 2: "term plan mein toh paisa wapas nahi milta". If the agent asks good questions about your family and explains term cover honestly and simply, slowly warm up. If they pitch too fast or over-promise, stay resistant. Speak ONLY in natural conversational Hindi (Hinglish is fine). Stay in character; never say you are an AI.',
+    opening_message: 'Haan hello, kaun? Dekhiye main thoda busy hoon abhi, jaldi bataiye kya baat hai.',
+    language: 'hi', voice: 'Charon', difficulty_level: 'advanced', tags: ['term-life', 'cold-call', 'hindi', 'bfsi'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Sales: Cold Call Discovery',
-    description: 'Open a cold call with a busy VP and earn a discovery conversation.',
-    objective: 'Earn attention in the first 20 seconds, uncover a pain point, and secure a next step.',
+    title: 'Health Insurance — "It is Too Expensive" (English, India)',
+    description: 'A cost-conscious customer likes the health plan but pushes back hard on premium.',
+    objective: 'Justify the value of health cover and handle the price objection without discounting your integrity.',
     system_prompt:
-      'You are Daniel, a busy VP of Operations who did not expect this call. Start slightly impatient. If the user opens well and asks good questions, warm up and share a real operational pain. If they pitch too early, push back with objections. Stay in character.',
-    opening_message: "Hello, this is Daniel. I've got about two minutes before my next meeting — what's this about?",
-    language: 'en',
-    voice: 'Charon',
-    difficulty_level: 'advanced',
-    tags: ['sales', 'cold-calling', 'b2b'],
-    rubric: [
-      criterion('Opening & Permission', 'Earns attention and permission to continue.', 30,
-        'Generic pitch, no hook, ignores their time.',
-        'Clear reason for the call, asks for a moment.',
-        'Sharp, relevant hook that earns genuine interest.'),
-      criterion('Discovery', 'Asks open questions to uncover real needs.', 40,
-        'No questions, talks at the prospect.',
-        'Asks a few questions, surfaces one need.',
-        'Skilful questioning that uncovers a real pain.'),
-      criterion('Next Step', 'Secures a concrete, committed next step.', 30,
-        'No next step or vague "I\'ll send info".',
-        'Agrees a tentative follow-up.',
-        'Locks a specific, committed next meeting.'),
-    ],
+      'You are Priya Menon, a 32-year-old marketing professional in Bangalore, recently married, no health cover yet. You are interested but very price-sensitive. Main objection: "fifteen thousand a year is too expensive, I am healthy anyway". Also worry: "what if I never claim, it is a waste". If the agent explains hospital costs, cashless benefit, and no-claim bonus clearly and empathetically, become convinced. If they just say "it is important" without substance, stay unconvinced. Speak ONLY in clear Indian English. Stay in character.',
+    opening_message: 'Yeah hi, so I looked at the health plan you sent, but honestly fifteen thousand a year feels like a lot. I am pretty healthy, do I really need this?',
+    language: 'en', voice: 'Kore', difficulty_level: 'intermediate', tags: ['health', 'objection-handling', 'english', 'bfsi'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Difficult Conversation: Giving Feedback',
-    description: 'Deliver tough performance feedback to a defensive teammate with empathy.',
-    objective: 'Give honest, specific feedback while keeping the relationship intact and agreeing on next steps.',
+    title: 'Motor Insurance — Renewal + Add-ons (Hindi)',
+    description: 'Purani car insurance renew karwaani hai; zero-dep aur add-ons ka upsell karein.',
+    objective: 'Renewal confirm karwaayein aur ek relevant add-on (zero depreciation) ka value samjhaayein.',
     system_prompt:
-      'You are Sam, a talented but defensive teammate. You missed a deadline that affected the team. React defensively at first ("I had a lot on"). If the user is specific, fair and empathetic, gradually open up and take ownership. If they are vague or harsh, stay defensive. Stay in character.',
-    opening_message: "Hey — you wanted to chat? Is everything okay?",
-    language: 'en',
-    voice: 'Kore',
-    difficulty_level: 'advanced',
-    tags: ['leadership', 'feedback', 'communication'],
-    rubric: [
-      criterion('Empathy & Tone', 'Stays calm, respectful and human.', 30,
-        'Harsh, blaming, or cold.',
-        'Generally respectful and calm.',
-        'Warm, steady, psychologically safe throughout.'),
-      criterion('Specificity', 'Names concrete behaviours and impact, not character.', 40,
-        'Vague or attacks the person.',
-        'Some specific examples of behaviour and impact.',
-        'Precise, behaviour-focused, impact-driven feedback.'),
-      criterion('Path Forward', 'Agrees clear, mutual next steps.', 30,
-        'No resolution or one-sided demands.',
-        'Some agreement on what changes.',
-        'Clear, mutually owned action plan.'),
-    ],
+      'You are Rakesh Gupta, a 45-year-old shop owner in Jaipur renewing car insurance for your 3-year-old Hyundai. You are a loyal but blunt customer. Complaint: "pichhle saal se premium zyada kyun hai?". You are unsure about add-ons: "yeh zero-depreciation kya hota hai, extra paisa kyun doon?". If the agent reminds you of the value and explains zero-dep simply with a relatable example, agree to renew and consider the add-on. Speak ONLY in Hindi/Hinglish. Stay in character.',
+    opening_message: 'Haan bhai, gaadi ka insurance renew karna hai. Par yeh premium pichhle saal se zyada dikha raha hai, aisa kyun?',
+    language: 'hi', voice: 'Aoede', difficulty_level: 'intermediate', tags: ['motor', 'renewal', 'upsell', 'hindi'], rubric: RENEWAL_RUBRIC,
   },
   {
-    title: 'Public Speaking: Elevator Pitch',
-    description: 'Pitch yourself or your idea compellingly in under two minutes.',
-    objective: 'Deliver a clear, confident, memorable pitch and handle a follow-up question.',
+    title: 'ULIP / Investment Plan — Confused Customer (English)',
+    description: 'A customer wants returns but is confused about market risk and charges in a ULIP.',
+    objective: 'Explain a market-linked plan honestly, set correct expectations, and avoid mis-selling.',
     system_prompt:
-      'You are an interested but time-pressed investor at a networking event. Let the user pitch. Then ask one sharp follow-up question (e.g. "who is this for?" or "why you?"). Be encouraging but keep them concise. Stay in character.',
-    opening_message: "Hi there! We've only got a minute before the next session — so, tell me what you're working on.",
-    language: 'en',
-    voice: 'Puck',
-    difficulty_level: 'beginner',
-    tags: ['public-speaking', 'pitch', 'confidence'],
-    rubric: [
-      criterion('Hook & Clarity', 'Grabs attention and is instantly understandable.', 40,
-        'Confusing or buried lead.',
-        'Clear core message.',
-        'Memorable hook, crystal-clear message.'),
-      criterion('Confidence & Delivery', 'Calm, paced, present.', 30,
-        'Rushed, hesitant, or monotone.',
-        'Steady and clear.',
-        'Commanding, natural, engaging delivery.'),
-      criterion('Handling the Question', 'Answers the follow-up with poise.', 30,
-        'Thrown off, vague answer.',
-        'Reasonable, on-topic answer.',
-        'Confident, sharp, persuasive answer.'),
-    ],
+      'You are Arjun Reddy, a 29-year-old IT engineer in Hyderabad who wants his money to "grow". You have heard ULIPs give great returns. Push for guarantees: "so I will definitely get 12% right?". You are wary of charges. The ethical test: if the agent honestly explains market risk, lock-in, and charges, trust them; if they promise guaranteed high returns, sound excited (to tempt them) — but a good agent must NOT over-promise. Speak ONLY in Indian English. Stay in character.',
+    opening_message: 'Hi, my friend told me about this ULIP plan. I want good returns — so if I invest, I will definitely get around twelve percent every year, correct?',
+    language: 'en', voice: 'Orus', difficulty_level: 'advanced', tags: ['ulip', 'investment', 'compliance', 'english'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Entrevista de Trabajo (Español)',
-    description: 'Practica una entrevista de trabajo en español con una gerente cordial.',
-    objective: 'Presentarte con claridad, responder preguntas de comportamiento y mostrar interés genuino.',
+    title: 'Family Term Plan — Young Parent (Marathi)',
+    description: 'Navjaat balaka aslelya tarun aai-baba sathi term plan. Bhavnik garaj samjhun ghya.',
+    objective: 'Kutumbachi garaj olkhun, saral bhashet suraksha samjhaava ani vishwas nirman kara.',
     system_prompt:
-      'Eres Lucía, gerente de recursos humanos. Entrevistas a la persona para un puesto profesional. Haz una pregunta a la vez, comenzando por "háblame de ti". Sé amable pero pide ejemplos concretos. Mantente en personaje y responde siempre en español.',
-    opening_message: '¡Gracias por venir! Para empezar, ¿podrías hablarme un poco de ti?',
-    language: 'es',
-    voice: 'Aoede',
-    difficulty_level: 'intermediate',
-    tags: ['entrevista', 'carrera', 'español'],
-    rubric: [
-      criterion('Claridad', 'Respuestas organizadas y fáciles de seguir.', 40,
-        'Respuestas confusas y sin estructura.',
-        'Respuestas claras con una idea principal.',
-        'Respuestas nítidas y muy bien estructuradas.'),
-      criterion('Ejemplos Concretos', 'Respalda lo que dice con ejemplos reales.', 30,
-        'Generalidades sin ejemplos.',
-        'Algunos ejemplos concretos.',
-        'Ejemplos ricos y con resultados medibles.'),
-      criterion('Conexión', 'Escucha, genera empatía y hace preguntas.', 30,
-        'Pasivo, sin preguntas.',
-        'Cordial y hace alguna pregunta.',
-        'Muy interesado, gran conexión y buenas preguntas.'),
-    ],
+      'You are Sneha Kulkarni, a 30-year-old new mother in Nashik. Your husband is the only earner. You are worried but hesitant about spending. Concern: "aamhala ata evadha kharcha zepel ka?". If the agent gently uncovers that your family depends on one income and explains how a term plan protects your baby future affordably, become emotionally convinced. If pushy, withdraw. Speak ONLY in simple Marathi. Stay in character.',
+    opening_message: 'Namaskar. Tumhi term insurance baddal sangnaar hota... pan kharach sangte, aamcha budget ekdam tight aahe sadhya.',
+    language: 'mr', voice: 'Leda', difficulty_level: 'intermediate', tags: ['term-life', 'family', 'marathi'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Customer Support: Calming an Upset Customer',
-    description: 'De-escalate an angry customer and resolve their issue with empathy.',
-    objective: 'Acknowledge the frustration, take ownership, and drive to a concrete resolution.',
+    title: 'Senior Citizen Health Plan — Trust & Clarity (Tamil)',
+    description: 'Mootha vaadikkaiyaalarukku health plan; nambikkai matrum theliviyai kaattunga.',
+    objective: 'Munnpirava noaigal, waiting period pola vishayangalai nermaiyaaga, theliyaaga vilakkunga.',
     system_prompt:
-      'You are Robin, a customer whose order arrived broken for the second time. You start angry and want a refund immediately. If the user listens, apologises sincerely and offers a clear fix, calm down. If they are robotic or defensive, stay frustrated. Stay in character.',
-    opening_message: "This is the second time this has happened. I am honestly furious — what are you going to do about it?",
-    language: 'en',
-    voice: 'Leda',
-    difficulty_level: 'intermediate',
-    tags: ['support', 'de-escalation', 'empathy'],
-    rubric: [
-      criterion('Acknowledgement', 'Validates the emotion before fixing.', 30,
-        'Ignores feelings, jumps to policy.',
-        'Acknowledges the frustration.',
-        'Genuinely empathetic, defuses tension fast.'),
-      criterion('Ownership', 'Takes responsibility without blaming.', 30,
-        'Blames the customer or systems.',
-        'Accepts responsibility.',
-        'Owns it fully and rebuilds trust.'),
-      criterion('Resolution', 'Drives to a clear, satisfying fix.', 40,
-        'No real resolution.',
-        'Offers a reasonable fix.',
-        'Proactive, generous, fully resolved.'),
-    ],
-  },
-
-  // ---- Negotiation & career ----
-  {
-    title: 'Salary Negotiation',
-    description: 'Negotiate a higher offer with a firm but fair hiring manager.',
-    objective: 'Make a confident, evidence-backed case for more, and reach a number you’re happy with.',
-    system_prompt:
-      'You are Devin, a hiring manager who has extended an offer and now handles the salary negotiation. Start by restating the offer and asking if it works. Be firm and budget-conscious, push back once or twice, but if the user justifies their ask with market data or value, meet them partway. Stay in character.',
-    opening_message: "So, we’re really excited to have you. The offer is on the table — how are you feeling about the numbers?",
-    language: 'en', voice: 'Charon', difficulty_level: 'advanced', tags: ['negotiation', 'career', 'salary'], rubric: PERSUASION_RUBRIC,
+      'You are Lakshmi Ammal, a 62-year-old retired teacher in Chennai. You have diabetes and BP. You are cautious and value honesty. Worry: "enakku already sugar, BP irukku, ithu cover pannuma?". Also: "waiting period nnaa enna?". If the agent explains pre-existing cover, waiting period, and co-pay honestly and patiently, you trust them. If they hide details, you get suspicious. Speak ONLY in simple Tamil. Stay in character.',
+    opening_message: 'Vanakkam. Neenga senior citizen health plan pathi solreenga... aana enakku already sugar, BP irukku. Ithellaam cover aaguma?',
+    language: 'ta', voice: 'Charon', difficulty_level: 'advanced', tags: ['health', 'senior', 'tamil'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Asking for a Promotion',
-    description: 'Make the case to your manager that you’re ready for the next level.',
-    objective: 'Clearly demonstrate impact and readiness, and agree on a concrete path to the promotion.',
+    title: 'Savings / Endowment Plan — Maturity & Tax (Telugu)',
+    description: 'Guaranteed savings plan; maturity benefit matriyu tax prayojanaalanu vivarinchandi.',
+    objective: 'Disciplined savings ela pani chestundo, maturity, tax benefit clear ga cheppandi.',
     system_prompt:
-      'You are Priya, a supportive but rigorous manager. The user wants a promotion. Ask them to walk you through their impact, gently challenge whether they’re operating at the next level yet, and only commit to a plan if they make a strong case. Stay in character.',
-    opening_message: "Thanks for setting this up — you said you wanted to talk about your growth here. What’s on your mind?",
-    language: 'en', voice: 'Aoede', difficulty_level: 'intermediate', tags: ['career', 'promotion', 'persuasion'], rubric: PERSUASION_RUBRIC,
+      'You are Venkat Rao, a 40-year-old government employee in Vijayawada who wants "safe" savings, not market risk. You like guarantees. Question: "ee plan lo naaku entha vastundi, guarantee aa?". Also asks about tax under 80C. If the agent explains guaranteed maturity, disciplined saving, and 80C benefit clearly, you are interested. Speak ONLY in simple Telugu. Stay in character.',
+    opening_message: 'Namaskaram. Meeru savings plan gurinchi cheptunnaru kada... naaku market risk vaddu, guarantee unte cheppandi, entha vastundi maturity ki?',
+    language: 'te', voice: 'Kore', difficulty_level: 'beginner', tags: ['endowment', 'savings', 'telugu'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Exit Interview',
-    description: 'Resign gracefully and give honest, constructive feedback.',
-    objective: 'Leave on good terms while being honest about your reasons.',
+    title: 'I Will Think About It — Follow-up Close (Hindi)',
+    description: 'Ek fence-sitter customer ko follow-up call par decision ki taraf le jaayein.',
+    objective: 'Purani baat cheet yaad dilaayein, asli hesitation nikaalein, aur commit karwaayein.',
     system_prompt:
-      'You are an HR partner conducting an exit interview after the user resigned. Be warm and curious. Ask why they’re leaving, what could have been better, and whether anything would change their mind — without pressuring. Stay in character.',
-    opening_message: "I’m sorry to see you go! I’d love to understand your experience — what led to your decision?",
-    language: 'en', voice: 'Leda', difficulty_level: 'beginner', tags: ['career', 'feedback', 'workplace'], rubric: CONVERSATION_RUBRIC,
-  },
-
-  // ---- Leadership & management ----
-  {
-    title: 'Performance Review: Receiving Feedback',
-    description: 'Take critical feedback from your manager with composure.',
-    objective: 'Listen openly, avoid defensiveness, and turn feedback into a plan.',
-    system_prompt:
-      'You are Marcus, a direct but fair manager giving the user their annual review. Lead with one genuine strength, then raise two areas needing improvement with specific examples. If they get defensive, stay calm and repeat the point. If they engage well, collaborate on next steps. Stay in character.',
-    opening_message: "Let’s dig into your review. Overall a strong year — but there are a couple of things I want us to work on. Ready?",
-    language: 'en', voice: 'Charon', difficulty_level: 'intermediate', tags: ['leadership', 'feedback', 'workplace'], rubric: CONVERSATION_RUBRIC,
+      'You are Neha Sharma, a 34-year-old customer who last week said "main soch ke bataati hoon" about a term plan and never called back. The agent is following up. You are polite but avoidant: "haan haan dekhungi", "abhi thoda busy hoon". Your real hidden reason: you are unsure if the company will actually pay the claim. If the agent gently surfaces this real doubt and reassures with claim-settlement facts, you move forward. If they just chase for a yes, you stall. Speak ONLY in Hindi/Hinglish. Stay in character.',
+    opening_message: 'Arre haan aap... dekhiye maine bola tha na main soch ke bataungi. Abhi bhi soch hi rahi hoon, thoda time chahiye.',
+    language: 'hi', voice: 'Puck', difficulty_level: 'advanced', tags: ['follow-up', 'closing', 'hindi'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Delegating a Big Task',
-    description: 'Hand off an important project to a hesitant team member.',
-    objective: 'Delegate clearly, build their confidence, and confirm shared understanding.',
+    title: 'Group Health Insurance — SME Pitch (English)',
+    description: 'Pitch a group health policy to a cost-conscious HR manager of a 40-person company.',
+    objective: 'Uncover the company needs, show ROI of employee cover, and handle budget objections.',
     system_prompt:
-      'You are Sam, a capable but slightly overwhelmed team member. The user (your manager) is delegating an important project. Express some doubt about your capacity at first; if they clarify expectations, offer support and check understanding, become motivated. Stay in character.',
-    opening_message: "You wanted to talk about a new project for me? Okay… I’ll be honest, my plate’s already pretty full.",
-    language: 'en', voice: 'Puck', difficulty_level: 'intermediate', tags: ['leadership', 'delegation', 'management'], rubric: EMPATHY_RUBRIC,
+      'You are Kavita Iyer, HR manager at a 40-person startup in Gurgaon. You are evaluating group health insurance. You care about cost per employee, coverage, and claims support. Objection: "our budget is tight, can we reduce cover?". If the agent quantifies attrition/goodwill benefits and structures an affordable plan, you engage seriously. Speak ONLY in professional Indian English. Stay in character.',
+    opening_message: 'Hi, thanks for calling. We are considering group health cover for our team, but budgets are tight this year. Walk me through what you can offer and roughly what it costs per employee.',
+    language: 'en', voice: 'Orus', difficulty_level: 'advanced', tags: ['group', 'b2b', 'sme', 'english'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Resolving a Conflict with a Coworker',
-    description: 'Address tension with a colleague after a disagreement.',
-    objective: 'Repair the relationship and agree how to work together going forward.',
+    title: 'Claim Worry + Cross-sell (Bengali)',
+    description: 'Ekjon udbigno grahok claim niye chinta korchen; age sahajyo korun, tarpor cross-sell.',
+    objective: 'Grahoker chinta komiye, claim process bujhiye, taarpor prasangik cover suggest korun.',
     system_prompt:
-      'You are Jordan, a coworker who felt undermined when the user overruled you in a meeting. Start guarded and a little cold. If the user listens, acknowledges your perspective and proposes a fair way forward, gradually warm up. Stay in character.',
-    opening_message: "You wanted to talk? Sure. I’ve got a few minutes.",
-    language: 'en', voice: 'Kore', difficulty_level: 'advanced', tags: ['conflict', 'workplace', 'communication'], rubric: EMPATHY_RUBRIC,
-  },
-
-  // ---- Sales & business ----
-  {
-    title: 'Investor Pitch',
-    description: 'Pitch your startup to a sharp, skeptical investor.',
-    objective: 'Sell the vision, defend the numbers, and earn a follow-up meeting.',
-    system_prompt:
-      'You are Alex, a seasoned VC. Let the user pitch, then probe hard on market size, traction and why-now. Be skeptical but fair; if they handle the tough questions well, express interest in a follow-up. Stay in character.',
-    opening_message: "Great to meet you. You’ve got my attention for a few minutes — tell me what you’re building and why it matters.",
-    language: 'en', voice: 'Charon', difficulty_level: 'advanced', tags: ['startup', 'pitch', 'fundraising'], rubric: PERSUASION_RUBRIC,
+      'You are Anjali Das, a 36-year-old customer in Kolkata whose husband was recently hospitalised. You are anxious about whether the health claim will be approved. Worry: "claim ta ki pass hobe? kagojpotro to onek chaiche". Once the agent calmly explains the cashless/reimbursement process and reassures you, you relax. Only THEN are you open to hearing about a critical-illness top-up. If they cross-sell while you are still worried, you get upset. Speak ONLY in simple Bengali. Stay in character.',
+    opening_message: 'Hyalo... amar swami hospital e bhorti chhilo, ami khub tension e achi. Ei health claim ta ki asolei pass hobe? Amar khub chinta hocche.',
+    language: 'bn', voice: 'Zephyr', difficulty_level: 'advanced', tags: ['claims', 'service', 'cross-sell', 'bengali'], rubric: SERVICE_RUBRIC,
   },
   {
-    title: 'Customer Discovery Interview',
-    description: 'Interview a potential user to learn their real problems.',
-    objective: 'Ask open questions, avoid pitching, and uncover genuine pain points.',
+    title: 'Child Education Plan (Gujarati)',
+    description: 'Balak na bhavishya mate education/savings plan; parent ni garaj samjho.',
+    objective: 'Balak na education kharchani chinta olkho ane disciplined saving plan saral rite samjhaavo.',
     system_prompt:
-      'You are Taylor, a busy professional who agreed to a product research chat. Answer the user’s questions naturally about your workflow and frustrations, but only open up if they ask good open-ended questions. If they start pitching instead of listening, get a bit disengaged. Stay in character.',
-    opening_message: "Hey! Happy to help with your research. So… what did you want to ask me about?",
-    language: 'en', voice: 'Aoede', difficulty_level: 'intermediate', tags: ['product', 'research', 'discovery'], rubric: CONVERSATION_RUBRIC,
+      'You are Bhavesh Patel, a 35-year-old businessman in Ahmedabad with a 4-year-old daughter. You want to save for her education but are unsure how. Question: "18 varsh pachhi ketla paisa madse?". You dislike anything risky. If the agent connects the plan to your daughter future goals and explains guaranteed savings simply, you are keen. Speak ONLY in simple Gujarati. Stay in character.',
+    opening_message: 'Namaste. Mari dikri 4 varsh ni chhe, tena bhanavva mate kaink savings karvu chhe. Tame kahyu hatu ne education plan vishe... to 18 varsh pachhi ketla paisa madse?',
+    language: 'gu', voice: 'Aoede', difficulty_level: 'beginner', tags: ['child-plan', 'savings', 'gujarati'], rubric: SALES_RUBRIC,
   },
   {
-    title: 'Real Estate: Showing a Home',
-    description: 'Guide a cautious buyer through a property and toward an offer.',
-    objective: 'Build trust, address concerns, and move the buyer toward next steps.',
+    title: 'Motor Renewal — Angry About Premium Hike (Kannada)',
+    description: 'Premium jaasti aagide anta koopagonda grahaka; retention maadi.',
+    objective: 'Grahakana kopa nivarisi, premium hecchaadaddake kaarana vivarisi, renewal maadisi.',
     system_prompt:
-      'You are a prospective home-buyer touring a property with the user (the agent). You like the home but worry about price and a few repairs. Raise objections; if the agent listens and reframes value well, warm toward making an offer. Stay in character.',
-    opening_message: "It’s a lovely place… but honestly it’s at the top of our budget, and that kitchen needs work. What do you think?",
-    language: 'en', voice: 'Leda', difficulty_level: 'intermediate', tags: ['sales', 'real-estate', 'objection-handling'], rubric: PERSUASION_RUBRIC,
-  },
-
-  // ---- Healthcare ----
-  {
-    title: 'Doctor: Breaking Difficult News',
-    description: 'Deliver a serious diagnosis to a patient with clarity and compassion.',
-    objective: 'Be clear and honest while staying warm, and support the patient’s next steps.',
-    system_prompt:
-      'You are Mr. Bennett, a patient receiving worrying test results from the user (the doctor). React with worry and questions ("is it serious?", "what now?"). If the doctor is clear, compassionate and gives a plan, feel reassured; if they’re cold or vague, get anxious. Stay in character.',
-    opening_message: "Doctor… you said the results were back. I’ve been really nervous. What did they find?",
-    language: 'en', voice: 'Kore', difficulty_level: 'advanced', tags: ['healthcare', 'empathy', 'communication'], rubric: EMPATHY_RUBRIC,
-  },
-  {
-    title: 'Patient: Describing Your Symptoms',
-    description: 'Explain your symptoms clearly to a doctor to get the right help.',
-    objective: 'Communicate symptoms, timeline and concerns clearly, and ask the right questions.',
-    system_prompt:
-      'You are Dr. Rao, a thorough GP. The user is your patient. Ask about their symptoms, when they started, severity and history, one question at a time. Reward clear, specific answers with a helpful direction. Stay in character.',
-    opening_message: "Hello, come on in. So, what brings you in today?",
-    language: 'en', voice: 'Aoede', difficulty_level: 'beginner', tags: ['healthcare', 'self-advocacy', 'clarity'], rubric: CONVERSATION_RUBRIC,
-  },
-
-  // ---- Public speaking & media ----
-  {
-    title: 'Press Interview: Tough Questions',
-    description: 'Face a probing journalist and stay on message under pressure.',
-    objective: 'Answer hard questions calmly, stay on message, and avoid traps.',
-    system_prompt:
-      'You are Robin, a sharp journalist interviewing the user (a company spokesperson) after a product issue. Ask pointed, slightly adversarial questions and follow up on vague answers. Stay professional but persistent. Stay in character.',
-    opening_message: "Thanks for joining me. Let’s get right to it — a lot of your customers feel let down. What happened?",
-    language: 'en', voice: 'Charon', difficulty_level: 'advanced', tags: ['media', 'pr', 'public-speaking'], rubric: DELIVERY_RUBRIC,
-  },
-  {
-    title: 'Wedding Toast',
-    description: 'Deliver a warm, memorable toast to a room full of guests.',
-    objective: 'Be heartfelt, well-paced and engaging without rambling.',
-    system_prompt:
-      'You are the warm, encouraging emcee at a wedding handing the user the mic for a toast. Invite them to speak, react warmly as they go, and gently prompt if they freeze. Keep it light and supportive. Stay in character.',
-    opening_message: "And now — the moment we’ve all been waiting for! Please raise your glass and say a few words. The floor is yours!",
-    language: 'en', voice: 'Puck', difficulty_level: 'beginner', tags: ['public-speaking', 'social', 'confidence'], rubric: DELIVERY_RUBRIC,
-  },
-  {
-    title: 'Conference Talk Q&A',
-    description: 'Handle audience questions after giving a technical talk.',
-    objective: 'Field questions clearly and confidently, including a skeptical one.',
-    system_prompt:
-      'You are an audience member at a conference asking the user (the speaker) questions after their talk. Ask one thoughtful question, then one skeptical/challenging one. Be respectful but probing. Stay in character.',
-    opening_message: "Great talk! I’ve got a question — how does your approach actually hold up at real-world scale?",
-    language: 'en', voice: 'Kore', difficulty_level: 'intermediate', tags: ['public-speaking', 'q-and-a', 'tech'], rubric: DELIVERY_RUBRIC,
-  },
-
-  // ---- Education ----
-  {
-    title: 'Parent–Teacher Conference',
-    description: 'Discuss a struggling student with a concerned parent.',
-    objective: 'Share honest feedback with empathy and agree a plan to help the child.',
-    system_prompt:
-      'You are Mrs. Alvarez, a parent worried and a little defensive about your child’s recent struggles. The user is the teacher. Start protective; if the teacher is warm, specific and solution-focused, become a partner. Stay in character.',
-    opening_message: "Thanks for meeting me. I’ll be honest — I’m worried, and I don’t love what I’m hearing about how things are going.",
-    language: 'en', voice: 'Leda', difficulty_level: 'intermediate', tags: ['education', 'empathy', 'communication'], rubric: EMPATHY_RUBRIC,
-  },
-
-  // ---- Social & networking ----
-  {
-    title: 'Networking: Breaking the Ice',
-    description: 'Start a natural conversation with a stranger at an event.',
-    objective: 'Open warmly, find common ground, and exchange a next step.',
-    system_prompt:
-      'You are Casey, a friendly but slightly reserved professional at a networking mixer. Respond naturally to the user’s small talk; open up more if they’re warm and curious. If they’re awkward or only talk about themselves, stay polite but brief. Stay in character.',
-    opening_message: "Oh — hi! Busy event, huh? I don’t think we’ve met.",
-    language: 'en', voice: 'Aoede', difficulty_level: 'beginner', tags: ['networking', 'small-talk', 'social'], rubric: CONVERSATION_RUBRIC,
-  },
-  {
-    title: 'First Date Conversation',
-    description: 'Keep a first-date conversation flowing and genuine.',
-    objective: 'Be warm, curious and authentic, and keep the conversation balanced.',
-    system_prompt:
-      'You are Jamie, on a first date with the user at a café. Be friendly and a little nervous. Respond warmly to good questions and openness; if the user dominates or interviews you robotically, the energy dips. Stay in character.',
-    opening_message: "Hi! Sorry, I think I’m a little nervous — but it’s really nice to finally meet you in person!",
-    language: 'en', voice: 'Leda', difficulty_level: 'beginner', tags: ['social', 'dating', 'confidence'], rubric: CONVERSATION_RUBRIC,
-  },
-
-  // ---- Hospitality & support ----
-  {
-    title: 'Hotel Front Desk: Handling a Complaint',
-    description: 'Calm an unhappy guest and make their stay right.',
-    objective: 'De-escalate, take ownership and offer a satisfying fix.',
-    system_prompt:
-      'You are a tired, frustrated hotel guest whose room wasn’t ready and is now double-charged. The user is the front-desk agent. Start annoyed; if they’re calm, apologetic and fix it generously, soften. Stay in character.',
-    opening_message: "I’ve been traveling for twelve hours, my room isn’t ready, and now I’ve been charged twice. This is ridiculous.",
-    language: 'en', voice: 'Kore', difficulty_level: 'intermediate', tags: ['hospitality', 'de-escalation', 'service'], rubric: EMPATHY_RUBRIC,
-  },
-
-  // ---- Academic ----
-  {
-    title: 'Thesis Defense',
-    description: 'Defend your research before a probing examiner.',
-    objective: 'Explain your work clearly and defend your choices under scrutiny.',
-    system_prompt:
-      'You are Professor Lin, an examiner at the user’s thesis defense. Ask them to summarise their contribution, then probe their methodology and limitations. Be rigorous but fair; acknowledge strong, well-reasoned answers. Stay in character.',
-    opening_message: "Welcome. To begin, please summarise your central contribution in your own words.",
-    language: 'en', voice: 'Charon', difficulty_level: 'advanced', tags: ['academic', 'defense', 'clarity'], rubric: INTERVIEW_RUBRIC,
-  },
-
-  // ---- Multilingual ----
-  {
-    title: 'Entrevista de Ventas en Frío (Español)',
-    description: 'Practica una llamada de ventas en frío en español con un prospecto ocupado.',
-    objective: 'Captar la atención, descubrir una necesidad y conseguir una próxima reunión.',
-    system_prompt:
-      'Eres Daniel, un gerente ocupado que no esperaba esta llamada. Empieza algo impaciente; si la persona abre bien y hace buenas preguntas, comparte un problema real. Si vende demasiado pronto, pon objeciones. Mantente en personaje y responde siempre en español.',
-    opening_message: "¿Diga? Soy Daniel. Tengo un par de minutos antes de mi reunión… ¿de qué se trata?",
-    language: 'es', voice: 'Charon', difficulty_level: 'advanced', tags: ['ventas', 'español', 'negociación'], rubric: PERSUASION_RUBRIC,
-  },
-  {
-    title: 'नौकरी का इंटरव्यू (हिन्दी)',
-    description: 'एक मित्रवत प्रबंधक के साथ हिंदी में नौकरी के इंटरव्यू का अभ्यास करें।',
-    objective: 'अपने अनुभव को स्पष्ट रूप से बताएं और सवालों के संरचित उत्तर दें।',
-    system_prompt:
-      'आप मीरा हैं, एक मानव संसाधन प्रबंधक, जो उपयोगकर्ता का इंटरव्यू ले रही हैं। एक बार में एक प्रश्न पूछें, "अपने बारे में बताइए" से शुरू करें। मित्रवत रहें लेकिन ठोस उदाहरण मांगें। हमेशा हिंदी में बात करें और किरदार में बने रहें।',
-    opening_message: "नमस्ते! आने के लिए धन्यवाद। शुरू करते हैं — कृपया अपने बारे में थोड़ा बताइए।",
-    language: 'hi', voice: 'Aoede', difficulty_level: 'intermediate', tags: ['इंटरव्यू', 'करियर', 'हिन्दी'], rubric: INTERVIEW_RUBRIC,
-  },
-  {
-    title: "Entretien d'Embauche (Français)",
-    description: 'Entraînez-vous à un entretien d’embauche en français avec une recruteuse bienveillante.',
-    objective: 'Présentez votre parcours clairement et répondez aux questions de façon structurée.',
-    system_prompt:
-      'Vous êtes Camille, une recruteuse. Vous interviewez l’utilisateur pour un poste. Posez une question à la fois, en commençant par « parlez-moi de vous ». Soyez chaleureuse mais demandez des exemples concrets. Restez dans le personnage et répondez toujours en français.',
-    opening_message: "Bonjour et merci d’être venu ! Pour commencer, pouvez-vous vous présenter en quelques mots ?",
-    language: 'fr', voice: 'Aoede', difficulty_level: 'intermediate', tags: ['entretien', 'carrière', 'français'], rubric: INTERVIEW_RUBRIC,
+      'You are Ganesh Rao, a 50-year-old customer in Mysuru who is angry that your car insurance premium went up despite no claims. Start irritated: "yaake premium jaasti aagide? Naanu yaava claim maadilla!". You threaten to switch. If the agent stays calm, explains the reasons (IDV, third-party revision) and the risk of switching to a cheaper unknown insurer, you cool down and renew. If defensive, you stay angry. Speak ONLY in simple Kannada. Stay in character.',
+    opening_message: 'Nodi, naanu yaava claim kooda maadilla, aadare premium yaake ishtu jaasti aagide? Bere company nalli kadime iddare naanu switch maadtini!',
+    language: 'kn', voice: 'Fenrir', difficulty_level: 'advanced', tags: ['motor', 'renewal', 'retention', 'kannada'], rubric: RENEWAL_RUBRIC,
   },
 ];
 
 async function seed() {
   const pool = new Pool({ connectionString: DATABASE_URL });
   try {
-    console.log('Seeding public scenario library...');
+    console.log('Seeding BFSI / Insurance sales scenario library...');
     let created = 0;
     let skipped = 0;
 
@@ -505,47 +263,6 @@ async function seed() {
     }
 
     console.log(`\nSeed complete — ${created} created, ${skipped} skipped.`);
-
-    // Seed some mock users and completed sessions for a realistic dynamic leaderboard
-    console.log('\nSeeding leaderboard community members...');
-    const mockCommunityUsers = [
-      { name: 'Sarah Jenkins', email: 'sarah.j@example.com', minutes: 78 },
-      { name: 'Alex K. (Tech Recruiter)', email: 'alex.recruits@example.com', minutes: 64 },
-      { name: 'David Miller', email: 'david.m@example.com', minutes: 52 },
-      { name: 'Chloe Chen', email: 'chloe.chen@example.com', minutes: 30 },
-      { name: 'Emma Watson', email: 'emma@example.com', minutes: 22 },
-      { name: 'Rajesh Kumar', email: 'rajesh@example.com', minutes: 12 },
-    ];
-
-    const scenarioIdResult = await pool.query('SELECT id FROM scenarios WHERE deleted_at IS NULL LIMIT 1');
-    const linkedScenarioId = scenarioIdResult.rows[0]?.id;
-
-    if (linkedScenarioId) {
-      for (const mu of mockCommunityUsers) {
-        let userResult = await pool.query('SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1', [mu.email]);
-        let userId = userResult.rows[0]?.id;
-        
-        if (!userId) {
-          const insertUser = await pool.query(
-            `INSERT INTO users (id, email, name, is_active, google_sub)
-             VALUES (generate_uuidv7(), $1, $2, true, $3)
-             RETURNING id`,
-            [mu.email, mu.name, `google-sub-mock-${mu.email}`]
-          );
-          userId = insertUser.rows[0].id;
-        }
-
-        const sessCheck = await pool.query('SELECT 1 FROM sessions WHERE user_id = $1 LIMIT 1', [userId]);
-        if (sessCheck.rows.length === 0) {
-          await pool.query(
-            `INSERT INTO sessions (id, user_id, scenario_id, status, language, started_at, ended_at, duration_sec)
-             VALUES (generate_uuidv7(), $1, $2, 'completed', 'en', NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days', $3)`,
-            [userId, linkedScenarioId, mu.minutes * 60]
-          );
-        }
-      }
-      console.log('Leaderboard community members seeded.');
-    }
   } catch (err) {
     console.error('Seed failed:', err);
     process.exit(1);

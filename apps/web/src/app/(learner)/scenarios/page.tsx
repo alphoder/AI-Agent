@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { LanguagePicker } from '@/components/language-picker';
-import { languageName, GEMINI_VOICES, voiceSampleUrl } from '@avatar-platform/shared';
+import { languageName, GEMINI_VOICES, MALE_VOICES, FEMALE_VOICES, voiceSampleUrl } from '@avatar-platform/shared';
 
 interface Scenario {
   id: string;
@@ -200,14 +200,19 @@ export default function ScenariosPage() {
             </p>
             <LanguagePicker value={picker.lang} onChange={(code) => setPicker((p) => (p ? { ...p, lang: code } : p))} className="mt-3" />
             <div className="mt-4">
-              <span className="text-xs font-medium text-muted-foreground">Coach voice</span>
+              <span className="text-xs font-medium text-muted-foreground">Customer voice</span>
               <div className="mt-1.5 flex items-center gap-2">
                 <select
                   value={picker.voice}
                   onChange={(e) => setPicker((p) => (p ? { ...p, voice: e.target.value } : p))}
                   className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                 >
-                  {GEMINI_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                  <optgroup label="Male">
+                    {MALE_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                  </optgroup>
+                  <optgroup label="Female">
+                    {FEMALE_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                  </optgroup>
                 </select>
                 <button
                   type="button"
