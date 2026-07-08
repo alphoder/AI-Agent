@@ -66,7 +66,7 @@ export default function ScenariosPage() {
   const [mine, setMine] = useState(false);
   const [difficulty, setDifficulty] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
-  const [picker, setPicker] = useState<{ scenario: Scenario; lang: string; voice: string } | null>(null);
+  const [picker, setPicker] = useState<{ scenario: Scenario; lang: string; voice: string; grade: boolean } | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -112,11 +112,11 @@ export default function ScenariosPage() {
     return [...CATEGORIES, MORE].map((c) => ({ ...c, items: buckets.get(c.key) ?? [] })).filter((c) => c.items.length > 0);
   }, [filtered]);
 
-  function openPicker(s: Scenario) { setPicker({ scenario: s, lang: s.language || 'en', voice: s.voice || 'Aoede' }); }
+  function openPicker(s: Scenario) { setPicker({ scenario: s, lang: s.language || 'en', voice: s.voice || 'Charon', grade: true }); }
   function start() {
     if (!picker) return;
     setStarting(picker.scenario.id);
-    router.push(`/session/${picker.scenario.id}?lang=${picker.lang}&voice=${picker.voice}`);
+    router.push(`/session/${picker.scenario.id}?lang=${picker.lang}&voice=${picker.voice}&grade=${picker.grade ? 1 : 0}`);
   }
 
   return (
@@ -225,6 +225,21 @@ export default function ScenariosPage() {
                 </button>
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">{GEMINI_VOICES.find((v) => v.id === picker.voice)?.description}</p>
+            </div>
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card px-3.5 py-3">
+              <div>
+                <p className="text-sm font-medium">Grade my body language</p>
+                <p className="text-xs text-muted-foreground">Uses your camera to score posture & presence. Off = voice only.</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={picker.grade}
+                onClick={() => setPicker((p) => (p ? { ...p, grade: !p.grade } : p))}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${picker.grade ? 'bg-primary' : 'bg-muted'}`}
+              >
+                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${picker.grade ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+              </button>
             </div>
             <button onClick={start} disabled={starting === picker.scenario.id}
               className="press mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">

@@ -31,9 +31,11 @@ from src.core.ws_ticket import verify_ticket
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
-# Gemini Live native-audio prebuilt voices.
-_LIVE_VOICES = {"Puck", "Charon", "Kore", "Fenrir", "Aoede"}
-_DEFAULT_VOICE = "Aoede"
+# Gemini Live native-audio prebuilt voices — must match packages/shared voices
+# (4 male + 4 female). A voice missing from this set silently falls back below,
+# which is exactly the bug that made every scenario sound the same.
+_LIVE_VOICES = {"Charon", "Orus", "Puck", "Fenrir", "Kore", "Aoede", "Leda", "Zephyr"}
+_DEFAULT_VOICE = "Charon"
 
 _MIN_FRAME_INTERVAL_SEC = 6.0          # ignore body-language frames faster than this
 

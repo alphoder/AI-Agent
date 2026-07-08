@@ -2,10 +2,9 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Mic, MicOff, PhoneOff, Loader2, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Loader2 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 
-interface TranscriptEntry { role: 'user' | 'assistant'; text: string }
 interface SessionConfig {
   scenarioTitle: string;
   systemPrompt: string;
@@ -44,15 +43,13 @@ function SessionInner() {
   const scenarioId = params.id as string;
   const chosenLang = search.get('lang') || undefined;
   const chosenVoice = search.get('voice') || undefined;
+  const gradeBody = search.get('grade') !== '0'; // body-language grading on unless explicitly off
 
   const [phase, setPhase] = useState<'connecting' | 'live' | 'ending'>('connecting');
   const [status, setStatus] = useState('Setting up…');
   const [error, setError] = useState<string | null>(null);
-  const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
-  const [interim, setInterim] = useState('');
+  const [caption, setCaption] = useState<{ role: 'you' | 'customer'; text: string } | null>(null);
   const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
-  const [coachSpeaking, setCoachSpeaking] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [config, setConfig] = useState<SessionConfig | null>(null);
 
@@ -61,16 +58,23 @@ function SessionInner() {
   const micStreamRef = useRef<MediaStream | null>(null);
   const inCtxRef = useRef<AudioContext | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const playCursorRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const micOnRef = useRef(true);
+  const micLevelRef = useRef(0);
+  const runningRef = useRef(false);
   const endedRef = useRef(false);
+  const captionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcripts, interim]);
+  const showCaption = useCallback((role: 'you' | 'customer', text: string) => {
+    if (!text) return;
+    setCaption({ role, text });
+    if (captionTimer.current) clearTimeout(captionTimer.current);
+    captionTimer.current = setTimeout(() => setCaption(null), 6000);
+  }, []);
 
   const playAudioChunk = useCallback((base64: string) => {
     const ctx = outCtxRef.current;
@@ -85,19 +89,17 @@ function SessionInner() {
     buffer.copyToChannel(float32, 0);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(ctx.destination);
+    src.connect(analyserRef.current || ctx.destination); // route through analyser so the sphere reacts
     const now = ctx.currentTime;
     const startAt = Math.max(now, playCursorRef.current);
     src.start(startAt);
     playCursorRef.current = startAt + buffer.duration;
-    setCoachSpeaking(true);
-    src.onended = () => {
-      if (playCursorRef.current - ctx.currentTime < 0.05) setCoachSpeaking(false);
-    };
   }, []);
 
   const cleanup = useCallback(() => {
     if (frameTimerRef.current) clearInterval(frameTimerRef.current);
+    if (captionTimer.current) clearTimeout(captionTimer.current);
+    runningRef.current = false;
     try { wsRef.current?.close(); } catch { /* ignore */ }
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     inCtxRef.current?.close().catch(() => {});
@@ -108,7 +110,7 @@ function SessionInner() {
     if (endedRef.current) return;
     endedRef.current = true;
     setPhase('ending');
-    setStatus('Scoring your session…');
+    setStatus('Scoring your call…');
     cleanup();
     const sid = sessionIdRef.current;
     if (sid) {
@@ -119,38 +121,133 @@ function SessionInner() {
     }
   }, [cleanup, router]);
 
+  // ---- particle sphere: white points on black; expands when the customer
+  // speaks, closes inward when listening. Adapted for our audio pipeline. ----
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let raf = 0;
+
+    const N = 620, pts: number[][] = [], golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < N; i++) {
+      const y = 1 - (i / (N - 1)) * 2, rad = Math.sqrt(1 - y * y), th = golden * i;
+      pts.push([Math.cos(th) * rad, y, Math.sin(th) * rad]);
+    }
+    const resize = () => { const r = canvas.getBoundingClientRect(); canvas.width = r.width * DPR; canvas.height = r.height * DPR; };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const freq = new Uint8Array(256);
+    let smoothOut = 0, wavePhase = 0, speakW = 0, listenW = 0;
+
+    const draw = (now: number) => {
+      raf = requestAnimationFrame(draw);
+      const t = now / 1000;
+      const W = canvas.width, H = canvas.height, cx = W / 2, cy = H / 2;
+      ctx.clearRect(0, 0, W, H);
+
+      let out = 0;
+      const an = analyserRef.current;
+      if (an) {
+        an.getByteTimeDomainData(freq);
+        let s = 0;
+        for (let i = 0; i < freq.length; i++) { const d = (freq[i] - 128) / 128; s += d * d; }
+        out = Math.sqrt(s / freq.length);
+      }
+      smoothOut = smoothOut * 0.85 + out * 0.15;
+      const micS = Math.min(1, micLevelRef.current * 9);
+      const running = runningRef.current;
+      const speaking = running && smoothOut > 0.02;
+      const listening = running && !speaking;
+      speakW += ((speaking ? 1 : 0) - speakW) * 0.07;
+      listenW += ((listening ? 1 : 0) - listenW) * 0.07;
+      wavePhase = (wavePhase + 0.006 + smoothOut * 0.018) % 1;
+
+      const baseR = Math.min(W, H) * 0.20;
+      const breathe = reduced ? 0 : Math.sin(t * 1.2) * 0.02;
+      const R = baseR * (1 + breathe + speakW * Math.min(0.22, smoothOut * 1.3) + listenW * micS * 0.06);
+
+      const halo = ctx.createRadialGradient(cx, cy, R * 0.3, cx, cy, R * 2.2);
+      halo.addColorStop(0, `rgba(255,255,255,${0.06 + speakW * smoothOut * 0.25})`);
+      halo.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(cx, cy, R * 2.2, 0, 7); ctx.fill();
+
+      const speed = 0.1 + speakW * 0.4 + listenW * 0.12;
+      const ry = reduced ? 0.6 : t * speed;
+      const rx = reduced ? 0.4 : Math.sin(t * 0.15) * 0.35 + 0.3;
+      const cosY = Math.cos(ry), sinY = Math.sin(ry), cosX = Math.cos(rx), sinX = Math.sin(rx);
+      const persp = 3.2, jitter = speakW * smoothOut * 0.5;
+
+      for (let i = 0; i < N; i++) {
+        let [x, y, z] = pts[i];
+        if (jitter) { const j = 1 + Math.sin(i * 12.9898 + t * 7) * jitter * 0.28; x *= j; y *= j; z *= j; }
+        const x1 = x * cosY + z * sinY, z1 = -x * sinY + z * cosY;
+        const y1 = y * cosX - z1 * sinX, z2 = y * sinX + z1 * cosX;
+        const s = persp / (persp - z2);
+        const px = cx + x1 * R * s, py = cy + y1 * R * s;
+        const depth = (z2 + 1) / 2;
+        ctx.fillStyle = `rgba(255,255,255,${0.12 + depth * 0.75})`;
+        ctx.beginPath(); ctx.arc(px, py, (0.7 + depth * 1.5) * DPR, 0, 7); ctx.fill();
+      }
+
+      if (!reduced && (speakW > 0.01 || listenW > 0.01)) {
+        ctx.lineWidth = 1.2 * DPR;
+        for (let k = 0; k < 3; k++) {
+          const ph = (wavePhase + k / 3) % 1;
+          const fade = Math.sin(ph * Math.PI);
+          if (speakW > 0.01) {
+            const rr = R * (1.05 + ph * 0.85);
+            ctx.strokeStyle = `rgba(255,255,255,${fade * (0.14 + smoothOut * 0.4) * speakW})`;
+            ctx.beginPath(); ctx.arc(cx, cy, rr, 0, 7); ctx.stroke();
+          }
+          if (listenW > 0.01) {
+            const rr = R * (1.5 - ph * 0.5);
+            ctx.strokeStyle = `rgba(255,255,255,${fade * (0.12 + micS * 0.38) * listenW})`;
+            ctx.beginPath(); ctx.arc(cx, cy, rr, 0, 7); ctx.stroke();
+          }
+        }
+      }
+    };
+    raf = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, []);
+
   // Boot the session once.
   useEffect(() => {
     let disposed = false;
 
     async function boot() {
       try {
-        // 1. Create the session on the server (strict language from the picker).
         const { data } = await apiClient.post('/sessions', { scenario_id: scenarioId, language: chosenLang, voice: chosenVoice });
         if (disposed) return;
         const { sessionId, wsUrl, sessionConfig } = data.data;
         sessionIdRef.current = sessionId;
         setConfig(sessionConfig);
 
-        // 2. Mic + camera.
-        setStatus('Requesting mic & camera…');
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        // Mic always; camera only when body-language grading is on.
+        setStatus(gradeBody ? 'Requesting mic & camera…' : 'Requesting microphone…');
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: gradeBody });
         if (disposed) { stream.getTracks().forEach((t) => t.stop()); return; }
         micStreamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        if (gradeBody && videoRef.current) videoRef.current.srcObject = stream;
 
-        // 3. Audio out context (Gemini returns 24kHz PCM).
-        outCtxRef.current = new AudioContext({ sampleRate: 24000 });
+        // Audio out (Gemini returns 24kHz PCM) + analyser for the sphere.
+        const outCtx = new AudioContext({ sampleRate: 24000 });
+        outCtxRef.current = outCtx;
+        const an = outCtx.createAnalyser();
+        an.fftSize = 512;
+        an.connect(outCtx.destination);
+        analyserRef.current = an;
 
-        // 4. Open the WS to the AI service — with retry. A free-tier service can
-        //    be waking from a cold start (~30-60s), during which the first
-        //    upgrade fails; we retry a few times before giving up.
         const MAX_ATTEMPTS = 6;
         let attempt = 0;
         let live = false;
 
-        // Mic + body-language capture — wired once, the moment the coach is
-        // actually listening (so failed/cold attempts never leak an AudioContext).
         const startCapture = (ws: WebSocket) => {
           if (inCtxRef.current) return;
           const inCtx = new AudioContext({ sampleRate: 16000 });
@@ -160,27 +257,31 @@ function SessionInner() {
           source.connect(processor);
           processor.connect(inCtx.destination);
           processor.onaudioprocess = (e) => {
+            const ch = e.inputBuffer.getChannelData(0);
+            let s = 0; for (let i = 0; i < ch.length; i++) s += ch[i] * ch[i];
+            micLevelRef.current = micLevelRef.current * 0.8 + Math.sqrt(s / ch.length) * 0.2; // for the sphere
             if (!micOnRef.current || ws.readyState !== WebSocket.OPEN) return;
-            const pcm = floatTo16BitPCM(e.inputBuffer.getChannelData(0));
-            ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(pcm) }));
+            ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(floatTo16BitPCM(ch)) }));
           };
-          frameTimerRef.current = setInterval(() => {
-            const video = videoRef.current;
-            if (!video || video.readyState < 2 || ws.readyState !== WebSocket.OPEN) return;
-            const canvas = document.createElement('canvas');
-            canvas.width = 320;
-            canvas.height = Math.round((video.videoHeight / video.videoWidth) * 320) || 240;
-            const g = canvas.getContext('2d');
-            if (!g) return;
-            g.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const jpeg = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
-            if (jpeg) ws.send(JSON.stringify({ type: 'video_frame', data: jpeg }));
-          }, FRAME_INTERVAL_MS);
+          if (gradeBody) {
+            frameTimerRef.current = setInterval(() => {
+              const video = videoRef.current;
+              if (!video || video.readyState < 2 || ws.readyState !== WebSocket.OPEN) return;
+              const canvas = document.createElement('canvas');
+              canvas.width = 320;
+              canvas.height = Math.round((video.videoHeight / video.videoWidth) * 320) || 240;
+              const g = canvas.getContext('2d');
+              if (!g) return;
+              g.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const jpeg = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+              if (jpeg) ws.send(JSON.stringify({ type: 'video_frame', data: jpeg }));
+            }, FRAME_INTERVAL_MS);
+          }
         };
 
         const openWs = () => {
           attempt += 1;
-          setStatus(attempt === 1 ? 'Connecting to your coach…' : 'Waking your coach… the first connection can take up to a minute.');
+          setStatus(attempt === 1 ? 'Connecting to the customer…' : 'Waking things up… the first connection can take up to a minute.');
           const ws = new WebSocket(wsUrl);
           wsRef.current = ws;
 
@@ -198,27 +299,25 @@ function SessionInner() {
             switch (msg.type) {
               case 'listening':
                 live = true;
+                runningRef.current = true;
                 setPhase('live');
                 setStatus('');
                 startCapture(ws);
                 break;
               case 'transcript_interim':
-                setInterim(msg.text);
+                showCaption('you', msg.text);
                 break;
               case 'transcript':
-                setInterim('');
-                if (msg.text) setTranscripts((t) => [...t, { role: 'user', text: msg.text }]);
+                showCaption('you', msg.text);
                 break;
               case 'response_text':
-                if (msg.text) setTranscripts((t) => [...t, { role: 'assistant', text: msg.text }]);
+                showCaption('customer', msg.text);
                 break;
               case 'audio_out':
                 playAudioChunk(msg.data);
                 break;
-              case 'response_end':
-                break;
               case 'error':
-                setError(msg.message || 'Coach connection error');
+                setError(msg.message || 'Connection error');
                 break;
             }
           };
@@ -230,7 +329,7 @@ function SessionInner() {
             if (attempt < MAX_ATTEMPTS) {
               setTimeout(() => { if (!disposed && !endedRef.current) openWs(); }, 2500);
             } else {
-              setError('Could not reach the coach. It may be waking up. Please try again in a minute.');
+              setError('Could not connect. It may be waking up. Please try again in a minute.');
             }
           };
         };
@@ -238,15 +337,12 @@ function SessionInner() {
         openWs();
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
-        setError(msg || 'Could not start the session. Please allow mic & camera access and try again.');
+        setError(msg || (gradeBody ? 'Could not start. Please allow mic & camera access and try again.' : 'Could not start. Please allow microphone access and try again.'));
       }
     }
 
     boot();
-    return () => {
-      disposed = true;
-      cleanup();
-    };
+    return () => { disposed = true; cleanup(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarioId]);
 
@@ -271,91 +367,62 @@ function SessionInner() {
     wsRef.current?.send(JSON.stringify({ type: next ? 'mic_on' : 'mic_off' }));
   }
 
-  function toggleCam() {
-    const next = !camOn;
-    setCamOn(next);
-    micStreamRef.current?.getVideoTracks().forEach((tr) => (tr.enabled = next));
-  }
-
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-black text-white flex flex-col antialiased">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-5 h-14 border-b border-white/10">
-        <div className="text-sm font-medium truncate">{config?.scenarioTitle || 'Session'}</div>
-        <div className="flex items-center gap-3 text-sm">
-          <span className={`flex items-center gap-1.5 transition-colors ${phase === 'live' ? 'text-blue-400' : 'text-white/50'}`}>
-            <span className={`h-2 w-2 rounded-full transition-colors ${phase === 'live' ? 'bg-blue-500 animate-pulse' : 'bg-white/40'}`} />
-            {phase === 'live' ? 'Live' : phase === 'ending' ? 'Wrapping up' : 'Connecting'}
-          </span>
-          <span className="tabular-nums text-white/60">{mm}:{ss}</span>
-        </div>
-      </div>
+    <div className="relative h-[100dvh] overflow-hidden bg-black text-white antialiased">
+      {/* Sphere */}
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-      <div className="flex-1 min-h-0 grid grid-rows-[minmax(0,1fr)_minmax(0,1.4fr)] lg:grid-rows-1 lg:grid-cols-2 gap-4 p-4 overflow-hidden">
-        {/* Self-view */}
-        <div className="relative rounded-2xl overflow-hidden bg-zinc-950 ring-1 ring-white/10 flex items-center justify-center">
-          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
-          {!camOn && (
-            <div className="absolute inset-0 flex items-center justify-center bg-zinc-950 text-white/40">
-              <VideoOff className="h-10 w-10" />
-            </div>
-          )}
-          <div className="absolute bottom-3 left-3 text-xs bg-black/60 backdrop-blur px-2.5 py-1 rounded-full">You</div>
-          <div className={`absolute top-3 right-3 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-all duration-300 ${coachSpeaking ? 'bg-blue-600 shadow-lg shadow-blue-600/30' : 'bg-white/10'}`}>
-            <Mic className="h-3 w-3" /> {coachSpeaking ? 'Customer speaking' : 'Customer listening'}
-          </div>
-        </div>
+      {/* Hidden self-view — only mounted when grading body language */}
+      {gradeBody && <video ref={videoRef} autoPlay playsInline muted className="hidden" />}
 
-        {/* Transcript */}
-        <div className="min-h-0 rounded-2xl bg-white/[0.03] ring-1 ring-white/10 flex flex-col overflow-hidden">
-          <div className="shrink-0 px-4 py-3 border-b border-white/10 text-sm font-medium text-white/80">Transcript</div>
-          <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth p-4 space-y-3">
-            {transcripts.length === 0 && !interim && (
-              <p className="text-white/40 text-sm">Start the call — greet the customer to begin.</p>
-            )}
-            {transcripts.map((t, i) => (
-              <div key={i} className={`flex animate-chip-in ${t.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed transition-colors ${t.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white/[0.08] text-white/90 rounded-bl-sm'}`}>
-                  {t.text}
-                </div>
-              </div>
-            ))}
-            {interim && (
-              <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl rounded-br-sm px-3.5 py-2 text-sm bg-blue-600/40 italic">{interim}</div>
-              </div>
-            )}
-            <div ref={transcriptEndRef} />
-          </div>
+      {/* Header */}
+      <header className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-6 h-16">
+        <div className="text-[13px] font-medium tracking-wide text-white/55 truncate">{config?.scenarioTitle || 'Practice call'}</div>
+        <div className="flex items-center gap-2 rounded-full border border-white/12 px-3.5 py-1.5 text-xs text-white/60">
+          <span className={`h-1.5 w-1.5 rounded-full ${phase === 'live' ? 'bg-blue-400 animate-pulse' : 'bg-white/40'}`} />
+          {phase === 'live' ? <>Live · <span className="tabular-nums">{mm}:{ss}</span></> : phase === 'ending' ? 'Wrapping up' : 'Connecting'}
         </div>
-      </div>
+      </header>
+
+      {/* Caption */}
+      {caption && (
+        <div className="absolute inset-x-0 bottom-28 z-10 mx-auto max-w-[min(680px,86vw)] px-6 text-center">
+          <span className="text-[11px] uppercase tracking-[0.15em] text-white/35">{caption.role === 'you' ? 'You' : 'Customer'}</span>
+          <p className="mt-1.5 text-[15px] leading-relaxed text-white/80 animate-chip-in">{caption.text}</p>
+        </div>
+      )}
+
+      {/* Status / errors */}
+      {phase === 'connecting' && !error && (
+        <div className="absolute inset-x-0 bottom-28 z-10 flex items-center justify-center gap-2 text-sm text-white/55">
+          <Loader2 className="h-4 w-4 animate-spin" /> {status}
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-x-0 bottom-28 z-10 mx-auto w-fit max-w-[86vw] rounded-xl border border-white/12 bg-black px-4 py-3 text-center text-sm text-white/70">{error}</div>
+      )}
+      {phase === 'ending' && (
+        <div className="absolute inset-x-0 bottom-28 z-10 flex items-center justify-center gap-2 text-sm text-white/60">
+          <Loader2 className="h-4 w-4 animate-spin" /> {status}
+        </div>
+      )}
 
       {/* Controls */}
-      <div className="h-20 border-t border-white/10 flex items-center justify-center gap-3">
-        {phase === 'connecting' && !error && (
-          <div className="flex items-center gap-2 text-white/70 text-sm"><Loader2 className="h-4 w-4 animate-spin" /> {status}</div>
-        )}
-        {error && <div className="text-rose-400 text-sm">{error}</div>}
+      <div className="absolute bottom-8 inset-x-0 z-10 flex items-center justify-center gap-3">
         {phase === 'live' && (
-          <>
-            <button onClick={toggleMic} className={`rounded-full p-4 transition-all active:scale-95 ${micOn ? 'bg-white/10 hover:bg-white/20' : 'bg-white/20 ring-1 ring-white/30'}`} title="Toggle mic">
-              {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-            </button>
-            <button onClick={toggleCam} className={`rounded-full p-4 transition-all active:scale-95 ${camOn ? 'bg-white/10 hover:bg-white/20' : 'bg-white/20 ring-1 ring-white/30'}`} title="Toggle camera">
-              {camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
-            </button>
-          </>
-        )}
-        {(phase === 'live' || error) && (
-          <button onClick={endSession} className="rounded-full bg-blue-600 hover:bg-blue-700 px-6 py-4 flex items-center gap-2 text-sm font-medium shadow-lg shadow-blue-600/25 transition-all active:scale-95" title="End session">
-            <PhoneOff className="h-5 w-5" /> End &amp; get feedback
+          <button onClick={toggleMic} title="Toggle mic"
+            className={`rounded-full p-4 transition-all active:scale-95 ${micOn ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-white text-black'}`}>
+            {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
           </button>
         )}
-        {phase === 'ending' && (
-          <div className="flex items-center gap-2 text-white/70 text-sm"><Loader2 className="h-4 w-4 animate-spin" /> {status}</div>
+        {(phase === 'live' || error) && (
+          <button onClick={endSession} title="End call"
+            className="rounded-full bg-white text-black px-6 py-4 flex items-center gap-2 text-sm font-semibold transition-all active:scale-95 hover:opacity-90">
+            <PhoneOff className="h-5 w-5" /> End &amp; get feedback
+          </button>
         )}
       </div>
     </div>

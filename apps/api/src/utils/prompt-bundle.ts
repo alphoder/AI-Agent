@@ -53,8 +53,10 @@ export function buildSystemPrompt(scenario: ScenarioCtx): string {
   }
 
   if (scenario.opening_message) {
-    lines.push('## Your opening line (say this first, verbatim)');
-    lines.push(scenario.opening_message);
+    // The opening is a GUIDE, not a script — always spoken in the call's language,
+    // even if this text is written in English. Never read it out verbatim.
+    lines.push(`## How to open (speak first, in ${langLabel})`);
+    lines.push(`Answer the call the way this customer naturally would, in the spirit of: "${scenario.opening_message}". Translate/adapt it into ${langLabel}; never say it in another language.`);
     lines.push('');
   }
 
