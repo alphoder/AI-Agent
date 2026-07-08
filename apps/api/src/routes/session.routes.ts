@@ -137,7 +137,7 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
   const scored = (session.duration_sec ?? 0) >= MIN_REPORT_SEC;
   if (scored) {
     const sc = await db.query(
-      'SELECT objective, system_prompt, scoring_rubric FROM scenarios WHERE id = $1',
+      'SELECT objective, system_prompt, scoring_rubric, difficulty_level FROM scenarios WHERE id = $1',
       [session.scenario_id],
     );
     const scenario = sc.rows[0];
@@ -153,6 +153,7 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
         scenario_objective: scenario?.objective ?? '',
         language: session.language,
         body_language_notes: session.body_language_notes ?? [],
+        difficulty_level: scenario?.difficulty_level ?? 'intermediate',
       },
     });
   }

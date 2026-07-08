@@ -114,6 +114,136 @@ def _format_notes(notes: list[dict]) -> str:
     return "\n".join(f"- [{n.get('at', 0)}s] {n.get('note', '')}" for n in notes)
 
 
+BEGINNER_RUBRIC = [
+    {
+        "name": "Professional Opening & Greeting",
+        "description": "Opens professionally, sets a polite tone, identifies self and company, and asks permission to speak.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Abrupt, rude, or fails to introduce self/company."},
+            {"score": 3, "description": "Polite introduction, but feels scripted or misses permission check."},
+            {"score": 5, "description": "Warm, professional opening that establishes immediate credibility."}
+        ]
+    },
+    {
+        "name": "Fact Accuracy & Compliance",
+        "description": "Explains product facts correctly and adheres to compliance standards (no false promises or hidden terms).",
+        "weight": 30,
+        "levels": [
+            {"score": 1, "description": "Makes deceptive claims, guarantees high yields, or hides waiting periods/costs."},
+            {"score": 3, "description": "Mostly accurate, but fails to explain key exclusions or features clearly."},
+            {"score": 5, "description": "Completely accurate, transparent, and compliant throughout the explanation."}
+        ]
+    },
+    {
+        "name": "Simple Information Gathering",
+        "description": "Asks basic, relevant qualification questions to gather essential details.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Asks no questions; jumps straight into a feature pitch."},
+            {"score": 3, "description": "Asks 1-2 basic questions, but fails to gather a clean picture."},
+            {"score": 5, "description": "Efficiently asks relevant qualification questions to understand basics."}
+        ]
+    },
+    {
+        "name": "Clean Hand-off / Next Step",
+        "description": "Proposes a polite, simple next step (e.g. sending a document or a callback).",
+        "weight": 20,
+        "levels": [
+            {"score": 1, "description": "No closing attempt, or highly aggressive pressure close."},
+            {"score": 3, "description": "Vague closing attempt with no specific time or commitment."},
+            {"score": 5, "description": "Secures a polite, specific, non-threatening next action."}
+        ]
+    }
+]
+
+INTERMEDIATE_RUBRIC = [
+    {
+        "name": "Active Needs Discovery",
+        "description": "Asks open-ended questions to qualify the customer's specific needs, situation, and goals.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Jumps straight to pitch without any needs discovery questions."},
+            {"score": 3, "description": "Asks basic questions but fails to probe deeper into the responses."},
+            {"score": 5, "description": "Asks strategic open-ended questions to map out the customer's needs."}
+        ]
+    },
+    {
+        "name": "Customized Solution Framing",
+        "description": "Tailors the product benefits directly to the customer's stated goals and family/business setup.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Features dump. No correlation with the customer's situation."},
+            {"score": 3, "description": "Explains benefits, but does not customize them to the customer's answers."},
+            {"score": 5, "description": "Frames the product as the direct answer to the customer's self-identified need."}
+        ]
+    },
+    {
+        "name": "Standard Objection Handling",
+        "description": "Validates objections (like price or delay) with empathy and responds with composed value arguments.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Arguing, defensive, or folds immediately at the first objection."},
+            {"score": 3, "description": "Stays calm but responds with a scripted counter-pitch that feels rigid."},
+            {"score": 5, "description": "Empathetically validates the concern, then uses value justification to resolve it."}
+        ]
+    },
+    {
+        "name": "Committed Action Close",
+        "description": "Secures a firm next step with clear accountability and schedule (e.g., meeting, payment link).",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Fails to close, or leaves it open-ended ('think about it')."},
+            {"score": 3, "description": "Asks for a next step but accepts a tentative, non-committal response."},
+            {"score": 5, "description": "Secures a firm, agreed commitment for the next action."}
+        ]
+    }
+]
+
+ADVANCED_RUBRIC = [
+    {
+        "name": "Conversational Intelligence",
+        "description": "Reads emotional cues, tone shifts, and subtext; adjusts conversation flow and mirrors the customer.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Robotic flow, script-bound, completely ignores customer's hints or mood."},
+            {"score": 3, "description": "Keeps conversational flow but misses emotional shifts or subtle cues."},
+            {"score": 5, "description": "Dynamic, mirrors energy, reads unstated doubts, and creates trusted flow."}
+        ]
+    },
+    {
+        "name": "Emotional Value Mapping",
+        "description": "Uncovers deep, latent motivations and connects the solution to safety, legacy, or business continuity.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Talks only about product stats (IDV, premium, critical list) without emotional hooks."},
+            {"score": 3, "description": "Touches on family or business protection but keeps it high-level."},
+            {"score": 5, "description": "Maps the protection directly to the customer's deep emotional drivers."}
+        ]
+    },
+    {
+        "name": "Strategic Objection Reframing",
+        "description": "Welcomes objections and uses customer's arguments to reinforce the value of immediate protection.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "Defensive or ignores objection; repeats the standard pitch."},
+            {"score": 3, "description": "Validates, but is unable to pivot the objection into a positive selling point."},
+            {"score": 5, "description": "Uses conversational Aikido; reframes the objection as the very reason to secure the plan."}
+        ]
+    },
+    {
+        "name": "Ethical Value Close",
+        "description": "Earns the right to close through consultative trust, presenting clear choices with zero high-pressure tactics.",
+        "weight": 25,
+        "levels": [
+            {"score": 1, "description": "High-pressure close, false urgency, or completely avoids asking for commitment."},
+            {"score": 3, "description": "Puts forward the proposal but lacks confidence in asking for commitment."},
+            {"score": 5, "description": "Natural close that feels like a service; customer is glad they were asked."}
+        ]
+    }
+]
+
+
 class ScoringEngine:
     """Evaluate a session with Gemini Flash."""
 
@@ -127,14 +257,25 @@ class ScoringEngine:
         persona_context: str,
         scenario_objective: str,
         body_language_notes: list[dict] | None = None,
+        difficulty_level: str = "intermediate",
     ) -> dict:
         if not settings.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
 
+        actual_rubric = rubric
+        if not actual_rubric:
+            diff = difficulty_level.lower()
+            if diff == "beginner":
+                actual_rubric = BEGINNER_RUBRIC
+            elif diff == "advanced":
+                actual_rubric = ADVANCED_RUBRIC
+            else:
+                actual_rubric = INTERMEDIATE_RUBRIC
+
         user_prompt = (
             f"## Scenario Objective\n{scenario_objective}\n\n"
             f"## Character Context\n{persona_context}\n\n"
-            f"## Scoring Rubric\n{_format_rubric(rubric)}\n\n"
+            f"## Scoring Rubric\n{_format_rubric(actual_rubric)}\n\n"
             f"## Body-Language Observations\n{_format_notes(body_language_notes or [])}\n\n"
             f"## Conversation Transcript\n{_format_transcript(transcript)}"
         )

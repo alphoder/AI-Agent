@@ -46,11 +46,12 @@ class BodyLanguageNote(BaseModel):
 
 class EvaluateRequest(BaseModel):
     session_id: str
-    rubric: list[RubricCriterion]
+    rubric: list[RubricCriterion] = []
     persona_context: str = ""
     scenario_objective: str = ""
     language: str = "en"
     body_language_notes: list[BodyLanguageNote] = []
+    difficulty_level: str = "intermediate"
 
 
 @router.post("/evaluate")
@@ -79,6 +80,7 @@ async def evaluate_session(body: EvaluateRequest):
             persona_context=body.persona_context,
             scenario_objective=body.scenario_objective,
             body_language_notes=[n.model_dump() for n in body.body_language_notes],
+            difficulty_level=body.difficulty_level,
         )
     except RuntimeError as exc:
         logger.error("scoring.engine_failed", session_id=session_id, error=str(exc))

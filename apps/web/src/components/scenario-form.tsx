@@ -41,7 +41,7 @@ export function emptyScenario(): ScenarioFormValue {
   return {
     title: '', description: '', objective: '', system_prompt: '', opening_message: '',
     language: 'en', voice: 'Aoede', difficulty_level: 'intermediate', visibility: 'private',
-    tags: [], scoring_rubric: [newCriterion()],
+    tags: [], scoring_rubric: [],
   };
 }
 
@@ -96,7 +96,7 @@ export function ScenarioForm({ initial, mode }: { initial: ScenarioFormValue; mo
       setError('Title, objective and character prompt are required.');
       return;
     }
-    if (totalWeight !== 100) {
+    if (v.scoring_rubric.length > 0 && totalWeight !== 100) {
       setError(`Rubric weights must sum to 100 (currently ${totalWeight}).`);
       return;
     }
@@ -248,8 +248,8 @@ export function ScenarioForm({ initial, mode }: { initial: ScenarioFormValue; mo
       <section className="space-y-4 rounded-2xl border border-border/50 bg-card p-5">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">Scoring rubric</h2>
-          <span className={`text-xs font-medium ${totalWeight === 100 ? 'text-emerald-600' : 'text-rose-600'}`}>
-            Weights: {totalWeight}/100
+          <span className={`text-xs font-medium ${totalWeight === 100 || totalWeight === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {totalWeight === 0 ? `Optional (Will use default ${v.difficulty_level} criteria)` : `Weights: ${totalWeight}/100`}
           </span>
         </div>
         {v.scoring_rubric.map((c, ci) => (

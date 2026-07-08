@@ -18,7 +18,7 @@ const VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Or
 const DIFFICULTIES = new Set(['beginner', 'intermediate', 'advanced']);
 
 function validateRubric(rubric: any[]): string | null {
-  if (!Array.isArray(rubric) || rubric.length === 0) return 'Rubric must be a non-empty array';
+  if (!rubric || (Array.isArray(rubric) && rubric.length === 0)) return null;
   if (rubric.length > 10) return 'Maximum 10 criteria allowed';
   let totalWeight = 0;
   for (const criterion of rubric) {
