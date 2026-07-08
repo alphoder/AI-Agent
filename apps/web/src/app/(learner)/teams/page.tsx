@@ -1,573 +1,207 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import Link from 'next/link';
-import { Building2, Users, Target, BookOpen, Plus, Mail, Check, Calendar, ArrowRight, Play, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Building2, Users, Trophy, Plus, Copy, Check, Play, Loader2, Crown, ClipboardList, Trash2, X } from 'lucide-react';
 import apiClient from '@/lib/api-client';
-import { useAuth } from '@/hooks/use-auth';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Accent } from '@/components/ui/accent';
+import { languageName } from '@avatar-platform/shared';
 
-interface Scenario {
-  id: string;
-  title: string;
-  language: string;
-}
-
-interface TeamMember {
-  id: string;
-  name: string;
-  email: string;
-  role: 'Owner' | 'Admin' | 'Learner' | 'Coach';
-  sessionsCompleted: number;
-  avgScore: number | null;
-  status: 'Active' | 'Pending';
-}
-
-interface TeamAssignment {
-  id: string;
-  scenarioTitle: string;
-  scenarioId: string;
-  assignedTo: string;
-  dueDate: string;
-  completions: string; // e.g. "0/5"
-}
+interface WsSummary { id: string; name: string; join_code: string; role: string; member_count: number }
+interface Member { id: string; name: string; email: string; role: string; scored_sessions: number; avg_score: number | null; total_sec: number }
+interface Assignment { id: string; note: string | null; scenario_id: string; title: string; language: string; difficulty_level: string; voice: string }
+interface Detail { workspace: { id: string; name: string; join_code: string; my_role: string }; members: Member[]; assignments: Assignment[] }
+interface Scenario { id: string; title: string; language: string; voice: string }
 
 export default function TeamsPage() {
-  const { user, setUser } = useAuth();
-  
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'cohort' | 'assignments'>('dashboard');
+  const router = useRouter();
+  const [list, setList] = useState<WsSummary[] | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignScenario, setAssignScenario] = useState('');
+  const [assignNote, setAssignNote] = useState('');
 
-  // Team local states (synced from user metadata or defaulted)
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [assignments, setAssignments] = useState<TeamAssignment[]>([]);
-
-  // Workspace creation
-  const [teamName, setTeamName] = useState('');
-  const [creatingTeam, setCreatingTeam] = useState(false);
-  const hasTeam = !!user?.metadata?.teams;
-
-  // Modals & Forms state
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteName, setInviteName] = useState('');
-  const [inviteRole, setInviteRole] = useState<'Admin' | 'Learner' | 'Coach'>('Learner');
-  const [inviting, setInviting] = useState(false);
-
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignScenarioId, setAssignScenarioId] = useState('');
-  const [assignTarget, setAssignTarget] = useState('All Learners');
-  const [assignDueDate, setAssignDueDate] = useState('');
-  const [assigning, setAssigning] = useState(false);
-
-  // Fetch scenarios on mount
-  useEffect(() => {
-    apiClient
-      .get('/scenarios?limit=50')
-      .then(({ data }) => setScenarios(data.data || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const loadList = useCallback(async () => {
+    const { data } = await apiClient.get('/workspaces');
+    setList(data.data);
+    setActiveId((cur) => cur || data.data[0]?.id || null);
+  }, []);
+  const loadDetail = useCallback(async (id: string) => {
+    const { data } = await apiClient.get(`/workspaces/${id}`);
+    setDetail(data.data);
   }, []);
 
-  // Initialize members and assignments from user metadata
-  useEffect(() => {
-    if (user?.metadata?.teams) {
-      const t = user.metadata.teams as { members?: TeamMember[]; assignments?: TeamAssignment[] };
-      setMembers(t.members || []);
-      setAssignments(t.assignments || []);
-    } else {
-      setMembers([]);
-      setAssignments([]);
-    }
-  }, [user]);
+  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => { if (activeId) loadDetail(activeId).catch(() => {}); else setDetail(null); }, [activeId, loadDetail]);
+  useEffect(() => { apiClient.get('/scenarios').then(({ data }) => setScenarios(data.data)).catch(() => {}); }, []);
 
-  // Persist teams changes back to metadata
-  async function saveTeamState(updatedMembers: TeamMember[], updatedAssignments: TeamAssignment[]) {
-    try {
-      const payload = {
-        teams: {
-          members: updatedMembers,
-          assignments: updatedAssignments,
-        },
-      };
-      const { data } = await apiClient.patch('/auth/me/metadata', payload);
-      if (data.success) {
-        setUser(data.data);
-      }
-    } catch (e) {
-      console.error('Failed to save team state', e);
-    }
+  const err2 = (e: unknown) => (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+
+  async function createWs() {
+    if (name.trim().length < 2) return; setBusy(true); setErr(null);
+    try { const { data } = await apiClient.post('/workspaces', { name }); setName(''); await loadList(); setActiveId(data.data.id); }
+    catch (e) { setErr(err2(e) || 'Could not create workspace.'); } finally { setBusy(false); }
   }
-
-  // Handle member invitation
-  async function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inviteEmail.trim() || !inviteName.trim()) return;
-    setInviting(true);
-    
-    setTimeout(async () => {
-      const newMember: TeamMember = {
-        id: String(Date.now()),
-        name: inviteName,
-        email: inviteEmail,
-        role: inviteRole,
-        sessionsCompleted: 0,
-        avgScore: null,
-        status: 'Pending',
-      };
-      const nextMembers = [...members, newMember];
-      setMembers(nextMembers);
-      await saveTeamState(nextMembers, assignments);
-      
-      // Reset & close
-      setInviteEmail('');
-      setInviteName('');
-      setInviteRole('Learner');
-      setInviting(false);
-      setShowInviteModal(false);
-    }, 1000);
+  async function joinWs() {
+    if (!code.trim()) return; setBusy(true); setErr(null);
+    try { const { data } = await apiClient.post('/workspaces/join', { code }); setCode(''); await loadList(); setActiveId(data.data.id); }
+    catch (e) { setErr(err2(e) || 'Could not join. Check the code.'); } finally { setBusy(false); }
   }
-
-  // Handle scenario assignment
-  async function handleAssign(e: React.FormEvent) {
-    e.preventDefault();
-    if (!assignScenarioId || !assignDueDate) return;
-    setAssigning(true);
-
-    setTimeout(async () => {
-      const scenario = scenarios.find((s) => s.id === assignScenarioId);
-      const newAssignment: TeamAssignment = {
-        id: String(Date.now()),
-        scenarioTitle: scenario?.title || 'Practice scenario',
-        scenarioId: assignScenarioId,
-        assignedTo: assignTarget,
-        dueDate: assignDueDate,
-        completions: '0/3',
-      };
-      
-      const nextAssignments = [...assignments, newAssignment];
-      setAssignments(nextAssignments);
-      await saveTeamState(members, nextAssignments);
-
-      // Reset & close
-      setAssignScenarioId('');
-      setAssignDueDate('');
-      setAssigning(false);
-      setShowAssignModal(false);
-    }, 1000);
+  async function assign() {
+    if (!activeId || !assignScenario) return; setBusy(true);
+    try { await apiClient.post(`/workspaces/${activeId}/assignments`, { scenario_id: assignScenario, note: assignNote || undefined }); setAssignOpen(false); setAssignScenario(''); setAssignNote(''); await loadDetail(activeId); }
+    finally { setBusy(false); }
   }
+  async function removeAssignment(aid: string) { if (!activeId) return; await apiClient.delete(`/workspaces/${activeId}/assignments/${aid}`); await loadDetail(activeId); }
+  function practice(a: Assignment) { router.push(`/session/${a.scenario_id}?lang=${a.language || 'en'}&voice=${a.voice || 'Charon'}&grade=0`); }
+  function copyCode() { if (!detail) return; navigator.clipboard.writeText(detail.workspace.join_code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }
 
-  if (!hasTeam) {
-    return (
-      <div className="max-w-md mx-auto my-12 animate-fade-in">
-        <Card className="p-6 space-y-6 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary mx-auto">
-            <Building2 className="h-6 w-6" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold">Create Team Workspace</h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              Collaborate on custom scenarios, track cohort progress, and assign speaking practices to members.
-            </p>
-          </div>
-          
-          <form onSubmit={async (e) => {
-            e.preventDefault();
-            if (!teamName.trim()) return;
-            setCreatingTeam(true);
-            try {
-              const payload = {
-                teams: {
-                  name: teamName,
-                  members: [
-                    { id: '1', name: user?.name || 'You', email: user?.email || '', role: 'Owner', sessionsCompleted: 0, avgScore: null, status: 'Active' }
-                  ],
-                  assignments: []
-                }
-              };
-              const { data } = await apiClient.patch('/auth/me/metadata', payload);
-              if (data.success) {
-                setUser(data.data);
-              }
-            } catch (err) {
-              console.error('Failed to create team', err);
-            } finally {
-              setCreatingTeam(false);
-            }
-          }} className="space-y-4">
-            <div className="text-left space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">Team Name</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Sales Team, CS 101 Cohort"
-                value={teamName}
-                onChange={(e) => setTeamName(e.target.value)}
-                className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none"
-              />
-            </div>
-            <Button type="submit" disabled={creatingTeam} className="w-full rounded-full">
-              {creatingTeam ? 'Creating...' : 'Initialize Workspace'}
-            </Button>
-          </form>
-        </Card>
-      </div>
-    );
-  }
+  const isLeader = detail?.workspace.my_role === 'leader';
+  const mins = (s: number) => Math.round(s / 60);
 
   return (
-    <div className="space-y-8">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
-            <Building2 className="h-5 w-5" />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Team Hub</h1>
-            <p className="mt-0.5 max-w-xl text-sm text-muted-foreground">
-              Bring SpeakCoach to your classroom, classroom, or organization cohorts.
-            </p>
-          </div>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Teams</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">Create a workspace, assign practice tests to your team, and run a contest leaderboard.</p>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => setShowInviteModal(true)}
-            variant="outline"
-            className="rounded-full flex items-center gap-1.5"
-          >
-            <Mail className="h-4 w-4" /> Invite Member
-          </Button>
-          <Button
-            onClick={() => setShowAssignModal(true)}
-            className="rounded-full bg-primary text-primary-foreground hover:bg-primary/95 flex items-center gap-1.5"
-          >
-            <Plus className="h-4 w-4" /> Assign Scenario
-          </Button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-border">
-        {([
-          { id: 'dashboard', label: 'Team Overview' },
-          { id: 'members', label: 'Roster & Members' },
-          { id: 'cohort', label: 'Cohort Performance' },
-          { id: 'assignments', label: 'Assignments' }
-        ] as const).map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`press px-5 py-3 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-              activeTab === tab.id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Panels */}
-      {activeTab === 'dashboard' && (
-        <div className="space-y-6">
-          {/* Quick Metrics */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Card className="p-5 flex items-center gap-4">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Users className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Cohort</p>
-                <p className="text-xl font-bold tracking-tight mt-0.5">{members.length} members</p>
-              </div>
-            </Card>
-
-            <Card className="p-5 flex items-center gap-4">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Target className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cohort Avg Score</p>
-                <p className="text-xl font-bold tracking-tight mt-0.5">
-                  {Math.round(
-                    members.filter((m) => m.avgScore != null).reduce((acc, m) => acc + m.avgScore!, 0) /
-                      members.filter((m) => m.avgScore != null).length
-                  ) || 83}
-                  <span className="text-xs text-muted-foreground font-normal">/100</span>
-                </p>
-              </div>
-            </Card>
-
-            <Card className="p-5 flex items-center gap-4">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <BookOpen className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Active Tasks</p>
-                <p className="text-xl font-bold tracking-tight mt-0.5">{assignments.length} scenarios</p>
-              </div>
-            </Card>
-          </div>
-
-          <Card className="p-6 space-y-4">
-            <h3 className="font-semibold text-sm">Recent Team Activity</h3>
-            <p className="text-xs text-muted-foreground">
-              Your team members are actively developing public speaking and customer discovery skills.
-            </p>
-            <div className="h-32 flex items-center justify-center text-xs text-muted-foreground border border-dashed rounded-xl">
-              Activity graph updates dynamically as members practice.
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {activeTab === 'members' && (
-        <Card className="p-6 space-y-4">
-          <h3 className="font-semibold text-sm">Roster list</h3>
-          <div className="divide-y divide-border pt-2 text-sm">
-            {members.map((m) => (
-              <div key={m.id} className="flex items-center justify-between py-3.5 px-2 hover:bg-secondary/10 rounded-xl transition-all">
-                <div>
-                  <p className="font-semibold">{m.name}</p>
-                  <p className="text-xs text-muted-foreground">{m.email}</p>
-                </div>
-                <div className="flex items-center gap-4 text-xs font-semibold">
-                  <span className="text-muted-foreground bg-secondary/80 px-2.5 py-0.5 rounded-full border border-border">
-                    {m.role}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-full ${
-                    m.status === 'Active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
-                  }`}>
-                    {m.status}
-                  </span>
-                </div>
-              </div>
+        {list && list.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {list.map((w) => (
+              <button key={w.id} onClick={() => setActiveId(w.id)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${activeId === w.id ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground hover:text-foreground'}`}>
+                {w.name}
+              </button>
             ))}
           </div>
-        </Card>
-      )}
+        )}
+      </div>
 
-      {activeTab === 'cohort' && (
-        <Card className="p-6 space-y-4">
-          <h3 className="font-semibold text-sm">Cohort Progress Table</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground uppercase font-semibold tracking-wider">
-                  <th className="py-3 px-2">Member</th>
-                  <th className="py-3 px-2">Sessions Completed</th>
-                  <th className="py-3 px-2">Average Score</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {members.filter(m => m.status === 'Active').map((m) => (
-                  <tr key={m.id} className="hover:bg-secondary/5 transition-colors">
-                    <td className="py-3.5 px-2 font-medium">{m.name}</td>
-                    <td className="py-3.5 px-2">{m.sessionsCompleted}</td>
-                    <td className="py-3.5 px-2 font-semibold text-primary">
-                      {m.avgScore ? `${m.avgScore}/100` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Create / join */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-sm font-medium"><Building2 className="h-4 w-4 text-primary" /> Create a workspace</div>
+          <div className="mt-3 flex gap-2">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mumbai Sales Team"
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20" />
+            <button onClick={createWs} disabled={busy || name.trim().length < 2}
+              className="press inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"><Plus className="h-4 w-4" /> Create</button>
           </div>
-        </Card>
-      )}
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-sm font-medium"><Users className="h-4 w-4 text-primary" /> Join with a code</div>
+          <div className="mt-3 flex gap-2">
+            <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="e.g. K7QF2M"
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm uppercase tracking-widest text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20" />
+            <button onClick={joinWs} disabled={busy || !code.trim()}
+              className="press rounded-lg border border-border px-3.5 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">Join</button>
+          </div>
+        </div>
+      </div>
+      {err && <p className="text-sm text-rose-400">{err}</p>}
 
-      {activeTab === 'assignments' && (
-        <div className="space-y-6">
-          {assignments.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-12">
-              No scenarios assigned yet. Assign one above!
-            </p>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {assignments.map((a) => (
-                <Card key={a.id} className="p-5 flex flex-col justify-between h-44 border-primary/10">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                        <Calendar className="h-3 w-3" /> Due {a.dueDate}
-                      </span>
-                      <span className="rounded-full bg-primary/10 text-primary px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide">
-                        {a.completions} Completed
-                      </span>
-                    </div>
-                    <h3 className="font-bold text-sm mt-3">{a.scenarioTitle}</h3>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Assigned to: <span className="font-semibold text-foreground">{a.assignedTo}</span>
-                    </p>
-                  </div>
-
-                  <div className="flex justify-end pt-3 mt-3 border-t border-border/40">
-                    <Link href={`/session/${a.scenarioId}`} className="press">
-                      <Button className="rounded-full px-4 h-8 text-xs flex items-center gap-1">
-                        <Play className="h-3 w-3 fill-current" /> Practice
-                      </Button>
-                    </Link>
-                  </div>
-                </Card>
-              ))}
+      {list === null ? (
+        <div className="h-40 rounded-2xl border border-border bg-card animate-pulse" />
+      ) : !detail ? (
+        <div className="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+          You are not in a workspace yet. Create one above, or join your team with a code.
+        </div>
+      ) : (
+        <>
+          {/* Workspace header */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary"><Building2 className="h-5 w-5" /></div>
+              <div>
+                <p className="font-semibold">{detail.workspace.name}</p>
+                <p className="text-xs text-muted-foreground">{detail.members.length} member{detail.members.length === 1 ? '' : 's'} · you are the {detail.workspace.my_role}</p>
+              </div>
             </div>
-          )}
-        </div>
-      )}
+            <button onClick={copyCode} className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm">
+              Invite code <span className="font-mono font-semibold tracking-widest">{detail.workspace.join_code}</span>
+              {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+            </button>
+          </div>
 
-      {/* Invite Member Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowInviteModal(false)} />
-          <Card className="relative w-full max-w-md p-6 bg-card border border-border animate-pop-in">
-            <h3 className="text-lg font-bold">Invite Member</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Add a new member, coach or manager to your training workspace.
-            </p>
-
-            <form onSubmit={handleInvite} className="space-y-4 mt-6">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Full Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="John Doe"
-                  value={inviteName}
-                  onChange={(e) => setInviteName(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none"
-                />
+          <div className="grid gap-4 lg:grid-cols-5">
+            {/* Contest leaderboard */}
+            <div className="rounded-2xl border border-border bg-card p-4 lg:col-span-3">
+              <div className="flex items-center gap-2 text-sm font-medium"><Trophy className="h-4 w-4 text-amber-400" /> Contest leaderboard</div>
+              <div className="mt-3 divide-y divide-border">
+                {detail.members.map((m, i) => (
+                  <div key={m.id} className="flex items-center gap-3 py-2.5">
+                    <div className="w-7 text-center text-lg">{i < 3 ? ['🥇', '🥈', '🥉'][i] : <span className="text-sm text-muted-foreground">{i + 1}</span>}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-1.5 truncate text-sm font-medium">{m.name || m.email}{m.role === 'leader' && <Crown className="h-3.5 w-3.5 text-amber-400" />}</p>
+                      <p className="text-xs text-muted-foreground">{m.scored_sessions} call{m.scored_sessions === 1 ? '' : 's'} · {mins(m.total_sec)} min</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold tabular-nums">{m.avg_score ?? '—'}</p>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">avg score</p>
+                    </div>
+                  </div>
+                ))}
               </div>
+            </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="john@example.com"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Role</label>
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as any)}
-                  className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-sm focus:outline-none"
-                >
-                  <option value="Learner">Learner</option>
-                  <option value="Coach">Coach</option>
-                  <option value="Admin">Admin</option>
-                </select>
-              </div>
-
-              <div className="pt-4 flex items-center justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setShowInviteModal(false)}
-                  className="rounded-full"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={inviting}
-                  className="rounded-full px-6"
-                >
-                  {inviting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {inviting ? 'Inviting...' : 'Send Invitation'}
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {/* Assign Scenario Modal */}
-      {showAssignModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowAssignModal(false)} />
-          <Card className="relative w-full max-w-md p-6 bg-card border border-border animate-pop-in">
-            <h3 className="text-lg font-bold">Assign Scenario</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Select a practice scenario from the library and assign it to members.
-            </p>
-
-            <form onSubmit={handleAssign} className="space-y-4 mt-6">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Select Scenario</label>
-                {loading ? (
-                  <div className="h-9 w-full bg-secondary/30 rounded-lg animate-pulse" />
-                ) : (
-                  <select
-                    value={assignScenarioId}
-                    onChange={(e) => setAssignScenarioId(e.target.value)}
-                    required
-                    className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-sm focus:outline-none"
-                  >
-                    <option value="">-- Choose Scenario --</option>
-                    {scenarios.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.title}
-                      </option>
-                    ))}
-                  </select>
+            {/* Assigned tests */}
+            <div className="rounded-2xl border border-border bg-card p-4 lg:col-span-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium"><ClipboardList className="h-4 w-4 text-primary" /> Assigned tests</div>
+                {isLeader && (
+                  <button onClick={() => setAssignOpen(true)} className="press inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"><Plus className="h-3.5 w-3.5" /> Assign</button>
                 )}
               </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assign To</label>
-                <select
-                  value={assignTarget}
-                  onChange={(e) => setAssignTarget(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-sm focus:outline-none"
-                >
-                  <option value="All Learners">All Learners</option>
-                  {members.filter(m => m.role === 'Learner' || m.role === 'Owner').map(m => (
-                    <option key={m.id} value={m.name}>{m.name}</option>
-                  ))}
-                </select>
+              <div className="mt-3 space-y-2">
+                {detail.assignments.length === 0 && <p className="text-sm text-muted-foreground">{isLeader ? 'Assign a scenario for your team to practise.' : 'No tests assigned yet.'}</p>}
+                {detail.assignments.map((a) => (
+                  <div key={a.id} className="rounded-xl border border-border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{a.title}</p>
+                        {a.note && <p className="mt-0.5 text-xs text-muted-foreground">{a.note}</p>}
+                        <p className="mt-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">{languageName(a.language)} · {a.difficulty_level}</p>
+                      </div>
+                      {isLeader && <button onClick={() => removeAssignment(a.id)} className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-rose-400" title="Remove"><Trash2 className="h-4 w-4" /></button>}
+                    </div>
+                    <button onClick={() => practice(a)} className="press mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"><Play className="h-3.5 w-3.5" /> Practice</button>
+                  </div>
+                ))}
               </div>
+            </div>
+          </div>
+        </>
+      )}
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Due Date</label>
-                <input
-                  type="date"
-                  required
-                  value={assignDueDate}
-                  onChange={(e) => setAssignDueDate(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:outline-none"
-                />
-              </div>
-
-              <div className="pt-4 flex items-center justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setShowAssignModal(false)}
-                  className="rounded-full"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={assigning || !assignScenarioId}
-                  className="rounded-full px-6"
-                >
-                  {assigning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {assigning ? 'Assigning...' : 'Assign Scenario'}
-                </Button>
-              </div>
-            </form>
-          </Card>
+      {/* Assign modal */}
+      {assignOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setAssignOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">Assign a test</h2>
+              <button onClick={() => setAssignOpen(false)} className="rounded-md p-1 text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <label className="mt-4 block text-xs font-medium text-muted-foreground">Scenario</label>
+            <select value={assignScenario} onChange={(e) => setAssignScenario(e.target.value)}
+              className="mt-1.5 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20">
+              <option value="">Choose a scenario…</option>
+              {scenarios.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+            </select>
+            <label className="mt-3 block text-xs font-medium text-muted-foreground">Note (optional)</label>
+            <input value={assignNote} onChange={(e) => setAssignNote(e.target.value)} placeholder="e.g. Focus on objection handling"
+              className="mt-1.5 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20" />
+            <button onClick={assign} disabled={busy || !assignScenario}
+              className="press mt-4 w-full rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+              {busy ? 'Assigning…' : 'Assign to team'}
+            </button>
+          </div>
         </div>
       )}
     </div>

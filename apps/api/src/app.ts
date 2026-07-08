@@ -12,6 +12,7 @@ import { authRoutes } from './routes/auth.routes';
 import { scenarioRoutes } from './routes/scenario.routes';
 import { sessionRoutes } from './routes/session.routes';
 import { assistantRoutes } from './routes/assistant.routes';
+import { workspaceRoutes } from './routes/workspace.routes';
 import { internalRoutes } from './routes/internal.routes';
 
 export function createApp(): express.Express {
@@ -83,6 +84,7 @@ export function createApp(): express.Express {
   app.use('/api/scenarios', scenarioRoutes);
   app.use('/api/sessions', sessionRoutes);
   app.use('/api/assistant', assistantRoutes);
+  app.use('/api/workspaces', workspaceRoutes);
   app.use('/api/internal', internalRoutes);
 
   // 404 catch-all
