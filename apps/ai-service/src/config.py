@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Model ids are env-overridable — adjust if Google's exact id strings differ.
     gemini_api_key: str = ""
     gemini_prompt_api_key: str = ""
+    # Only two models, both verified against the API key's ListModels:
+    #   - live/assistant: gemini-3.1-flash-live-preview (the only flash-live-preview the key has)
+    #   - scoring/prompt/vision: gemini-3.1-flash-lite
     gemini_live_model: str = "models/gemini-3.1-flash-live-preview"  # conversation (Live API, key 1)
     gemini_flash_model: str = "gemini-3.1-flash-lite"      # reports + scoring + vision (key 1)
     gemini_prompt_model: str = "gemini-3.1-flash-lite"     # prompt redesign (key 2)
