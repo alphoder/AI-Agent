@@ -1,12 +1,16 @@
 name: keep-warm
 
-# Render free-tier services spin down after ~15 min idle, and the cold start
-# (~30-60s) makes the first user's WebSocket connection fail. This pings the API
-# and AI health endpoints every 10 minutes so the services stay awake.
+# Render free-tier web services spin down after ~15 min idle; the cold start
+# (~30-60s) makes the first user's request slow and can fail a WebSocket upgrade.
+# This pings every 10 minutes to keep the API + AI awake and the DB connection hot:
+#   /warmup  -> wakes the API AND fires an internal ping to the AI service
+#   /health  -> runs a `SELECT 1`, keeping the Postgres connection warm
+#   /health/ready (AI) -> belt-and-suspenders wake for the AI relay
 #
-# Note on cost: on a PRIVATE repo this consumes ~144 Actions minutes/day. If that
-# matters, prefer a free external uptime monitor (UptimeRobot / cron-job.org)
-# pointed at the same two URLs, and disable this workflow.
+# IMPORTANT: GitHub's cron is best-effort and can be delayed 5-15 min under load,
+# and on a PRIVATE repo this burns ~144 Actions minutes/day. For a hard guarantee,
+# ALSO set up a free external monitor (UptimeRobot / cron-job.org) at a 5-min
+# interval on the same URLs — see notes in chat.
 
 on:
   schedule:
@@ -17,9 +21,10 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping API and AI health
+      - name: Keep API + AI + DB warm
         run: |
           set +e
-          curl -fsS --max-time 90 https://speakcoach-api.onrender.com/health      && echo " api ok"
-          curl -fsS --max-time 90 https://speakcoach-ai.onrender.com/health/ready  && echo " ai ok"
+          curl -fsS --max-time 90 https://speakcoach-api.onrender.com/warmup      && echo " warmup ok"
+          curl -fsS --max-time 90 https://speakcoach-api.onrender.com/health       && echo " api+db ok"
+          curl -fsS --max-time 90 https://speakcoach-ai.onrender.com/health/ready   && echo " ai ok"
           exit 0
