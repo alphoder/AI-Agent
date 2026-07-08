@@ -131,7 +131,7 @@ router.get('/me', authMiddleware as unknown as RequestHandler, wrap(async (req: 
     return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
   }
   const result = await db.query(
-    `SELECT id, email, name, picture, is_active, last_login_at, metadata
+    `SELECT id, email, name, picture, is_active, last_login_at, metadata, created_at, updated_at
      FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [req.user.sub],
   );
@@ -169,7 +169,7 @@ router.patch('/me/onboarding', authMiddleware as unknown as RequestHandler, wrap
        SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('onboarding', $2::jsonb),
            updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, email, name, picture, is_active, last_login_at, metadata`,
+     RETURNING id, email, name, picture, is_active, last_login_at, metadata, created_at, updated_at`,
     [req.user.sub, JSON.stringify(onboarding)],
   );
   if (result.rows.length === 0) {
@@ -194,7 +194,7 @@ router.patch('/me/metadata', authMiddleware as unknown as RequestHandler, wrap(a
        SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
            updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, email, name, picture, is_active, last_login_at, metadata`,
+     RETURNING id, email, name, picture, is_active, last_login_at, metadata, created_at, updated_at`,
     [req.user.sub, JSON.stringify(payload)],
   );
   if (result.rows.length === 0) {

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Settings, User, Volume2, Globe, Shield, Check, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Settings, User, Volume2, Globe, Shield, Check, Loader2, Square } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import apiClient from '@/lib/api-client';
-import { LANGUAGES } from '@avatar-platform/shared';
+import { LANGUAGES, voiceSampleUrl } from '@avatar-platform/shared';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Accent } from '@/components/ui/accent';
@@ -22,11 +22,12 @@ export default function SettingsPage() {
   
   const [voice, setVoice] = useState('Aoede');
   const [language, setLanguage] = useState('en');
-  const [bodyLanguageOptIn, setBodyLanguageOptIn] = useState(true);
+  const [bodyLanguageOptIn, setBodyLanguageOptIn] = useState(false);
   
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [previewing, setPreviewing] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Initialize from user metadata
   useEffect(() => {
@@ -62,30 +63,15 @@ export default function SettingsPage() {
     }
   }
 
+  // Play the real Gemini voice sample (same catalog the create form uses).
   function playVoicePreview(v: string) {
-    if (typeof window === 'undefined') return;
-    setPreviewing(v);
-    
-    // Attempt real audio voice generation using standard Web Speech API as a premium preview
-    try {
-      const u = new SpeechSynthesisUtterance(`Hello! I am ${v}. I will be your speaking coach.`);
-      // Match gender/style if browser voices are available
-      const voices = window.speechSynthesis.getVoices();
-      const match = voices.find(voice => 
-        voice.name.toLowerCase().includes(v.toLowerCase()) || 
-        (v === 'Leda' && voice.name.toLowerCase().includes('female')) ||
-        (v === 'Puck' && voice.name.toLowerCase().includes('male'))
-      );
-      if (match) u.voice = match;
-      u.rate = 1.0;
-      u.onend = () => setPreviewing(null);
-      u.onerror = () => setPreviewing(null);
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-    } catch {
-      // Fallback: simulate audio loading/playing indicator for 1.5s
-      setTimeout(() => setPreviewing(null), 1500);
-    }
+    audioRef.current?.pause();
+    if (previewing === v) { setPreviewing(null); return; }
+    const a = new Audio(voiceSampleUrl(v));
+    audioRef.current = a;
+    a.onended = () => setPreviewing(null);
+    a.onerror = () => setPreviewing(null);
+    a.play().then(() => setPreviewing(v)).catch(() => setPreviewing(null));
   }
 
   return (
@@ -128,7 +114,7 @@ export default function SettingsPage() {
               <p className="text-xs text-muted-foreground">{user?.email}</p>
             </div>
             <div className="border-t border-border pt-4 text-xs text-muted-foreground space-y-2">
-              <p>Joined SpeakCoach: <span className="text-foreground font-medium">{user ? new Date(user.created_at).toLocaleDateString() : '—'}</span></p>
+              <p>Joined SpeakCoach: <span className="text-foreground font-medium">{user?.created_at && !isNaN(Date.parse(user.created_at)) ? new Date(user.created_at).toLocaleDateString() : '—'}</span></p>
               <p>Account Status: <span className="text-primary font-medium">Active</span></p>
             </div>
           </Card>
@@ -169,12 +155,11 @@ export default function SettingsPage() {
                         e.stopPropagation();
                         playVoicePreview(v);
                       }}
-                      disabled={previewing === v}
                       className="mt-2.5 p-1 rounded-full bg-secondary hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      title={`Preview ${v}`}
+                      title={previewing === v ? `Stop ${v}` : `Preview ${v}`}
                     >
                       {previewing === v ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <Square className="h-3.5 w-3.5" />
                       ) : (
                         <Volume2 className="h-3.5 w-3.5" />
                       )}
@@ -220,7 +205,7 @@ export default function SettingsPage() {
                     <Shield className="h-4 w-4 text-primary" /> Body Language Feedback (Webcam)
                   </label>
                   <p className="text-xs text-muted-foreground max-w-lg leading-relaxed">
-                    Enable webcam frame capture during practice sessions. Our AI coach analyzes posture, eye contact, and presence. **Video data is processed live, never saved on any server, and is strictly opt-in.**
+                    Enable webcam frame capture during practice sessions. Our AI coach analyzes posture, eye contact, and presence. <span className="text-foreground font-medium">Video is processed live, never saved on any server, and is strictly opt-in — off by default.</span>
                   </p>
                 </div>
                 <button
