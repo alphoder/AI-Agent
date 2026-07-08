@@ -23,6 +23,6 @@ export CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 trap 'kill 0' EXIT   # Ctrl-C tears down all three
 
 ( cd apps/api && pnpm dev ) &
-( cd apps/ai-service && ./.venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 ) &
+( cd apps/ai-service && ./.venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload ) &
 ( cd apps/web && pnpm dev ) &
 wait

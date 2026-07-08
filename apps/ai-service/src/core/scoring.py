@@ -308,10 +308,21 @@ class ScoringEngine:
             raise RuntimeError(f"Scoring failed after 2 attempts: {last_error}")
 
         criteria_scores = result.get("criteria_scores", [])
-        overall_score = round(
-            sum((c.get("score", 0) / 5.0) * (c.get("weight", 0) / 100.0) for c in criteria_scores) * 100.0,
-            1,
-        )
+        # Normalise by the ACTUAL total weight, not a hardcoded 100 — so the 0-100
+        # score is correct even if the rubric's weights don't sum to 100 or the model
+        # returns fractional weights (e.g. 0.33 instead of 33, which otherwise yields
+        # a nonsensical ~0.4 instead of ~40).
+        total_weight = sum((c.get("weight", 0) or 0) for c in criteria_scores)
+        if total_weight > 0:
+            overall_score = round(
+                sum((c.get("score", 0) / 5.0) * (c.get("weight", 0) or 0) for c in criteria_scores)
+                / total_weight * 100.0,
+                1,
+            )
+        else:
+            # Model omitted weights entirely — fall back to an equal-weight average.
+            scores = [c.get("score", 0) for c in criteria_scores]
+            overall_score = round(sum(scores) / len(scores) / 5.0 * 100.0, 1) if scores else 0.0
 
         return {
             "overall_score": overall_score,
