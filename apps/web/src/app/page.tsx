@@ -11,24 +11,24 @@ import { SessionDemo } from '@/components/landing/session-demo';
 import { warmBackend } from '@/lib/warm-backend';
 
 const FEATURES = [
-  { icon: Mic, title: 'Real-time voice', body: 'Speak out loud; the coach replies instantly in a natural voice. No typing, no scripts.' },
-  { icon: Video, title: 'Body-language read', body: 'Your webcam is analysed live for posture, eye contact and presence, never recorded.' },
-  { icon: Languages, title: 'Seventy languages', body: 'Rehearse in the language you need. The coach stays in it from first word to last.' },
-  { icon: BarChart3, title: 'Honest scoring', body: 'A clear rubric grades what you said and how you carried yourself, with no vague praise.' },
-  { icon: FileText, title: 'A report to keep', body: 'Leave with a clean PDF: strengths, fixes, and notes you can act on before the real thing.' },
-  { icon: Sparkles, title: 'Bixy runs it for you', body: 'Just say “start a sales call in Spanish.” Your concierge handles the rest.' },
+  { icon: Mic, title: 'Real insurance customers', body: 'Roleplay a live call with an AI prospect who objects, stalls and warms up just like a real customer on the phone.' },
+  { icon: Languages, title: 'Sell in their language', body: 'Practise in Hindi, Tamil, Telugu, Marathi, English and 70+ more — the customer stays in the language you pick.' },
+  { icon: BarChart3, title: 'Compliant, honest scoring', body: 'The rubric rewards needs-based selling and flags mis-selling or over-promising, with no vague praise.' },
+  { icon: Video, title: 'Body-language read (optional)', body: 'Turn the camera on to score posture, eye contact and presence. Off by default, and nothing is recorded.' },
+  { icon: FileText, title: 'A coached scorecard', body: 'Leave with talk-to-listen ratio, objection handling, a compliance flag, and the exact lines to fix next time.' },
+  { icon: Sparkles, title: 'Bixy builds the call', body: 'Just say “an angry renewal customer in Hindi.” Bixy designs the customer and starts the call in seconds.' },
 ];
 
 const STEPS = [
-  { n: '01', title: 'Choose a moment', body: 'An interview, a hard conversation, a pitch. Pick a ready scenario or write your own.' },
-  { n: '02', title: 'Have the conversation', body: 'Mic and camera on, you simply talk, like the room is real, because soon it will be.' },
-  { n: '03', title: 'Learn what to change', body: 'See exactly where you shone and where you slipped, in words and in body language.' },
+  { n: '01', title: 'Pick a call', body: 'A cold call, a price objection, a renewal, a claim. Choose a ready call or have Bixy build one.' },
+  { n: '02', title: 'Sell to the customer', body: 'Mic on, you simply talk. The AI prospect pushes back, asks questions and reacts like the real thing.' },
+  { n: '03', title: 'Get a coached scorecard', body: 'See where you built trust, fumbled the objection or risked mis-selling, with the fixes to try next.' },
 ];
 
-const CATEGORIES = ['Job interviews', 'Sales & cold calls', 'Negotiation', 'Public speaking', 'Leadership', 'Healthcare', 'Difficult conversations', 'Networking', 'Academic'];
+const CATEGORIES = ['Term life', 'Health', 'Motor', 'ULIP & savings', 'Renewals', 'Objection handling', 'Claims & service', 'Cold calls', 'Group / SME'];
 
-// Real-world, high-stakes conversations people everywhere only get one shot at.
-const MOMENTS = ['interview', 'sales pitch', 'cold call', 'first date', 'big speech', 'salary talk', 'hard talk', 'visa call'];
+// High-stakes insurance calls an agent only gets one shot at.
+const MOMENTS = ['cold call', 'price objection', 'policy renewal', 'angry customer', 'ULIP pitch', 'claim call', 'family cover', 'tough close'];
 
 export default function Landing() {
   const [dest, setDest] = useState('/login');
@@ -86,7 +86,7 @@ export default function Landing() {
             </Reveal>
             <Reveal delay={140}>
               <p className="mt-6 max-w-lg text-lg text-zinc-600 leading-relaxed">
-                Every life turns on a handful of conversations you only get once. Practise yours out loud with an AI coach, in 70+ languages, until the real thing feels easy.
+                Your agents get one shot at every customer. Let them rehearse the real insurance call here — a live AI customer who objects and stalls, in 70+ languages, until they close with confidence.
               </p>
             </Reveal>
             <Reveal delay={220}>
@@ -101,9 +101,9 @@ export default function Landing() {
             </Reveal>
             <Reveal delay={300}>
               <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-2 text-sm text-zinc-500">
-                <span>Free to use</span>
-                <span>70+ languages</span>
-                <span>Your video never leaves your device</span>
+                <span>Free to start</span>
+                <span>Built for BFSI teams in India</span>
+                <span>Hindi, Tamil, Telugu &amp; 70+ more</span>
               </div>
             </Reveal>
           </div>
@@ -113,8 +113,8 @@ export default function Landing() {
       {/* Inside a session — a real, self-playing preview of the product */}
       <section className="relative mx-auto max-w-6xl px-6 pb-20">
         <Reveal>
-          <h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">This is what practice looks like.</h2>
-          <p className="mx-auto mt-4 max-w-xl text-center text-zinc-500 leading-relaxed">A real spoken conversation, scored as you talk. No slides, no theory, just the reps.</p>
+          <h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">This is what a practice call looks like.</h2>
+          <p className="mx-auto mt-4 max-w-xl text-center text-zinc-500 leading-relaxed">A real insurance sales call with an AI customer, scored as you talk. No slides, no role-play with a manager.</p>
         </Reveal>
         <Reveal delay={120}>
           <div className="mt-12">
@@ -145,7 +145,7 @@ export default function Landing() {
 
       {/* Features */}
       <section id="features" className="relative mx-auto max-w-6xl px-6 py-24">
-        <Reveal><h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">Built to make you better in the room</h2></Reveal>
+        <Reveal><h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">Built to close more, mis-sell less</h2></Reveal>
         <div className="mt-16 grid md:grid-cols-2 gap-4">
           {FEATURES.map((f, i) => {
             const wide = i === 0 || i === FEATURES.length - 1; // first + last span the row
@@ -181,11 +181,11 @@ export default function Landing() {
 
       {/* Real moments */}
       <section className="relative mx-auto max-w-6xl px-6 pb-24">
-        <Reveal><h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">Real moments, rehearsed first.</h2></Reveal>
+        <Reveal><h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">Real calls, rehearsed first.</h2></Reveal>
         <div className="mt-16 grid md:grid-cols-2 gap-6">
           {[
-            { src: '/landing/Interview_Rehersal.png', title: 'Interview rehearsal', body: 'Talk through your answers and see tone, flow and posture read back in real time.' },
-            { src: '/landing/Sales_Cold_Call_Practice.png', title: 'Sales & cold calls', body: 'Pitch in any language and watch your confidence score climb call after call.' },
+            { src: '/landing/Interview_Rehersal.png', title: 'Every call, scored live', body: 'Talk through the pitch and see tone, flow and confidence read back in real time.' },
+            { src: '/landing/Sales_Cold_Call_Practice.png', title: 'Objections, handled', body: 'Face price pushback and “I already have a policy” in any language, and watch your score climb call after call.' },
           ].map((m, i) => (
             <Reveal key={m.title} delay={i * 100}>
               <TiltCard className="group overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
@@ -207,8 +207,8 @@ export default function Landing() {
         <div className="mx-auto max-w-6xl px-6 py-24 grid lg:grid-cols-2 gap-14 items-center">
           <Reveal>
             <div>
-              <h2 className="font-display text-4xl sm:text-5xl tracking-tight leading-tight">A scenario for every moment that matters.</h2>
-              <p className="mt-5 text-zinc-500 leading-relaxed">From your next interview to a conversation you’ve been dreading, start from a ready-made scenario, or ask Bixy to write one in seconds.</p>
+              <h2 className="font-display text-4xl sm:text-5xl tracking-tight leading-tight">A call for every product you sell.</h2>
+              <p className="mt-5 text-zinc-500 leading-relaxed">From a term-life cold call to a tricky renewal or a claim-worried customer, start from a ready-made scenario, or ask Bixy to build one for your exact product in seconds.</p>
               <div className="mt-7 flex flex-wrap gap-2">
                 {CATEGORIES.map((c) => (
                   <span key={c} className="rounded-full border border-zinc-300 bg-white px-3.5 py-1.5 text-sm text-zinc-600">{c}</span>
@@ -236,7 +236,7 @@ export default function Landing() {
             </div>
             <div>
               <h2 className="font-display text-4xl tracking-tight">Meet Bixy.</h2>
-              <p className="mt-3 text-zinc-500 max-w-xl leading-relaxed">Tap the orb anywhere and simply talk: “show my scenarios”, “start a job interview in Hindi”, “open my history”. Bixy navigates, searches, and sets things up so you can just practise.</p>
+              <p className="mt-3 text-zinc-500 max-w-xl leading-relaxed">Tap the orb anywhere and simply talk: “show my scenarios”, “start a health-insurance call in Tamil”, “open my reports”. Bixy even builds a full practice call for your product and launches it in under a minute.</p>
             </div>
           </div>
         </Reveal>
@@ -250,8 +250,8 @@ export default function Landing() {
         <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/70 to-zinc-900/40" />
         <div className="relative mx-auto max-w-6xl px-6 py-28 text-center">
           <Reveal>
-            <h2 className="font-display text-5xl sm:text-6xl tracking-tight">Your next conversation, rehearsed.</h2>
-            <p className="mt-6 text-zinc-400 max-w-lg mx-auto">Private, free, and ready in seconds.</p>
+            <h2 className="font-display text-5xl sm:text-6xl tracking-tight">Your next sales call, rehearsed.</h2>
+            <p className="mt-6 text-zinc-400 max-w-lg mx-auto">Built for insurance teams. Free, and ready in seconds.</p>
             <Link href={dest} className="mt-10 inline-flex items-center gap-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 text-lg font-medium transition-all hover:-translate-y-0.5">
               Start practicing <ArrowUpRight className="h-5 w-5" />
             </Link>
@@ -261,7 +261,7 @@ export default function Landing() {
 
       <footer className="relative border-t border-zinc-200 py-10 text-center text-sm text-zinc-400">
         <div className="flex items-center justify-center gap-2 mb-2 text-zinc-600"><Mic className="h-4 w-4 text-blue-600" /> SpeakCoach</div>
-        © {new Date().getFullYear()} SpeakCoach · Practice speaking &amp; body language with AI
+        © {new Date().getFullYear()} SpeakCoach · Insurance sales-call training with AI
       </footer>
     </div>
   );
