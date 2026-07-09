@@ -249,10 +249,11 @@ export default function ScenariosPage() {
                 role="switch"
                 aria-checked={picker.grade}
                 onClick={() => setPicker((p) => (p ? { ...p, grade: !p.grade } : p))}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${picker.grade ? 'bg-primary' : 'bg-muted'}`}
+                className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors ${picker.grade ? 'bg-primary' : 'bg-muted'}`}
               >
-                {/* Knob color flips per state so it contrasts on both the white (on) and dark (off) track — primary is white in the dark theme, so a fixed white knob vanished when on. */}
-                <span className={`absolute top-0.5 h-5 w-5 rounded-full shadow transition-transform ${picker.grade ? 'translate-x-[22px] bg-primary-foreground' : 'translate-x-0.5 bg-foreground'}`} />
+                {/* border-2 on the track is the inset; the knob flows inside it and can't spill out.
+                    Knob color flips per state so it contrasts on both the white (on) and dark (off) track. */}
+                <span className={`pointer-events-none inline-block h-5 w-5 rounded-full shadow transition-transform ${picker.grade ? 'translate-x-5 bg-primary-foreground' : 'translate-x-0 bg-foreground'}`} />
               </button>
             </div>
             <button onClick={start} disabled={starting === picker.scenario.id}

@@ -24,6 +24,7 @@ interface SessionRow {
   ended_at: string | null;
   overall_score: number | null;
 }
+interface TranscriptTurn { turn_number: number; role: string; content: string }
 
 function scoreColor(s: number) {
   if (s >= 85) return 'text-foreground';
@@ -35,12 +36,14 @@ function scoreColor(s: number) {
 function ReportView({ sessionId }: { sessionId: string }) {
   const [report, setReport] = useState<Report | null>(null);
   const [meta, setMeta] = useState<{ scenario_title: string; language: string; ended_at: string | null; duration_sec: number | null } | null>(null);
+  const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [waiting, setWaiting] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     apiClient.get(`/sessions/${sessionId}`).then(({ data }) => setMeta(data.data)).catch(() => {});
+    apiClient.get(`/sessions/${sessionId}/transcript`).then(({ data }) => setTranscript(data.data || [])).catch(() => {});
   }, [sessionId]);
 
   async function downloadPdf() {
@@ -212,6 +215,27 @@ function ReportView({ sessionId }: { sessionId: string }) {
         <div className="rounded-2xl border border-border/50 bg-card p-5">
           <h3 className="text-sm font-semibold mb-2">Coach&apos;s notes</h3>
           <p className="text-sm text-muted-foreground whitespace-pre-line">{report.narrative_feedback}</p>
+        </div>
+      )}
+
+      {/* Full conversation — the saved transcript of this call. */}
+      {transcript.length > 0 && (
+        <div className="rounded-2xl border border-border/50 bg-card p-5">
+          <h3 className="text-sm font-semibold mb-3">Conversation</h3>
+          <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+            {transcript.map((t, i) => {
+              const isLearner = t.role === 'learner';
+              if (t.role === 'system') return null;
+              return (
+                <div key={i} className={`flex ${isLearner ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${isLearner ? 'bg-primary text-primary-foreground rounded-br-sm' : 'bg-muted text-foreground rounded-bl-sm'}`}>
+                    <p className={`text-[10px] font-medium uppercase tracking-wider mb-0.5 ${isLearner ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{isLearner ? 'You' : 'Customer'}</p>
+                    {t.content}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
