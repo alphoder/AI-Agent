@@ -337,6 +337,12 @@ function SessionInner() {
               case 'audio_out':
                 playAudioChunk(msg.data);
                 break;
+              case 'call_ended':
+                // The customer hung up (ran out of patience, or the call wrapped).
+                // End & score it — the report explains why they ended it.
+                endedRef.current = true; // stop onclose from retrying
+                endSession();
+                break;
               case 'error':
                 setError(msg.message || 'Connection error');
                 break;

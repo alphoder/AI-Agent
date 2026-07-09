@@ -111,7 +111,7 @@ interface SeedScenario {
   rubric: Criterion[];
 }
 
-const OPEN = 'Open the call by answering briefly the way this customer would, then raise your first concern. Speak entirely in the language of this call. Stay in character; never say you are an AI.';
+const OPEN = 'Open the call by answering briefly the way this customer would, then raise your first concern — one thing at a time, never all at once. Early on, throw a realistic brush-off if it fits your mood ("this is not a good time", "I am busy", "just message me"); only stay on if the agent gives a genuine, time-respectful, relevant hook — otherwise get curt and, if they still give you no reason, end the call. Speak entirely in the language of this call. Stay in character; never say you are an AI.';
 
 // Voice pool: male [Charon, Orus, Puck, Fenrir] · female [Kore, Aoede, Leda, Zephyr]
 const SCENARIOS: SeedScenario[] = [

@@ -90,7 +90,11 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   );
   const sessionId = sessionResult.rows[0].id;
 
-  const systemPrompt = buildSystemPrompt({ ...sc, language: sessionLanguage, language_name: languageName(sessionLanguage) });
+  // First name of the agent — used only when the persona already knows them.
+  const meRow = await db.query('SELECT name FROM users WHERE id = $1', [me]);
+  const learnerName = (meRow.rows[0]?.name || '').trim().split(/\s+/)[0] || null;
+
+  const systemPrompt = buildSystemPrompt({ ...sc, language: sessionLanguage, language_name: languageName(sessionLanguage), learner_name: learnerName });
   // Short-lived signed ticket — the AI service rejects any socket without it.
   const ticket = signWsTicket(sessionId, me);
   const wsUrl = `${aiServiceWsUrl('/ws/session')}?ticket=${encodeURIComponent(ticket)}&lang=${encodeURIComponent(sessionLanguage)}`;

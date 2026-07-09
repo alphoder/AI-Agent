@@ -25,6 +25,12 @@ Insurance-sales judgement to apply throughout:
 - PENALISE HARD: mis-selling or over-promising (e.g. "guaranteed 12% returns", hiding waiting periods,
   charges or exclusions), pushing a product before understanding the need, and pressuring the customer.
   Compliant, needs-based, honest selling must always score higher than a pushy "close at any cost".
+- EARNING THE CONVERSATION: when the customer brushes off ("not a good time", "not interested", "just
+  WhatsApp me"), reward the agent for offering a genuine, time-respectful, relevant HOOK that earns
+  another minute. PENALISE giving up, meekly agreeing to "call later", or getting hung up on with no
+  attempt to hook — and equally penalise ignoring the brush-off and steam-rolling. If the transcript
+  contains "[Customer ended the call: ...]", the agent LOST the call; call this out with the reason and
+  the exact moment it went wrong.
 - Judge in the scenario's language; do not penalise natural code-switching (e.g. Hinglish) if it aids clarity.
 - Make every strength/improvement a concrete, coachable sales action ("open by acknowledging their time,
   then ask about dependants before mentioning premium"), referencing the exact timestamps (e.g. "[01:12]") where the moment happened.
@@ -154,6 +160,16 @@ BEGINNER_RUBRIC = [
             {"score": 3, "description": "Vague closing attempt with no specific time or commitment."},
             {"score": 5, "description": "Secures a polite, specific, non-threatening next action."}
         ]
+    },
+    {
+        "name": "Earning & Keeping the Conversation",
+        "description": "Handles brush-offs ('not a good time', 'not interested') with a genuine, time-respectful, relevant hook that keeps the customer on the line — instead of giving up or steam-rolling.",
+        "weight": 20,
+        "levels": [
+            {"score": 1, "description": "Gives up, agrees to 'call later', or gets hung up on with no hook — or ignores the brush-off and steam-rolls."},
+            {"score": 3, "description": "Attempts to keep the customer on, but the hook is generic or slightly pushy."},
+            {"score": 5, "description": "Offers a respectful, situation-relevant hook that genuinely earns another minute."}
+        ]
     }
 ]
 
@@ -197,6 +213,16 @@ INTERMEDIATE_RUBRIC = [
             {"score": 3, "description": "Asks for a next step but accepts a tentative, non-committal response."},
             {"score": 5, "description": "Secures a firm, agreed commitment for the next action."}
         ]
+    },
+    {
+        "name": "Earning & Keeping the Conversation",
+        "description": "Handles brush-offs ('not a good time', 'not interested') with a genuine, time-respectful, relevant hook that keeps the customer on the line — instead of giving up or steam-rolling.",
+        "weight": 20,
+        "levels": [
+            {"score": 1, "description": "Gives up, agrees to 'call later', or gets hung up on with no hook — or ignores the brush-off and steam-rolls."},
+            {"score": 3, "description": "Attempts to keep the customer on, but the hook is generic or slightly pushy."},
+            {"score": 5, "description": "Offers a respectful, situation-relevant hook that genuinely earns another minute."}
+        ]
     }
 ]
 
@@ -239,6 +265,16 @@ ADVANCED_RUBRIC = [
             {"score": 1, "description": "High-pressure close, false urgency, or completely avoids asking for commitment."},
             {"score": 3, "description": "Puts forward the proposal but lacks confidence in asking for commitment."},
             {"score": 5, "description": "Natural close that feels like a service; customer is glad they were asked."}
+        ]
+    },
+    {
+        "name": "Earning & Keeping the Conversation",
+        "description": "Handles brush-offs ('not a good time', 'not interested') with a genuine, time-respectful, relevant hook that keeps the customer on the line — instead of giving up or steam-rolling.",
+        "weight": 20,
+        "levels": [
+            {"score": 1, "description": "Gives up, agrees to 'call later', or gets hung up on with no hook — or ignores the brush-off and steam-rolls."},
+            {"score": 3, "description": "Attempts to keep the customer on, but the hook is generic or slightly pushy."},
+            {"score": 5, "description": "Offers a respectful, situation-relevant hook that genuinely earns another minute."}
         ]
     }
 ]

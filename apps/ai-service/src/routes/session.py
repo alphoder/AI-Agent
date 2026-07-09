@@ -37,6 +37,30 @@ router = APIRouter()
 _LIVE_VOICES = {"Charon", "Orus", "Puck", "Fenrir", "Kore", "Aoede", "Leda", "Zephyr"}
 _DEFAULT_VOICE = "Charon"
 
+# Lets the customer actually hang up — a real consequence when the agent fails to
+# hook them, or a natural wrap when the call is done. Handled server-side.
+_END_CALL_TOOL = {
+    "function_declarations": [
+        {
+            "name": "end_call",
+            "description": (
+                "Hang up / end the phone call. Call this when you (the customer) have run out of "
+                "patience (the agent gave no reason to stay, was too pushy, or you're genuinely busy), "
+                "or when the conversation has naturally reached its end."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "reason": {
+                        "type": "STRING",
+                        "description": "short reason, e.g. 'no reason to stay', 'too pushy', 'genuinely busy', 'satisfied - will proceed'",
+                    }
+                },
+            },
+        }
+    ]
+}
+
 _MIN_FRAME_INTERVAL_SEC = 6.0          # ignore body-language frames faster than this
 
 # Lock Gemini Live to the selected language (else it auto-detects and drifts).
@@ -158,6 +182,28 @@ async def session_ws(websocket: WebSocket):
                 if "setupComplete" in data:
                     await websocket.send_json({"type": "listening"})
                     continue
+                # The customer decided to hang up → log it as a scored signal and end.
+                tool_call = data.get("toolCall")
+                if tool_call and tool_call.get("functionCalls"):
+                    for call in tool_call["functionCalls"]:
+                        if call.get("name") == "end_call":
+                            reason = (call.get("args") or {}).get("reason", "ended the call")
+                            state["turn"] += 1
+                            try:
+                                await api.post("/api/internal/transcripts", json={
+                                    "session_id": session_id,
+                                    "turn_number": state["turn"],
+                                    "system_content": f"[Customer ended the call: {reason}]",
+                                })
+                            except Exception as err:  # noqa: BLE001
+                                logger.warning("session.end_call_persist_failed", error=str(err))
+                            try:
+                                await websocket.send_json({"type": "call_ended", "reason": reason})
+                                await websocket.close()  # unblocks the client loop → session teardown
+                            except Exception:
+                                pass
+                            return
+                    continue
                 sc = data.get("serverContent")
                 if not sc:
                     continue
@@ -238,6 +284,7 @@ async def session_ws(websocket: WebSocket):
                 "system_instruction": {"parts": [{"text": state["system_prompt"]}]},
                 "input_audio_transcription": {},
                 "output_audio_transcription": {},
+                "tools": [_END_CALL_TOOL],
             }
         }
         await gemini_ws.send(json.dumps(setup_msg))

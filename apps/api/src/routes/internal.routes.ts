@@ -31,7 +31,7 @@ router.use(requireInternalKey);
  */
 router.post('/transcripts', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { session_id, turn_number, learner_content, coach_content, stt_confidence } = req.body;
+    const { session_id, turn_number, learner_content, coach_content, system_content, stt_confidence } = req.body;
     if (!session_id || turn_number == null) {
       return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'session_id and turn_number required' } });
     }
@@ -53,6 +53,14 @@ router.post('/transcripts', async (req: Request, res: Response, next: NextFuncti
         `INSERT INTO session_transcripts (session_id, turn_number, role, content)
          VALUES ($1, $2, 'avatar', $3)`,
         [session_id, turn_number, coach_content],
+      );
+    }
+    if (system_content) {
+      // e.g. "[Customer ended the call: no reason to stay]" — a scored signal for the report.
+      await db.query(
+        `INSERT INTO session_transcripts (session_id, turn_number, role, content)
+         VALUES ($1, $2, 'system', $3)`,
+        [session_id, turn_number, system_content],
       );
     }
     await db.query(
