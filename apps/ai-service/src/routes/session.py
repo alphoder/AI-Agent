@@ -31,10 +31,15 @@ from src.core.ws_ticket import verify_ticket
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
-# Gemini Live native-audio prebuilt voices — must match packages/shared voices
-# (4 male + 4 female). A voice missing from this set silently falls back below,
+# All 30 Gemini Live prebuilt voices (verified against the live model). Must match
+# packages/shared/voices.ts — a voice missing here silently falls back to default,
 # which is exactly the bug that made every scenario sound the same.
-_LIVE_VOICES = {"Charon", "Orus", "Puck", "Fenrir", "Kore", "Aoede", "Leda", "Zephyr"}
+_LIVE_VOICES = {
+    "Charon", "Orus", "Puck", "Fenrir", "Enceladus", "Iapetus", "Umbriel", "Algieba",
+    "Algenib", "Rasalgethi", "Alnilam", "Schedar", "Achird", "Zubenelgenubi", "Sadachbia",
+    "Sadaltager", "Kore", "Aoede", "Leda", "Zephyr", "Callirrhoe", "Autonoe", "Despina",
+    "Erinome", "Laomedeia", "Achernar", "Gacrux", "Pulcherrima", "Vindemiatrix", "Sulafat",
+}
 _DEFAULT_VOICE = "Charon"
 
 # Lets the customer actually hang up — a real consequence when the agent fails to

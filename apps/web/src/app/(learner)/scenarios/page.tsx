@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { LanguagePicker } from '@/components/language-picker';
-import { languageName, GEMINI_VOICES, MALE_VOICES, FEMALE_VOICES, voiceSampleUrl } from '@avatar-platform/shared';
+import { languageName, GEMINI_VOICES, voiceSampleUrl, accentsForLanguage } from '@avatar-platform/shared';
 
 interface Scenario {
   id: string;
@@ -66,7 +66,7 @@ export default function ScenariosPage() {
   const [mine, setMine] = useState(false);
   const [difficulty, setDifficulty] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
-  const [picker, setPicker] = useState<{ scenario: Scenario; lang: string; voice: string; grade: boolean } | null>(null);
+  const [picker, setPicker] = useState<{ scenario: Scenario; step: number; lang: string; accent: string; locality: string; voice: string; grade: boolean } | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -112,11 +112,25 @@ export default function ScenariosPage() {
     return [...CATEGORIES, MORE].map((c) => ({ ...c, items: buckets.get(c.key) ?? [] })).filter((c) => c.items.length > 0);
   }, [filtered]);
 
-  function openPicker(s: Scenario) { setPicker({ scenario: s, lang: s.language || 'en', voice: s.voice || 'Charon', grade: false }); }
+  function openPicker(s: Scenario) { setPicker({ scenario: s, step: 1, lang: '', accent: '', locality: '', voice: s.voice || 'Charon', grade: false }); }
+
+  // Advance the step-by-step flow. Language -> Accent -> Locality -> Voice -> Start.
+  function chooseLanguage(code: string) {
+    const accents = accentsForLanguage(code);
+    setPicker((p) => p && ({
+      ...p, lang: code,
+      // Single (or no) accent -> auto-pick it and skip straight to the locality step.
+      accent: accents.length === 1 ? accents[0].code : '',
+      step: accents.length > 1 ? 2 : 3,
+    }));
+  }
   function start() {
     if (!picker) return;
     setStarting(picker.scenario.id);
-    router.push(`/session/${picker.scenario.id}?lang=${picker.lang}&voice=${picker.voice}&grade=${picker.grade ? 1 : 0}`);
+    const p = new URLSearchParams({ lang: picker.lang, voice: picker.voice, grade: picker.grade ? '1' : '0' });
+    if (picker.accent) p.set('accent', picker.accent);
+    if (picker.locality.trim()) p.set('locality', picker.locality.trim());
+    router.push(`/session/${picker.scenario.id}?${p.toString()}`);
   }
 
   return (
@@ -198,71 +212,120 @@ export default function ScenariosPage() {
         </div>
       )}
 
-      {picker && (
+      {picker && (() => {
+        const accents = picker.lang ? accentsForLanguage(picker.lang) : [];
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" onClick={() => setPicker(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-card p-5 shadow-xl animate-pop-in" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between">
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl bg-card shadow-xl animate-pop-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between p-5 pb-3">
               <div>
-                <h3 className="font-semibold">Choose your language</h3>
+                <h3 className="font-semibold">Set up your call</h3>
                 <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">{picker.scenario.title}</p>
               </div>
               <button onClick={() => setPicker(null)} className="press rounded-full p-1.5 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              The coach will speak <span className="font-medium text-foreground">only</span> in <span className="font-medium text-foreground">{languageName(picker.lang)}</span> for the whole session.
-            </p>
-            <LanguagePicker value={picker.lang} onChange={(code) => setPicker((p) => (p ? { ...p, lang: code } : p))} className="mt-3" />
-            <div className="mt-4">
-              <span className="text-xs font-medium text-muted-foreground">Customer voice</span>
-              <div className="mt-1.5 flex items-center gap-2">
-                <select
-                  value={picker.voice}
-                  onChange={(e) => setPicker((p) => (p ? { ...p, voice: e.target.value } : p))}
-                  className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                >
-                  <optgroup label="Male">
-                    {MALE_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-                  </optgroup>
-                  <optgroup label="Female">
-                    {FEMALE_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-                  </optgroup>
-                </select>
-                <button
-                  type="button"
-                  onClick={() => playSample(picker.voice)}
-                  className="press inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
-                  title="Hear this voice"
-                >
-                  {playing === picker.voice ? <Square className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                  {playing === picker.voice ? 'Stop' : 'Hear'}
-                </button>
-              </div>
-              <p className="mt-1.5 text-xs text-muted-foreground">{GEMINI_VOICES.find((v) => v.id === picker.voice)?.description}</p>
-            </div>
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card px-3.5 py-3">
+
+            <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-5">
+              {/* Step 1 — Language */}
               <div>
-                <p className="text-sm font-medium">Grade my body language</p>
-                <p className="text-xs text-muted-foreground">Uses your camera to score posture & presence. Off = voice only.</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Language</p>
+                {picker.lang ? (
+                  <button onClick={() => setPicker((p) => p && ({ ...p, lang: '', accent: '', step: 1 }))}
+                    className="mt-1.5 flex w-full items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3.5 py-2.5 text-sm">
+                    <span className="font-medium">{languageName(picker.lang)}</span>
+                    <span className="text-xs text-muted-foreground">Change</span>
+                  </button>
+                ) : (
+                  <LanguagePicker value={picker.lang} onChange={chooseLanguage} className="mt-1.5" />
+                )}
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={picker.grade}
-                onClick={() => setPicker((p) => (p ? { ...p, grade: !p.grade } : p))}
-                className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors ${picker.grade ? 'bg-primary' : 'bg-muted'}`}
-              >
-                {/* border-2 on the track is the inset; the knob flows inside it and can't spill out.
-                    Knob color flips per state so it contrasts on both the white (on) and dark (off) track. */}
-                <span className={`pointer-events-none inline-block h-5 w-5 rounded-full shadow transition-transform ${picker.grade ? 'translate-x-5 bg-primary-foreground' : 'translate-x-0 bg-foreground'}`} />
-              </button>
+
+              {/* Step 2 — Accent (only when the language has more than one) */}
+              {picker.step >= 2 && accents.length > 1 && (
+                <div className="animate-pop-in">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Accent</p>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {accents.map((a) => (
+                      <button key={a.code} onClick={() => setPicker((p) => p && ({ ...p, accent: a.code, step: Math.max(p.step, 3) }))}
+                        className={`press rounded-full border px-3.5 py-1.5 text-sm transition-colors ${picker.accent === a.code ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border hover:bg-muted'}`}>
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3 — Locality (optional) */}
+              {picker.step >= 3 && (
+                <div className="animate-pop-in">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Where&apos;s the customer from? <span className="normal-case font-normal text-muted-foreground/70">(optional)</span></p>
+                  <input
+                    value={picker.locality}
+                    onChange={(e) => setPicker((p) => p && ({ ...p, locality: e.target.value }))}
+                    placeholder="e.g. Chennai, rural Punjab, South Mumbai"
+                    className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                  />
+                  {picker.step < 4 && (
+                    <button onClick={() => setPicker((p) => p && ({ ...p, step: 4 }))}
+                      className="press mt-2 rounded-full bg-secondary px-4 py-1.5 text-sm font-medium hover:bg-muted">
+                      Continue
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Step 4 — Customer voice (all 30) */}
+              {picker.step >= 4 && (
+                <div className="animate-pop-in">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Customer voice</p>
+                  <div className="mt-1.5 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
+                    {GEMINI_VOICES.map((v) => (
+                      <div key={v.id}
+                        className={`flex items-center gap-2 rounded-md px-2.5 py-2 ${picker.voice === v.id ? 'bg-primary/10' : 'hover:bg-muted/50'}`}>
+                        <button onClick={() => setPicker((p) => p && ({ ...p, voice: v.id, step: Math.max(p.step, 5) }))}
+                          className="flex-1 text-left">
+                          <span className={`text-sm ${picker.voice === v.id ? 'font-semibold text-primary' : 'font-medium'}`}>{v.label}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">{v.description}</span>
+                        </button>
+                        <button type="button" onClick={() => playSample(v.id)} title={`Hear ${v.label}`}
+                          className="press shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+                          {playing === v.id ? <Square className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Step 5 — Body language + Start */}
+              {picker.step >= 5 && (
+                <div className="animate-pop-in space-y-4">
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-card px-3.5 py-3">
+                    <div>
+                      <p className="text-sm font-medium">Grade my body language</p>
+                      <p className="text-xs text-muted-foreground">Uses your camera to score posture &amp; presence. Off = voice only.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={picker.grade}
+                      onClick={() => setPicker((p) => (p ? { ...p, grade: !p.grade } : p))}
+                      className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors ${picker.grade ? 'bg-primary' : 'bg-muted'}`}
+                    >
+                      <span className={`pointer-events-none inline-block h-5 w-5 rounded-full shadow transition-transform ${picker.grade ? 'translate-x-5 bg-primary-foreground' : 'translate-x-0 bg-foreground'}`} />
+                    </button>
+                  </div>
+                  <button onClick={start} disabled={starting === picker.scenario.id}
+                    className="press flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+                    <Mic className="h-4 w-4" /> {starting === picker.scenario.id ? 'Starting…' : `Start in ${languageName(picker.lang)}`}
+                  </button>
+                </div>
+              )}
             </div>
-            <button onClick={start} disabled={starting === picker.scenario.id}
-              className="press mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-              <Mic className="h-4 w-4" /> {starting === picker.scenario.id ? 'Starting…' : `Start in ${languageName(picker.lang)}`}
-            </button>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

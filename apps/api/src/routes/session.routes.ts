@@ -7,7 +7,7 @@ import { validateUuidParam } from '../middleware/validate-uuid';
 import { aiServiceWsUrl, callAIServiceBackground } from '../utils/ai-service-client';
 import { buildSystemPrompt } from '../utils/prompt-bundle';
 import { signWsTicket } from '../utils/ws-ticket';
-import { languageName, VOICE_IDS } from '@avatar-platform/shared';
+import { languageName, VOICE_IDS, accentLabel } from '@avatar-platform/shared';
 
 const MIN_REPORT_SEC = 90; // sessions shorter than 1m30s aren't scored
 
@@ -63,10 +63,13 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
  */
 router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
-  const { scenario_id, language, voice } = req.body;
+  const { scenario_id, language, voice, accent, locality } = req.body;
   if (!scenario_id) {
     return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'scenario_id required' } });
   }
+  // Accent = a BCP-47 regional code (e.g. en-IN); locality = free text region.
+  const accentCode = typeof accent === 'string' && /^[a-z]{2}-[A-Za-z]{2,3}$/.test(accent) ? accent : null;
+  const localityText = typeof locality === 'string' ? locality.trim().slice(0, 60) || null : null;
 
   const scenarioResult = await db.query(
     `SELECT id, title, description, objective, system_prompt, opening_message, language, voice,
@@ -94,10 +97,20 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const meRow = await db.query('SELECT name FROM users WHERE id = $1', [me]);
   const learnerName = (meRow.rows[0]?.name || '').trim().split(/\s+/)[0] || null;
 
-  const systemPrompt = buildSystemPrompt({ ...sc, language: sessionLanguage, language_name: languageName(sessionLanguage), learner_name: learnerName });
+  const systemPrompt = buildSystemPrompt({
+    ...sc,
+    language: sessionLanguage,
+    language_name: languageName(sessionLanguage),
+    learner_name: learnerName,
+    accent_label: accentCode ? accentLabel(accentCode) : null,
+    locality: localityText,
+  });
   // Short-lived signed ticket — the AI service rejects any socket without it.
   const ticket = signWsTicket(sessionId, me);
-  const wsUrl = `${aiServiceWsUrl('/ws/session')}?ticket=${encodeURIComponent(ticket)}&lang=${encodeURIComponent(sessionLanguage)}`;
+  // The relay uses `lang` as Gemini's language_code — pass the full accent code
+  // (e.g. en-IN) when chosen, else the plain language (relay maps it to a default region).
+  const wsLang = accentCode || sessionLanguage;
+  const wsUrl = `${aiServiceWsUrl('/ws/session')}?ticket=${encodeURIComponent(ticket)}&lang=${encodeURIComponent(wsLang)}`;
 
   logger.info({ sessionId, scenario_id, userId: me }, 'Session started');
   res.status(201).json({

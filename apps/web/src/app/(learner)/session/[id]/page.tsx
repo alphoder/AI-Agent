@@ -43,6 +43,8 @@ function SessionInner() {
   const scenarioId = params.id as string;
   const chosenLang = search.get('lang') || undefined;
   const chosenVoice = search.get('voice') || undefined;
+  const chosenAccent = search.get('accent') || undefined;   // BCP-47 e.g. en-IN
+  const chosenLocality = search.get('locality') || undefined;
   const gradeBody = search.get('grade') === '1'; // body-language grading OFF by default; on only when opted in
 
   const [phase, setPhase] = useState<'connecting' | 'live' | 'ending'>('connecting');
@@ -224,7 +226,7 @@ function SessionInner() {
 
     async function boot() {
       try {
-        const { data } = await apiClient.post('/sessions', { scenario_id: scenarioId, language: chosenLang, voice: chosenVoice });
+        const { data } = await apiClient.post('/sessions', { scenario_id: scenarioId, language: chosenLang, voice: chosenVoice, accent: chosenAccent, locality: chosenLocality });
         if (disposed) return;
         const { sessionId, wsUrl, sessionConfig } = data.data;
         sessionIdRef.current = sessionId;

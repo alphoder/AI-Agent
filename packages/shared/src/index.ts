@@ -2,6 +2,7 @@ export * from './enums';
 export * from './languages';
 export * from './onboarding';
 export * from './voices';
+export * from './accents';
 export * from './types/user';
 export * from './types/scenario';
 export * from './types/session';

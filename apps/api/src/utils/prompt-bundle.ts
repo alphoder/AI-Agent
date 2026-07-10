@@ -15,6 +15,8 @@ export interface ScenarioCtx {
   language?: string | null;
   language_name?: string | null;
   learner_name?: string | null; // the agent's first name — used ONLY if the persona already knows them
+  accent_label?: string | null; // e.g. 'Indian', 'British' — reinforces the Gemini language_code accent
+  locality?: string | null;     // e.g. 'Chennai', 'rural Punjab' — the customer's home region
 }
 
 export function buildSystemPrompt(scenario: ScenarioCtx): string {
@@ -33,6 +35,12 @@ export function buildSystemPrompt(scenario: ScenarioCtx): string {
 
   lines.push('You are a character in a live, spoken role-play. A human insurance agent is practising a real sales call, and you are the CUSTOMER on the other end of the phone. Never break character or mention being an AI.');
   lines.push('Speak naturally and concisely — 1–2 sentences per turn, like a real phone call. Never monologue.');
+  if (scenario.accent_label) {
+    lines.push(`Speak ${langLabel} with a natural ${scenario.accent_label} accent.`);
+  }
+  if (scenario.locality) {
+    lines.push(`You live in ${scenario.locality}. Let it colour your references, concerns and manner naturally — without caricature or stereotype.`);
+  }
   lines.push('');
 
   // --- What makes it feel like a real call. Applies to every scenario. ---
