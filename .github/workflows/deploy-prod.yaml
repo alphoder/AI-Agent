@@ -41,7 +41,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
+        uses: azure/setup-kubectl@v5
 
       - name: Configure kubeconfig
         run: aws eks update-kubeconfig --name avatar-production --region ${{ secrets.AWS_REGION }}
