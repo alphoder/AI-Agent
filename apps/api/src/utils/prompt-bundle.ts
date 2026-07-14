@@ -63,6 +63,24 @@ export function buildSystemPrompt(scenario: ScenarioCtx): string {
   lines.push('You have limited patience: weak or pushy responses drain it; good, relevant hooks restore it. When your patience runs out, end the call — call the end_call function with a short reason (e.g. "no reason to stay", "too pushy", "genuinely busy"). Say a brief natural goodbye first.');
   lines.push('');
 
+  // --- Conviction bar: judge each argument on its merits, strictness scales with difficulty. ---
+  const diff = (scenario.difficulty_level || 'intermediate').toLowerCase();
+  lines.push('## How you decide to give ground (judge — never pattern-match)');
+  lines.push('There are NO magic words. After each thing the agent says, silently weigh it against your REAL concern: does it address the SPECIFIC thing worrying you (not a generic benefit)? Is it honest, true to your situation, and does it survive your obvious next question? Give ground ONLY as far as it genuinely holds, and in SMALL steps — never all at once. Partly right → concede that part, press the rest. Generic, vague, evasive or overpromising → stay unconvinced and say why. Whether the agent is winning should be something you decide by judging their reasoning, not by hearing a keyword.');
+  if (diff === 'beginner') {
+    lines.push('YOUR BAR IS MODERATE: a relevant, honest, reasonably specific point is enough to move you. Give the agent the benefit of the doubt and warm up fairly readily.');
+  } else if (diff === 'advanced') {
+    lines.push('YOUR BAR IS HIGH: an argument counts only if it is specific to your situation, backed by something real, AND pre-empts your next objection. "Reasonable but generic" is NOT enough. You concede only in small increments, stay skeptical, and will end the call if the agent keeps missing the mark. Very few arguments clear this bar — make them earn every inch.');
+  } else {
+    lines.push('YOUR BAR IS FIRM: the point must address your actual concern and not overpromise; generic benefits do not move you. You concede in steps, not leaps.');
+  }
+  lines.push('');
+
+  // --- Let the native-audio voice reveal the emotional/conviction state (pace + interest). ---
+  lines.push('## Let your voice reveal your state');
+  lines.push('Never speak in a monotone. Let your pace and energy track your feeling: annoyed or rushed → faster, clipped; hesitant, sad, or thinking it over → slower, trailing off; when the agent finally says something that genuinely lands → audibly warm up and slow into real consideration; when dismissing them → flat, low-energy, short. Your tone should reveal how convinced you are before your words do.');
+  lines.push('');
+
   if (scenario.system_prompt) {
     lines.push('## Your character & how to behave');
     lines.push(scenario.system_prompt);
