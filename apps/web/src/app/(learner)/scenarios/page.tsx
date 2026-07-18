@@ -7,6 +7,7 @@ import {
   Plus, Search, Mic, Pencil, Globe, Lock, Languages, X, Sparkles,
   Shield, HeartPulse, Car, PiggyBank, RefreshCw, Handshake, Building2, Headphones,
   Compass, Volume2, Square,
+  Brain, Map as MapIcon, MessageSquare, Cookie, ArrowUpDown,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { LanguagePicker } from '@/components/language-picker';
@@ -32,30 +33,82 @@ const DIFFICULTY_STYLE: Record<string, string> = {
 
 const DIFFICULTIES = ['beginner', 'intermediate', 'advanced'] as const;
 
-// Scenario tags cluster into friendly categories. First matching tag wins.
-const CATEGORIES: { key: string; label: string; blurb: string; icon: typeof Shield; match: string[] }[] = [
-  { key: 'life', label: 'Life & Term', blurb: 'Protect the family that depends on them.', icon: Shield,
-    match: ['term-life', 'family'] },
-  { key: 'health', label: 'Health', blurb: 'Cover for hospital bills and peace of mind.', icon: HeartPulse,
-    match: ['health', 'senior'] },
-  { key: 'motor', label: 'Motor', blurb: 'Renew, retain and upsell car cover.', icon: Car,
-    match: ['motor'] },
-  { key: 'invest', label: 'Savings & Investments', blurb: 'ULIP, endowment, child and savings plans.', icon: PiggyBank,
-    match: ['ulip', 'investment', 'endowment', 'savings', 'child-plan', 'compliance'] },
-  { key: 'renewal', label: 'Renewals & Retention', blurb: 'Keep customers and grow the relationship.', icon: RefreshCw,
-    match: ['renewal', 'upsell', 'retention'] },
-  { key: 'service', label: 'Service & Claims', blurb: 'Reassure, resolve, and earn cross-sell.', icon: Headphones,
-    match: ['claims', 'service', 'cross-sell'] },
-  { key: 'closing', label: 'Objections & Closing', blurb: 'Handle pushback and lock the next step.', icon: Handshake,
-    match: ['objection-handling', 'follow-up', 'closing', 'cold-call'] },
-  { key: 'business', label: 'Group & Business', blurb: 'Corporate and SME insurance sales.', icon: Building2,
-    match: ['group', 'b2b', 'sme'] },
-];
-const MORE = { key: 'more', label: 'More to explore', blurb: 'A few extras to round things out.', icon: Compass };
+type Topic = { key: string; label: string; blurb: string; icon: typeof Shield; match: string[] };
+type Track = { key: string; label: string; blurb: string; match: string[]; topics: Topic[] };
 
-function categoryFor(tags: string[]): string {
-  for (const tag of tags) { const hit = CATEGORIES.find((c) => c.match.includes(tag)); if (hit) return hit.key; }
-  return MORE.key;
+// Library IA: TRACK (domain) -> TOPIC (capability). First matching tag wins.
+const TRACKS: Track[] = [
+  {
+    key: 'bfsi', label: 'Insurance & BFSI', blurb: 'Sell, renew and service insurance.',
+    match: [], // default track — anything not matched by another
+    topics: [
+      { key: 'life', label: 'Life & Term', blurb: 'Protect the family that depends on them.', icon: Shield,
+        match: ['term-life', 'family'] },
+      { key: 'health', label: 'Health', blurb: 'Cover for hospital bills and peace of mind.', icon: HeartPulse,
+        match: ['health', 'senior', 'critical-illness'] },
+      { key: 'motor', label: 'Motor', blurb: 'Renew, retain and upsell car cover.', icon: Car,
+        match: ['motor'] },
+      { key: 'invest', label: 'Savings & Investments', blurb: 'ULIP, endowment, child, retirement and savings plans.', icon: PiggyBank,
+        match: ['ulip', 'investment', 'endowment', 'savings', 'child-plan', 'compliance', 'retirement', 'annuity', 'hnw'] },
+      { key: 'renewal', label: 'Renewals & Retention', blurb: 'Keep customers and grow the relationship.', icon: RefreshCw,
+        match: ['renewal', 'upsell', 'retention', 'negotiation'] },
+      { key: 'service', label: 'Service & Claims', blurb: 'Reassure, resolve, and earn cross-sell.', icon: Headphones,
+        match: ['claims', 'service', 'cross-sell'] },
+      { key: 'closing', label: 'Objections & Closing', blurb: 'Handle pushback and lock the next step.', icon: Handshake,
+        match: ['objection-handling', 'follow-up', 'closing', 'cold-call', 'mortgage', 'loan-protection'] },
+      { key: 'business', label: 'Group & Commercial', blurb: 'Corporate, SME and commercial lines.', icon: Building2,
+        match: ['group', 'b2b', 'sme', 'keyman', 'cyber-insurance', 'marine-cargo', 'logistics', 'shopkeeper',
+          'retail', 'property', 'home-insurance', 'do-liability', 'startup', 'public-liability', 'restaurant',
+          'crop-insurance', 'agriculture', 'rural', 'group-health'] },
+    ],
+  },
+  {
+    key: 'client-growth', label: 'Client Growth & Leadership', blurb: 'Grow existing accounts through better conversations.',
+    match: ['client-growth'],
+    topics: [
+      { key: 'neuro-selling', label: 'Neuro Selling', blurb: 'Earn trust and lower the guard before making the case.', icon: Brain,
+        match: ['neuro-selling'] },
+      { key: 'whitespace', label: 'Whitespace Mapping', blurb: 'Find the unserved opportunity inside an account.', icon: MapIcon,
+        match: ['whitespace'] },
+      { key: 'meaningful-conversations', label: 'Meaningful Conversations', blurb: 'Move past status updates into strategy.', icon: MessageSquare,
+        match: ['meaningful-conversations'] },
+      { key: 'cookie-insight', label: 'The Cookie', blurb: 'Leave something of real value behind, every time.', icon: Cookie,
+        match: ['cookie-insight'] },
+    ],
+  },
+];
+
+const OTHER_TOPIC: Topic = { key: 'more', label: 'More to explore', blurb: 'A few extras to round things out.', icon: Compass, match: [] };
+
+/** Which track a scenario belongs to (first explicit match, else the default track). */
+function trackFor(tags: string[]): string {
+  for (const t of TRACKS) {
+    if (t.match.length && tags.some((tag) => t.match.includes(tag))) return t.key;
+  }
+  return TRACKS[0].key;
+}
+
+/** Which topic inside its track. */
+function topicFor(tags: string[], track: Track): string {
+  for (const tag of tags) { const hit = track.topics.find((c) => c.match.includes(tag)); if (hit) return hit.key; }
+  return OTHER_TOPIC.key;
+}
+
+const SORTS = [
+  { key: 'recommended', label: 'Recommended' },
+  { key: 'az', label: 'A – Z' },
+  { key: 'level-asc', label: 'Easiest first' },
+  { key: 'level-desc', label: 'Hardest first' },
+] as const;
+type SortKey = (typeof SORTS)[number]['key'];
+const LEVEL_ORDER: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 };
+
+function sortScenarios(list: Scenario[], sort: SortKey): Scenario[] {
+  const out = [...list];
+  if (sort === 'az') out.sort((a, b) => a.title.localeCompare(b.title));
+  else if (sort === 'level-asc') out.sort((a, b) => (LEVEL_ORDER[a.difficulty_level] ?? 9) - (LEVEL_ORDER[b.difficulty_level] ?? 9));
+  else if (sort === 'level-desc') out.sort((a, b) => (LEVEL_ORDER[b.difficulty_level] ?? 9) - (LEVEL_ORDER[a.difficulty_level] ?? 9));
+  return out;
 }
 
 export default function ScenariosPage() {
@@ -65,6 +118,8 @@ export default function ScenariosPage() {
   const [q, setQ] = useState('');
   const [mine, setMine] = useState(false);
   const [difficulty, setDifficulty] = useState<string | null>(null);
+  const [track, setTrack] = useState<string>('all');
+  const [sort, setSort] = useState<SortKey>('recommended');
   const [starting, setStarting] = useState<string | null>(null);
   const [picker, setPicker] = useState<{ scenario: Scenario; step: number; lang: string; accent: string; locality: string; voice: string; grade: boolean } | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
@@ -97,20 +152,41 @@ export default function ScenariosPage() {
     return () => { cancel = true; clearTimeout(handle); };
   }, [q, mine]);
 
-  const filtered = useMemo(
-    () => (difficulty ? scenarios.filter((s) => s.difficulty_level === difficulty) : scenarios),
-    [scenarios, difficulty],
-  );
-  const grouping = Boolean(q.trim()) || Boolean(difficulty) || mine;
+  const filtered = useMemo(() => {
+    let list = scenarios;
+    if (difficulty) list = list.filter((s) => s.difficulty_level === difficulty);
+    if (track !== 'all') list = list.filter((s) => trackFor(s.tags) === track);
+    return sortScenarios(list, sort);
+  }, [scenarios, difficulty, track, sort]);
 
+  // Flat grid while actively searching/filtering; grouped sections when browsing.
+  const flat = Boolean(q.trim()) || Boolean(difficulty) || mine || sort !== 'recommended';
+
+  // TRACK -> TOPIC sections, empties removed.
   const grouped = useMemo(() => {
-    const buckets = new Map<string, Scenario[]>();
-    for (const s of filtered) {
-      const key = categoryFor(s.tags);
-      (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(s);
-    }
-    return [...CATEGORIES, MORE].map((c) => ({ ...c, items: buckets.get(c.key) ?? [] })).filter((c) => c.items.length > 0);
-  }, [filtered]);
+    return TRACKS
+      .filter((t) => track === 'all' || t.key === track)
+      .map((t) => {
+        const inTrack = filtered.filter((s) => trackFor(s.tags) === t.key);
+        const buckets = new Map<string, Scenario[]>();
+        for (const s of inTrack) {
+          const key = topicFor(s.tags, t);
+          (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(s);
+        }
+        const topics = [...t.topics, OTHER_TOPIC]
+          .map((c) => ({ ...c, items: buckets.get(c.key) ?? [] }))
+          .filter((c) => c.items.length > 0);
+        return { track: t, topics, count: inTrack.length };
+      })
+      .filter((g) => g.count > 0);
+  }, [filtered, track]);
+
+  // Counts per track for the selector pills.
+  const trackCounts = useMemo(() => {
+    const m: Record<string, number> = { all: scenarios.length };
+    for (const t of TRACKS) m[t.key] = scenarios.filter((s) => trackFor(s.tags) === t.key).length;
+    return m;
+  }, [scenarios]);
 
   function openPicker(s: Scenario) { setPicker({ scenario: s, step: 1, lang: '', accent: '', locality: '', voice: s.voice || 'Charon', grade: false }); }
 
@@ -171,11 +247,33 @@ export default function ScenariosPage() {
             <Toggle active={mine} onClick={() => setMine(true)}>Mine</Toggle>
           </div>
         </div>
+        {/* Track (domain) selector */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterPill active={track === 'all'} onClick={() => setTrack('all')}>
+            All tracks <span className="ml-1 opacity-60">{trackCounts.all ?? 0}</span>
+          </FilterPill>
+          {TRACKS.map((t) => (
+            <FilterPill key={t.key} active={track === t.key} onClick={() => setTrack(t.key)}>
+              {t.label} <span className="ml-1 opacity-60">{trackCounts[t.key] ?? 0}</span>
+            </FilterPill>
+          ))}
+        </div>
+        {/* Level + sort */}
         <div className="flex flex-wrap items-center gap-1.5">
           <FilterPill active={!difficulty} onClick={() => setDifficulty(null)}>All levels</FilterPill>
           {DIFFICULTIES.map((d) => (
             <FilterPill key={d} active={difficulty === d} onClick={() => setDifficulty(d)}><span className="capitalize">{d}</span></FilterPill>
           ))}
+          <div className="ml-auto flex items-center gap-1.5">
+            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+            >
+              {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -189,25 +287,36 @@ export default function ScenariosPage() {
           <p className="font-semibold">No scenarios found</p>
           <p className="mt-1 text-sm text-muted-foreground">Try a different search or level, or create your own.</p>
         </div>
-      ) : grouping ? (
+      ) : flat ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((s) => <ScenarioCard key={s.id} s={s} starting={starting === s.id} onStart={() => openPicker(s)} />)}
         </div>
       ) : (
-        <div className="space-y-10">
-          {grouped.map((cat) => (
-            <section key={cat.key}>
-              <div className="mb-4 flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><cat.icon className="h-4 w-4" /></span>
-                <div>
-                  <h2 className="text-sm font-semibold leading-tight">{cat.label}<span className="ml-2 text-xs font-normal text-muted-foreground">{cat.items.length}</span></h2>
-                  <p className="text-xs text-muted-foreground">{cat.blurb}</p>
+        <div className="space-y-12">
+          {grouped.map(({ track: t, topics, count }) => (
+            <div key={t.key} className="space-y-8">
+              {/* Track header — only when browsing more than one track */}
+              {track === 'all' && (
+                <div className="flex items-baseline justify-between border-b border-border pb-2">
+                  <h2 className="text-base font-bold tracking-tight">{t.label}</h2>
+                  <span className="text-xs text-muted-foreground">{t.blurb} · {count}</span>
                 </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {cat.items.map((s) => <ScenarioCard key={s.id} s={s} starting={starting === s.id} onStart={() => openPicker(s)} />)}
-              </div>
-            </section>
+              )}
+              {topics.map((cat) => (
+                <section key={cat.key}>
+                  <div className="mb-4 flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><cat.icon className="h-4 w-4" /></span>
+                    <div>
+                      <h3 className="text-sm font-semibold leading-tight">{cat.label}<span className="ml-2 text-xs font-normal text-muted-foreground">{cat.items.length}</span></h3>
+                      <p className="text-xs text-muted-foreground">{cat.blurb}</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {cat.items.map((s) => <ScenarioCard key={s.id} s={s} starting={starting === s.id} onStart={() => openPicker(s)} />)}
+                  </div>
+                </section>
+              ))}
+            </div>
           ))}
         </div>
       )}
