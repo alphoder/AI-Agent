@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import { floatTo16BitPCM, arrayBufferToBase64 } from '@/lib/audio';
-import { LANGUAGES, languageName } from '@avatar-platform/shared';
+import { LANGUAGES, languageName, VOICE_IDS, MALE_VOICES, FEMALE_VOICES } from '@avatar-platform/shared';
 import { useAuth } from '@/hooks/use-auth';
 import { AssistantOrb, OrbState } from './assistant-orb';
 
@@ -22,17 +22,27 @@ const HINTS = [
 ];
 
 function systemPrompt(name: string) {
-  return `You are Bixy — a cheerful, upbeat voice helper for SpeakCoach, an INSURANCE SALES-CALL training app (BFSI, India). The trainee practises selling insurance by talking to AI "customers".
+  return `You are Bixy — a cheerful, upbeat voice helper for SpeakCoach, a sales and client-conversation training app (insurance/BFSI plus client-growth skills). The trainee practises by talking to AI "customers" and client stakeholders.
 The user's name is ${name}. Greet them warmly by name, then help. Speak in short, warm sentences.
 
 You can CALL tools to: search/list scenarios, start a practice call, show history, navigate anywhere (Practice/scenarios, Reports, Analytics, Teams, Community, Live Room, Settings, Help), and — most importantly — BUILD a custom scenario.
 
-BUILD A SCENARIO (do this whenever the user wants custom/specific practice, or says "help me build a scenario"):
-Ask 2-3 quick questions, ONE at a time, to design a realistic insurance customer:
-  1) What kind of call? (e.g. term-life cold call, health price objection, motor renewal, an angry customer)
-  2) What language should the customer speak in?
-  3) How tough — beginner, intermediate, or advanced?
-Keep it fast. Then CALL create_scenario with a vivid character_prompt (an in-character insurance customer with a clear objection), a short title, the language, difficulty, and a fitting voice. create_scenario immediately LAUNCHES the call — so once you have enough, just build it and say it's starting now.
+BUILD A SCENARIO (whenever the user wants custom/specific practice, or says "help me build a scenario"):
+Ask EXACTLY these FIVE questions, ONE AT A TIME, waiting for each answer before the next. Keep each question to one short, natural sentence — this should feel like a quick chat, not a form:
+  1) What do you want to practise? (the situation — e.g. a term-life cold call, a price objection, winning over a sceptical CFO)
+  2) Who is on the other end — their role, and do they already know you or is this cold?
+  3) What makes them hard — their main pushback, objection, or mood?
+  4) What would make this call a win for you?
+  5) Which language should they speak, and how tough — beginner, intermediate, or advanced?
+NEVER ask two at once and never skip ahead. If the user already told you something (e.g. they said "an angry renewal customer in Hindi"), do NOT re-ask it — acknowledge it and move to the next unanswered question. If they say "just build it" or seem impatient, sensibly fill the rest yourself and go.
+
+Then CALL create_scenario. Write character_prompt as a REAL PERSON, never a list of objections:
+  - a name, age, job and life/business situation
+  - their personality and how they actually talk
+  - their real concern in their own words, plus the relationship (cold stranger / existing customer / senior client)
+  - a HIDDEN need, fear or motive they will NOT volunteer until the trainee earns it
+  - do NOT script outcomes like "if the agent says X, they agree" — the app judges the trainee's reasoning itself
+Match difficulty to their answer to Q5. create_scenario immediately LAUNCHES the call — so once you have the five answers, build it and say it's starting now.
 
 Always CALL tools to actually do things; never just describe. Ignore any wake phrase like "hey bixy" and act on the rest.`;
 }
@@ -46,8 +56,16 @@ const TOOLS = [
         parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'optional search text' } } } },
       { name: 'start_practice', description: 'Start a practice session for a scenario the user names, optionally in a chosen language.',
         parameters: { type: 'OBJECT', properties: { scenario: { type: 'STRING', description: 'name or topic' }, language: { type: 'STRING', description: 'ISO code e.g. en, hi, es' } }, required: ['scenario'] } },
-      { name: 'create_scenario', description: 'Design a custom insurance practice scenario AND immediately launch the call. Use it once you know what the user wants to practise.',
-        parameters: { type: 'OBJECT', properties: { title: { type: 'STRING', description: 'short title, e.g. "Angry motor-renewal customer"' }, description: { type: 'STRING' }, objective: { type: 'STRING', description: 'what the agent should achieve on this call' }, character_prompt: { type: 'STRING', description: 'the in-character insurance customer: who they are, their situation, and their main objection' }, language: { type: 'STRING', description: 'e.g. en, hi, ta, mr, te' }, difficulty: { type: 'STRING', enum: ['beginner', 'intermediate', 'advanced'] }, voice: { type: 'STRING', enum: ['Charon', 'Orus', 'Puck', 'Fenrir', 'Kore', 'Aoede', 'Leda', 'Zephyr'], description: 'customer voice — male: Charon/Orus/Puck/Fenrir, female: Kore/Aoede/Leda/Zephyr' } }, required: ['title', 'character_prompt'] } },
+      { name: 'create_scenario', description: 'Design a custom practice scenario AND immediately launch the call. Call this only after the five questions are answered (or the user asks you to just build it).',
+        parameters: { type: 'OBJECT', properties: {
+          title: { type: 'STRING', description: 'short title, e.g. "Angry motor-renewal customer"' },
+          description: { type: 'STRING', description: 'one line describing the situation' },
+          objective: { type: 'STRING', description: 'what a win looks like for the trainee on this call (from question 4)' },
+          character_prompt: { type: 'STRING', description: 'The person, written as a REAL HUMAN: name, age, job and life/business situation; personality and how they talk; their real concern in their own words; the relationship (cold stranger / existing customer / senior client); and a HIDDEN need or fear they will NOT volunteer until it is earned. Do NOT script outcomes ("if the agent says X they agree") — the app judges the trainee itself.' },
+          language: { type: 'STRING', description: 'e.g. en, hi, ta, mr, te' },
+          difficulty: { type: 'STRING', enum: ['beginner', 'intermediate', 'advanced'], description: 'from question 5 — drives how strictly the character judges the trainee' },
+          voice: { type: 'STRING', enum: VOICE_IDS, description: `customer voice — male: ${MALE_VOICES.slice(0, 6).map((v) => v.id).join('/')}…; female: ${FEMALE_VOICES.slice(0, 6).map((v) => v.id).join('/')}…` },
+        }, required: ['title', 'character_prompt'] } },
       { name: 'view_history', description: "Open the user's past practice sessions and scores.", parameters: { type: 'OBJECT', properties: {} } },
     ],
   },
@@ -198,7 +216,7 @@ export function AssistantWidget() {
       }
       if (name === 'create_scenario') {
         const lang = resolveLang(args.language as string) || 'en';
-        const voice = ['Charon', 'Orus', 'Puck', 'Fenrir', 'Kore', 'Aoede', 'Leda', 'Zephyr'].includes(String(args.voice)) ? String(args.voice) : 'Charon';
+        const voice = VOICE_IDS.includes(String(args.voice)) ? String(args.voice) : 'Charon';
         const payload = {
           title: String(args.title), description: args.description ? String(args.description) : '',
           objective: args.objective ? String(args.objective) : `Practise: ${args.title}`,
