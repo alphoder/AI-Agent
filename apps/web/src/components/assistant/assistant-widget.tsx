@@ -21,11 +21,13 @@ const HINTS = [
   '“Hey Bixy, open my reports”',
 ];
 
-function systemPrompt(name: string) {
-  return `You are Bixy — a cheerful, upbeat voice helper for SpeakCoach, a sales and client-conversation training app (insurance/BFSI plus client-growth skills). The trainee practises by talking to AI "customers" and client stakeholders.
+function systemPrompt(name: string, isAdmin: boolean) {
+  const base = `You are Bixy — a cheerful, upbeat voice helper for SpeakCoach, a sales and client-conversation training app (insurance/BFSI plus client-growth skills). The trainee practises by talking to AI "customers" and client stakeholders.
 The user's name is ${name}. Greet them warmly by name, then help. Speak in short, warm sentences.
 
-You can CALL tools to: search/list scenarios, start a practice call, show history, navigate anywhere (Practice/scenarios, Reports, Analytics, Teams, Community, Live Room, Settings, Help), and — most importantly — BUILD a custom scenario.
+You can CALL tools to: search/list scenarios, start a practice call, show history, and navigate anywhere (Practice/scenarios, Reports, Analytics, Teams, Community, Live Room, Settings, Help).`;
+
+  const build = `
 
 BUILD A SCENARIO (whenever the user wants custom/specific practice, or says "help me build a scenario"):
 Ask EXACTLY these FIVE questions, ONE AT A TIME, waiting for each answer before the next. Keep each question to one short, natural sentence — this should feel like a quick chat, not a form:
@@ -42,9 +44,19 @@ Then CALL create_scenario. Write character_prompt as a REAL PERSON, never a list
   - their real concern in their own words, plus the relationship (cold stranger / existing customer / senior client)
   - a HIDDEN need, fear or motive they will NOT volunteer until the trainee earns it
   - do NOT script outcomes like "if the agent says X, they agree" — the app judges the trainee's reasoning itself
-Match difficulty to their answer to Q5. create_scenario immediately LAUNCHES the call — so once you have the five answers, build it and say it's starting now.
+Match difficulty to their answer to Q5. create_scenario immediately LAUNCHES the call — so once you have the five answers, build it and say it's starting now.`;
+
+  const recommend = `
+
+RECOMMEND A SCENARIO (whenever the user wants practice, or is unsure where to start):
+Ask at most TWO quick questions, one at a time: (1) what do you want to practise or get better at, and (2) how tough — beginner, intermediate, or advanced? Then CALL list_scenarios with a relevant query, pick the 1-2 best fits from the results, say in one short sentence why each fits, and offer to start one. When they choose, CALL start_practice.
+You CANNOT create new scenarios — only an admin can add to the library. If the user asks for something custom, do not apologise at length: find the CLOSEST existing scenario and pitch it ("the closest we have is the angry motor-renewal customer — want to try that?"). If nothing fits at all, tell them their admin can add it.`;
+
+  const close = `
 
 Always CALL tools to actually do things; never just describe. Ignore any wake phrase like "hey bixy" and act on the rest.`;
+
+  return base + (isAdmin ? build : recommend) + close;
 }
 
 const TOOLS = [
@@ -71,6 +83,11 @@ const TOOLS = [
   },
 ];
 
+/** Non-admins get the library, not the workshop — create_scenario is admin-only. */
+function toolsFor(isAdmin: boolean) {
+  return [{ function_declarations: TOOLS[0].function_declarations.filter((d) => isAdmin || d.name !== 'create_scenario') }];
+}
+
 function resolveLang(input?: string): string | undefined {
   if (!input) return undefined;
   const t = input.trim().toLowerCase();
@@ -83,7 +100,11 @@ export function AssistantWidget() {
   const router = useRouter();
   const user = useAuth((s) => s.user);
   const nameRef = useRef('there');
-  useEffect(() => { nameRef.current = (user?.name || user?.email?.split('@')[0] || 'there').split(' ')[0]; }, [user]);
+  const adminRef = useRef(false);
+  useEffect(() => {
+    nameRef.current = (user?.name || user?.email?.split('@')[0] || 'there').split(' ')[0];
+    adminRef.current = (user?.metadata as { role?: string } | null)?.role === 'admin';
+  }, [user]);
 
   const [ready, setReady] = useState(false);   // Gemini session live
   const [awake, setAwake] = useState(false);     // in a conversation
@@ -215,6 +236,9 @@ export function AssistantWidget() {
         router.push(`/session/${match.id}?lang=${lang}`); return { ok: true, started: match.title, language: lang };
       }
       if (name === 'create_scenario') {
+        if (!adminRef.current) {
+          return { error: 'Only admins can create scenarios. Use list_scenarios to find and suggest the closest existing one instead.' };
+        }
         const lang = resolveLang(args.language as string) || 'en';
         const voice = VOICE_IDS.includes(String(args.voice)) ? String(args.voice) : 'Charon';
         const payload = {
@@ -320,7 +344,7 @@ export function AssistantWidget() {
         outCtxRef.current = outCtxRef.current || new AudioContext({ sampleRate: 24000 });
         const ws = new WebSocket(data.data.wsUrl);
         wsRef.current = ws;
-        ws.onopen = () => ws.send(JSON.stringify({ type: 'config', system_prompt: systemPrompt(nameRef.current), voice: BIXY_VOICE, tools: TOOLS }));
+        ws.onopen = () => ws.send(JSON.stringify({ type: 'config', system_prompt: systemPrompt(nameRef.current, adminRef.current), voice: BIXY_VOICE, tools: toolsFor(adminRef.current) }));
         ws.onmessage = async (ev) => {
           const msg = JSON.parse(ev.data);
           switch (msg.type) {
@@ -375,7 +399,12 @@ export function AssistantWidget() {
   // "Build with Bixy" button (anywhere in the app) → wake Bixy and start the
   // scenario-building interview.
   useEffect(() => {
-    const onBuild = () => { wake(); sendToGemini('Help me build a custom insurance practice scenario, then run it.'); };
+    const onBuild = () => {
+      wake();
+      sendToGemini(adminRef.current
+        ? 'Help me build a custom practice scenario, then run it.'
+        : 'Help me find the right scenario to practise.');
+    };
     window.addEventListener('bixy:build', onBuild);
     return () => window.removeEventListener('bixy:build', onBuild);
   }, [wake, sendToGemini]);

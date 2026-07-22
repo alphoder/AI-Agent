@@ -10,6 +10,7 @@ import {
   Brain, Map as MapIcon, MessageSquare, Cookie, ArrowUpDown,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { LanguagePicker } from '@/components/language-picker';
 import { languageName, GEMINI_VOICES, voiceSampleUrl, accentsForLanguage } from '@avatar-platform/shared';
 
@@ -113,6 +114,9 @@ function sortScenarios(list: Scenario[], sort: SortKey): Scenario[] {
 
 export default function ScenariosPage() {
   const router = useRouter();
+  const user = useAuth((s) => s.user);
+  // Scenario authoring is admin-only; everyone else practises from the curated library.
+  const admin = (user?.metadata as { role?: string } | null)?.role === 'admin';
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
@@ -216,20 +220,26 @@ export default function ScenariosPage() {
           <h1 className="text-2xl font-bold tracking-tight">Practice library</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Pick a scenario and start talking. Your mic and camera stay on your device.</p>
         </div>
-        <Link href="/scenarios/create" className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
-          <Plus className="h-4 w-4" /> Create manually
-        </Link>
+        {admin && (
+          <Link href="/scenarios/create" className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
+            <Plus className="h-4 w-4" /> Create manually
+          </Link>
+        )}
       </div>
 
-      {/* Build-your-own banner — says exactly what it does */}
+      {/* Bixy banner — admins build, everyone else gets guided to the right call */}
       <button
         onClick={() => window.dispatchEvent(new CustomEvent('bixy:build'))}
         className="press flex w-full items-center gap-4 rounded-2xl border border-primary/30 bg-primary/5 p-4 text-left transition-colors hover:bg-primary/10"
       >
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Sparkles className="h-5 w-5" /></span>
         <span className="flex-1">
-          <span className="block font-semibold">Build your own practice call</span>
-          <span className="block text-sm text-muted-foreground">Just tell Bixy the situation — it designs the customer and starts a live call for you in seconds.</span>
+          <span className="block font-semibold">{admin ? 'Build your own practice call' : 'Not sure where to start?'}</span>
+          <span className="block text-sm text-muted-foreground">
+            {admin
+              ? 'Just tell Bixy the situation — it designs the customer and starts a live call for you in seconds.'
+              : 'Tell Bixy what you want to get better at — it picks the right call from the library and starts it for you.'}
+          </span>
         </span>
         <span className="hidden shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground sm:inline-block">Talk to Bixy</span>
       </button>

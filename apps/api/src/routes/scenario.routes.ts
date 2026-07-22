@@ -130,11 +130,20 @@ function validatePayload(body: any): string | null {
   return validateRubric(body.scoring_rubric);
 }
 
+/** Scenario authoring is admin-only — learners practise from the curated library. */
+async function isAdmin(userId: string): Promise<boolean> {
+  const r = await db.query('SELECT metadata FROM users WHERE id = $1', [userId]);
+  return (r.rows[0]?.metadata as { role?: string } | null)?.role === 'admin';
+}
+
 /**
- * POST /api/scenarios — create (owned by caller).
+ * POST /api/scenarios — create (admin only; owned by caller).
  */
 router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
+  if (!(await isAdmin(me))) {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can create scenarios. Ask Bixy to suggest one from the library instead.' } });
+  }
   const err = validatePayload(req.body);
   if (err) return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: err } });
 
@@ -226,6 +235,9 @@ router.delete('/:id', validateUuidParam('id'), wrap(async (req: AuthenticatedReq
  */
 router.post('/:id/duplicate', validateUuidParam('id'), wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
+  if (!(await isAdmin(me))) {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can create scenarios.' } });
+  }
   const src = await db.query(
     `SELECT * FROM scenarios WHERE id = $1 AND deleted_at IS NULL AND (visibility = 'public' OR created_by = $2)`,
     [req.params.id, me],
