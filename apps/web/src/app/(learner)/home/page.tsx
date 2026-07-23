@@ -2,9 +2,78 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mic, Play, Check, Crown, Lock, X, Volume2, ChevronRight } from 'lucide-react';
+import { Mic, Play, Pause, Check, Crown, Lock, X, Volume2, ChevronRight, BookOpen, Headphones, Phone } from 'lucide-react';
 import apiClient from '@/lib/api-client';
-import { LANGUAGES, GEMINI_VOICES, type Mastery } from '@avatar-platform/shared';
+import { LANGUAGES, GEMINI_VOICES, JOURNEY, type Mastery } from '@avatar-platform/shared';
+
+/** Tiny renderer for our own static learn cards (bold + paragraphs only). */
+function Md({ text }: { text: string }) {
+  return (
+    <div className="space-y-2 text-sm leading-relaxed">
+      {text.split('\n\n').map((p, i) => (
+        <p key={i} dangerouslySetInnerHTML={{ __html: p.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }} />
+      ))}
+    </div>
+  );
+}
+
+interface Cap { speaker: 'agent' | 'customer'; text: string; start: number; end: number }
+
+/** Model-call audio with synced captions and the "spot the technique" marker. */
+function WatchPlayer({ unitKey, spot, spotNote }: { unitKey: string; spot: number; spotNote: string }) {
+  const [caps, setCaps] = useState<Cap[] | null>(null);
+  const [t, setT] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    fetch(`/watch/${unitKey}.json`).then((r) => r.json()).then(setCaps).catch(() => setCaps([]));
+  }, [unitKey]);
+
+  if (caps === null) return <div className="h-40 animate-pulse rounded-xl bg-muted/50" />;
+  if (caps.length === 0) return <p className="text-sm text-muted-foreground">Model call coming soon for this unit.</p>;
+
+  return (
+    <div className="space-y-3">
+      <audio
+        ref={audioRef}
+        src={`/watch/${unitKey}.wav`}
+        onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+      />
+      <button
+        onClick={() => (playing ? audioRef.current?.pause() : audioRef.current?.play())}
+        className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+      >
+        {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+        {playing ? 'Pause' : 'Play the model call'}
+      </button>
+      <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+        {caps.map((c, i) => {
+          const active = t >= c.start && t < c.end + 0.35;
+          const isSpot = i === spot;
+          return (
+            <div key={i}>
+              <button
+                onClick={() => { if (audioRef.current) { audioRef.current.currentTime = c.start; audioRef.current.play(); } }}
+                className={`w-full rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+                  active ? 'bg-primary/15' : 'hover:bg-muted/40'} ${isSpot ? 'ring-1 ring-primary/50' : ''}`}
+              >
+                <span className={`mr-2 text-[10px] font-semibold uppercase tracking-wider ${c.speaker === 'agent' ? 'text-primary' : 'text-muted-foreground'}`}>
+                  {c.speaker}
+                </span>
+                {c.text}
+              </button>
+              {isSpot && <p className="mt-0.5 pl-3 text-xs italic text-primary">▲ {spotNote}</p>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 interface Lesson {
   key: string; unit: string; scenarioId: string | null; title: string; level: string | null;
@@ -77,6 +146,7 @@ export default function JourneyHome() {
   const [lang, setLang] = useState('en');
   const [voice, setVoice] = useState('Charon');
   const [starting, setStarting] = useState(false);
+  const [step, setStep] = useState<'learn' | 'watch' | 'brief'>('brief');
 
   useEffect(() => {
     apiClient.get('/journey')
@@ -90,6 +160,8 @@ export default function JourneyHome() {
   function openBriefing(lesson: Lesson, unit: Unit) {
     if (!lesson.scenarioId) return;
     setBrief({ lesson, unit });
+    // First time in a lesson -> full Learn -> Watch -> Call loop; repeats jump to the call.
+    setStep(lesson.attempts === 0 ? 'learn' : 'brief');
     setDetail(null);
     apiClient.get(`/scenarios/${lesson.scenarioId}`).then(({ data }) => {
       setDetail(data.data);
@@ -129,6 +201,25 @@ export default function JourneyHome() {
           </div>
         </div>
       )}
+
+      {/* Daily free drill — the habit that costs nothing */}
+      {(() => {
+        const all = units.flatMap((u) => u.lessons).filter((l) => l.scenarioId);
+        if (all.length === 0) return null;
+        const day = Math.floor(Date.now() / 86_400_000);
+        const daily = all[day % all.length];
+        return (
+          <button onClick={() => router.push(`/drill/${daily.scenarioId}`)}
+            className="press flex w-full items-center gap-3 rounded-2xl border border-success/30 bg-success/5 px-4 py-3 text-left transition-colors hover:bg-success/10">
+            <span className="rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">FREE</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">Daily text drill · {daily.title}</span>
+              <span className="block text-xs text-muted-foreground">2 minutes of typed practice with live coaching — costs nothing, keeps the streak alive.</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+        );
+      })()}
 
       {/* The path */}
       {units.map((u) => (
@@ -179,7 +270,43 @@ export default function JourneyHome() {
               <button onClick={() => setBrief(null)} className="press rounded-full p-1.5 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
             </div>
 
-            {detail === null ? (
+            {/* Micro-loop tabs: Learn -> Watch -> Call */}
+            <div className="mt-3 flex gap-1 rounded-full border border-border bg-muted/30 p-1 text-xs font-medium">
+              {([['learn', 'Learn', BookOpen], ['watch', 'Watch', Headphones], ['brief', 'Call', Phone]] as const).map(([k, label, Icon]) => (
+                <button key={k} onClick={() => setStep(k)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 transition-colors ${step === k ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                  <Icon className="h-3.5 w-3.5" /> {label}
+                </button>
+              ))}
+            </div>
+
+            {step === 'learn' && (() => {
+              const j = JOURNEY.find((x) => x.key === brief.unit.key);
+              return (
+                <div className="mt-4 space-y-4">
+                  {j && <Md text={j.learn} />}
+                  <button onClick={() => setStep('watch')}
+                    className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+                    <Headphones className="h-4 w-4" /> Hear it done
+                  </button>
+                </div>
+              );
+            })()}
+
+            {step === 'watch' && (() => {
+              const j = JOURNEY.find((x) => x.key === brief.unit.key);
+              return (
+                <div className="mt-4 space-y-4">
+                  {j && <WatchPlayer unitKey={j.key} spot={j.spot} spotNote={j.spotNote} />}
+                  <button onClick={() => setStep('brief')}
+                    className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+                    <Phone className="h-4 w-4" /> Your turn
+                  </button>
+                </div>
+              );
+            })()}
+
+            {step === 'brief' && (detail === null ? (
               <div className="mt-4 h-24 animate-pulse rounded-xl bg-muted/50" />
             ) : (
               <div className="mt-4 space-y-4 text-sm">
@@ -229,6 +356,10 @@ export default function JourneyHome() {
                     {GEMINI_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
                   </select>
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Volume2 className="h-3 w-3" /> voice</span>
+                  <button onClick={() => router.push(`/drill/${brief.lesson.scenarioId}`)}
+                    className="press rounded-full border border-success/40 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10">
+                    Text drill first (free)
+                  </button>
                   <button onClick={startCall} disabled={starting}
                     className="press ml-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
                     {brief.lesson.attempts > 0 ? <Check className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -236,7 +367,7 @@ export default function JourneyHome() {
                   </button>
                 </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
       )}

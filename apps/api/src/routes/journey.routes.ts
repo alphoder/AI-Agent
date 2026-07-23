@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { db } from '../config/database';
+import { callAIService } from '../utils/ai-service-client';
 import { JOURNEY, masteryFor, Mastery } from '@avatar-platform/shared';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
@@ -75,6 +76,45 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const next = units.flatMap((u) => u.lessons).find((l) => l.state === 'next') ?? null;
   const firstTimer = units.every((u) => u.lessons.every((l) => l.attempts === 0));
   res.json({ success: true, data: { units, next, firstTimer } });
+}));
+
+/**
+ * POST /api/journey/drill — one turn of the FREE text drill (flash-lite; never
+ * metered). Body: { scenario_id, messages: [{role:'user'|'customer', text}] }.
+ */
+router.post('/drill', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const { scenario_id, messages } = req.body ?? {};
+  if (!scenario_id || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'scenario_id and messages required' } });
+  }
+  const sc = await db.query(
+    `SELECT title, system_prompt FROM scenarios
+     WHERE id = $1 AND deleted_at IS NULL AND (visibility = 'public' OR created_by = $2)`,
+    [scenario_id, me],
+  );
+  if (sc.rows.length === 0) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Scenario not found' } });
+  }
+  // The unit's technique gives the coach its lens (empty string is fine for custom scenarios).
+  const unit = JOURNEY.find((u) => u.lessons.some((l) => l.scenario === sc.rows[0].title));
+  try {
+    const aiRes = await callAIService({
+      path: '/drill/turn',
+      body: {
+        persona: sc.rows[0].system_prompt,
+        technique: unit ? `${unit.title}: ${unit.drills}` : '',
+        messages: messages.slice(-16).map((m: { role: string; text: string }) => ({
+          role: m.role === 'user' ? 'user' : 'customer',
+          text: String(m.text ?? '').slice(0, 1000),
+        })),
+      },
+      timeoutMs: 25000,
+    });
+    res.json({ success: true, data: await aiRes.json() });
+  } catch {
+    res.status(502).json({ success: false, error: { code: 'AI_UNAVAILABLE', message: 'Drill unavailable right now.' } });
+  }
 }));
 
 export const journeyRoutes: Router = router;
