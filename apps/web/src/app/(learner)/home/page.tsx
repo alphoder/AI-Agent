@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mic, Play, Pause, Check, Crown, Lock, X, Volume2, ChevronRight, BookOpen, Headphones, Phone } from 'lucide-react';
+import { Mic, Play, Pause, Check, Crown, Lock, X, Volume2, ChevronRight, BookOpen, Headphones, Phone, Flame, Zap, Award, Download } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { LANGUAGES, GEMINI_VOICES, JOURNEY, type Mastery } from '@avatar-platform/shared';
 
 /** Tiny renderer for our own static learn cards (bold + paragraphs only). */
@@ -78,6 +79,7 @@ function WatchPlayer({ unitKey, spot, spotNote }: { unitKey: string; spot: numbe
 interface Lesson {
   key: string; unit: string; scenarioId: string | null; title: string; level: string | null;
   attempts: number; best: number | null; mastery: Mastery; state: 'done' | 'next' | 'upcoming';
+  review?: boolean;
 }
 interface Unit { key: string; title: string; drills: string; do: string[]; dont: string[]; lessons: Lesson[]; doneCount: number }
 
@@ -137,9 +139,33 @@ function MicCheck() {
 
 export default function JourneyHome() {
   const router = useRouter();
+  const user = useAuth((s) => s.user);
+
+  async function downloadCert(unitKey: string, issuedAt: string) {
+    const j = JOURNEY.find((u) => u.key === unitKey);
+    if (!j) return;
+    const [{ pdf }, { CertificatePDF }] = await Promise.all([import('@react-pdf/renderer'), import('@/components/certificate-pdf')]);
+    const blob = await pdf(
+      <CertificatePDF data={{
+        name: user?.name || 'SpeakCoach Learner',
+        unitTitle: j.title,
+        unitDrills: j.drills,
+        date: new Date(issuedAt).toLocaleDateString(),
+      }} />,
+    ).toBlob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `speakcoach-certificate-${unitKey}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
   const [units, setUnits] = useState<Unit[]>([]);
   const [next, setNext] = useState<Lesson | null>(null);
   const [firstTimer, setFirstTimer] = useState(false);
+  const [streak, setStreak] = useState(0);
+  const [xp, setXp] = useState(0);
+  const [certs, setCerts] = useState<{ unit_key: string; issued_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [brief, setBrief] = useState<{ lesson: Lesson; unit: Unit } | null>(null);
   const [detail, setDetail] = useState<{ description?: string; objective?: string; scoring_rubric?: { name: string }[]; voice?: string; language?: string } | null>(null);
@@ -150,7 +176,10 @@ export default function JourneyHome() {
 
   useEffect(() => {
     apiClient.get('/journey')
-      .then(({ data }) => { setUnits(data.data.units); setNext(data.data.next); setFirstTimer(data.data.firstTimer); })
+      .then(({ data }) => {
+        setUnits(data.data.units); setNext(data.data.next); setFirstTimer(data.data.firstTimer);
+        setStreak(data.data.streak ?? 0); setXp(data.data.xp ?? 0); setCerts(data.data.certificates ?? []);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -182,6 +211,23 @@ export default function JourneyHome() {
 
   return (
     <div className="space-y-8">
+      {/* Game bar: streak, XP, certificates */}
+      {(streak > 0 || xp > 0 || certs.length > 0) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold ${streak > 0 ? 'border-orange-500/40 bg-orange-500/10 text-orange-500' : 'border-border text-muted-foreground'}`}>
+            <Flame className="h-4 w-4" /> {streak}-day streak
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
+            <Zap className="h-4 w-4" /> {xp.toLocaleString()} XP
+          </span>
+          {certs.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-yellow-500/40 bg-yellow-500/10 px-3 py-1.5 text-sm font-semibold text-yellow-600">
+              <Award className="h-4 w-4" /> {certs.length} certificate{certs.length > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* The one action */}
       {next && (
         <div className="rounded-3xl border border-primary/30 bg-primary/5 p-6">
@@ -221,6 +267,26 @@ export default function JourneyHome() {
         );
       })()}
 
+      {/* Earned certificates */}
+      {certs.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {certs.map((c) => {
+            const j = JOURNEY.find((u) => u.key === c.unit_key);
+            return (
+              <button key={c.unit_key} onClick={() => downloadCert(c.unit_key, c.issued_at)}
+                className="press inline-flex items-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-left text-xs hover:bg-yellow-500/10">
+                <Award className="h-4 w-4 shrink-0 text-yellow-600" />
+                <span>
+                  <span className="block font-semibold">{j?.title ?? c.unit_key}</span>
+                  <span className="text-muted-foreground">Certified {new Date(c.issued_at).toLocaleDateString()}</span>
+                </span>
+                <Download className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* The path */}
       {units.map((u) => (
         <section key={u.key}>
@@ -249,6 +315,7 @@ export default function JourneyHome() {
                   <span className={`block truncate text-sm ${l.state === 'next' ? 'font-semibold' : 'font-medium'}`}>{l.title}</span>
                   <span className="block text-xs capitalize text-muted-foreground">
                     {l.level}{l.best != null && ` · best ${Math.round(l.best)}`}{l.mastery !== 'none' && ` · ${l.mastery}`}
+                    {l.review && <span className="ml-1.5 rounded bg-warning/15 px-1 py-px text-[10px] font-semibold uppercase text-warning">review</span>}
                   </span>
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />

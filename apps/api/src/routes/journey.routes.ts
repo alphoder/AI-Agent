@@ -2,7 +2,8 @@ import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { db } from '../config/database';
 import { callAIService } from '../utils/ai-service-client';
-import { JOURNEY, masteryFor, Mastery } from '@avatar-platform/shared';
+import { getStreak, getXp } from '../services/game-service';
+import { JOURNEY, MASTERY, masteryFor, Mastery } from '@avatar-platform/shared';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -20,6 +21,7 @@ interface LessonProgress {
   best: number | null;
   mastery: Mastery;
   state: 'done' | 'next' | 'upcoming';
+  review?: boolean;
 }
 
 /**
@@ -75,7 +77,33 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
 
   const next = units.flatMap((u) => u.lessons).find((l) => l.state === 'next') ?? null;
   const firstTimer = units.every((u) => u.lessons.every((l) => l.attempts === 0));
-  res.json({ success: true, data: { units, next, firstTimer } });
+
+  // --- Game layer: streak + xp (computed on read), review picks, certificates. ---
+  const [streak, xp] = await Promise.all([getStreak(me), getXp(me)]);
+
+  // Spaced repetition, the lazy way: the 2 weakest attempted lessons resurface.
+  const attempted = units.flatMap((u) => u.lessons).filter((l) => l.best != null && l.state !== 'next');
+  attempted.sort((a, b) => (a.best ?? 0) - (b.best ?? 0));
+  const reviewKeys = new Set(attempted.slice(0, 2).map((l) => l.key));
+  units.forEach((u) => u.lessons.forEach((l) => { l.review = reviewKeys.has(l.key); }));
+
+  // Certificates: a unit is certified when every lesson reaches silver. Issued
+  // lazily here (idempotent insert) — no cron, no event bus.
+  for (const u of units) {
+    if (u.lessons.length > 0 && u.lessons.every((l) => (l.best ?? 0) >= MASTERY.silver)) {
+      await db.query(
+        `INSERT INTO certificates (user_id, unit_key) VALUES ($1, $2)
+         ON CONFLICT ON CONSTRAINT certificates_user_unit_unique DO NOTHING`,
+        [me, u.key],
+      );
+    }
+  }
+  const certs = await db.query(
+    'SELECT unit_key, issued_at FROM certificates WHERE user_id = $1 ORDER BY issued_at DESC',
+    [me],
+  );
+
+  res.json({ success: true, data: { units, next, firstTimer, streak, xp, certificates: certs.rows } });
 }));
 
 /**

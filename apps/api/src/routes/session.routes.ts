@@ -9,6 +9,7 @@ import { buildSystemPrompt } from '../utils/prompt-bundle';
 import { signWsTicket } from '../utils/ws-ticket';
 import { languageName, VOICE_IDS, accentLabel } from '@avatar-platform/shared';
 import { ensureWallet, adjustWallet, walletEnforced } from '../services/wallet-service';
+import { getStreak } from '../services/game-service';
 
 const MIN_REPORT_SEC = 90; // sessions shorter than 1m30s aren't scored
 
@@ -167,6 +168,20 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
   if ((session.duration_sec ?? 0) > 0) {
     await adjustWallet(me, -session.duration_sec, 'call', session.id);
   }
+
+  // Streak reward: every 7th consecutive practice day earns +5 bonus minutes,
+  // at most once per week. Game layer must never break a call end.
+  try {
+    const streak = await getStreak(me);
+    if (streak > 0 && streak % 7 === 0) {
+      const recent = await db.query(
+        `SELECT 1 FROM wallet_transactions
+         WHERE user_id = $1 AND reason = 'streak_bonus' AND created_at > NOW() - INTERVAL '6 days' LIMIT 1`,
+        [me],
+      );
+      if (recent.rows.length === 0) await adjustWallet(me, 300, 'streak_bonus');
+    }
+  } catch { /* ignore */ }
 
   // Only score sessions long enough to be meaningful (>= 90s).
   const scored = (session.duration_sec ?? 0) >= MIN_REPORT_SEC;
