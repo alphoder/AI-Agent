@@ -6,10 +6,11 @@ import apiClient from '@/lib/api-client';
 
 interface Txn { delta_seconds: number; reason: string; ref: string | null; created_at: string }
 
+// 1 token = 1 second of live voice practice.
 const PACKS = [
-  { price: '₹199', minutes: 30 },
-  { price: '₹499', minutes: 90 },
-  { price: '₹999', minutes: 220 },
+  { price: '₹299', tokens: 1800 },
+  { price: '₹499', tokens: 3600 },
+  { price: '₹999', tokens: 9000 },
 ];
 
 const REASON_LABEL: Record<string, string> = {
@@ -67,11 +68,13 @@ export default function WalletPage() {
       {/* Packs — visible so the model is understood, disabled during beta */}
       <div>
         <h2 className="text-sm font-semibold">Top-up packs</h2>
+        <p className="text-xs text-muted-foreground">1 token = 1 second of live voice practice. Learning, drills and reports stay free.</p>
         <div className="mt-2 grid gap-3 sm:grid-cols-3">
           {PACKS.map((p) => (
             <div key={p.price} className="rounded-2xl border border-border bg-card p-4 text-center opacity-70">
               <p className="text-xl font-bold">{p.price}</p>
-              <p className="text-sm text-muted-foreground">{p.minutes} minutes</p>
+              <p className="text-sm font-medium">{p.tokens.toLocaleString()} tokens</p>
+              <p className="text-xs text-muted-foreground">≈ {Math.round(p.tokens / 60)} min of live practice</p>
               <button disabled className="mt-3 w-full cursor-not-allowed rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
                 Coming soon
               </button>
