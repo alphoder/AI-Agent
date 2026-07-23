@@ -1,4 +1,4 @@
-import { Mic, AudioLines, FileText, BarChart3, Users, Building2, Settings, LifeBuoy, Route, type LucideIcon } from 'lucide-react';
+import { Mic, AudioLines, FileText, BarChart3, Users, Building2, Settings, LifeBuoy, Route, Wallet, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   href: string;
@@ -39,6 +39,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Account',
     items: [
+      { href: '/wallet', label: 'Minutes', icon: Wallet },
       { href: '/settings', label: 'Settings', icon: Settings },
       { href: '/help', label: 'Help', icon: LifeBuoy },
     ],

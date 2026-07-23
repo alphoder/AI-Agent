@@ -8,6 +8,7 @@ import { aiServiceWsUrl, callAIServiceBackground } from '../utils/ai-service-cli
 import { buildSystemPrompt } from '../utils/prompt-bundle';
 import { signWsTicket } from '../utils/ws-ticket';
 import { languageName, VOICE_IDS, accentLabel } from '@avatar-platform/shared';
+import { ensureWallet, adjustWallet, walletEnforced } from '../services/wallet-service';
 
 const MIN_REPORT_SEC = 90; // sessions shorter than 1m30s aren't scored
 
@@ -85,6 +86,17 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const sessionLanguage = (language || sc.language || 'en').slice(0, 10);
   const sessionVoice = VOICE_IDS.includes(voice) ? voice : sc.voice; // user override, else scenario default
 
+  // Wallet: created on first touch (starter minutes). Blocks/caps ONLY when
+  // WALLET_ENFORCE=true — during beta everyone is effectively unlimited, but
+  // usage is still metered so we learn real burn.
+  const balance = await ensureWallet(me);
+  if (walletEnforced() && balance <= 0) {
+    return res.status(402).json({ success: false, error: { code: 'NO_MINUTES', message: 'You are out of practice minutes. Top up to start a call.' } });
+  }
+  // Mid-call enforcement for free: the client already auto-ends at maxDurationSec,
+  // so capping it by the remaining balance IS the meter.
+  const maxDuration = walletEnforced() ? Math.max(60, Math.min(sc.max_duration_sec, balance)) : sc.max_duration_sec;
+
   const sessionResult = await db.query(
     `INSERT INTO sessions (user_id, scenario_id, language, status, started_at)
      VALUES ($1, $2, $3, 'active', NOW())
@@ -124,7 +136,7 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
         openingMessage: sc.opening_message,
         voice: sessionVoice,
         language: sessionLanguage,
-        maxDurationSec: sc.max_duration_sec,
+        maxDurationSec: maxDuration,
         maxTurns: sc.max_turns,
       },
     },
@@ -149,6 +161,12 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
     return res.json({ success: true, data: { id: req.params.id, alreadyEnded: true } });
   }
   const session = result.rows[0];
+
+  // Meter the call: every ended session debits its duration from the wallet
+  // (recorded even in beta, so the ledger shows real usage).
+  if ((session.duration_sec ?? 0) > 0) {
+    await adjustWallet(me, -session.duration_sec, 'call', session.id);
+  }
 
   // Only score sessions long enough to be meaningful (>= 90s).
   const scored = (session.duration_sec ?? 0) >= MIN_REPORT_SEC;
