@@ -289,4 +289,21 @@ router.post('/:id/allocate', wrap(async (req: AuthenticatedRequest, res: Respons
   ok(res, { pool_seconds: dec.rows[0].pool_seconds });
 }));
 
+/**
+ * PATCH /:id/branding — set the workspace's white-label academy branding (leader).
+ */
+router.patch('/:id/branding', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const id = req.params.id;
+  if ((await roleIn(id, me)) !== 'leader') return bad(res, 'Only the workspace leader can set branding.', 403);
+  const name = typeof req.body?.academy_name === 'string' ? req.body.academy_name.trim().slice(0, 80) || null : null;
+  const color = typeof req.body?.accent_color === 'string' && /^#[0-9a-fA-F]{6}$/.test(req.body.accent_color) ? req.body.accent_color : null;
+  const logo = typeof req.body?.logo_url === 'string' ? req.body.logo_url.trim().slice(0, 500) || null : null;
+  const r = await db.query(
+    'UPDATE workspaces SET academy_name = $2, accent_color = $3, logo_url = $4, updated_at = NOW() WHERE id = $1 RETURNING academy_name, accent_color, logo_url',
+    [id, name, color, logo],
+  );
+  ok(res, r.rows[0]);
+}));
+
 export const workspaceRoutes: Router = router;

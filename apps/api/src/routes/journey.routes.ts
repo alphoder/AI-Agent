@@ -103,7 +103,17 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
     [me],
   );
 
-  res.json({ success: true, data: { units, next, firstTimer, streak, xp, certificates: certs.rows } });
+  // White-label: the learner's first workspace with branding themes the academy.
+  const brand = await db.query(
+    `SELECT w.academy_name, w.accent_color, w.logo_url
+     FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id
+     WHERE wm.user_id = $1 AND w.academy_name IS NOT NULL
+     ORDER BY wm.joined_at ASC LIMIT 1`,
+    [me],
+  );
+  const branding = brand.rows[0] ?? { academy_name: null, accent_color: null, logo_url: null };
+
+  res.json({ success: true, data: { units, next, firstTimer, streak, xp, certificates: certs.rows, branding } });
 }));
 
 /**

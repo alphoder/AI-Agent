@@ -11,6 +11,17 @@ export interface JourneyLesson {
 
 export interface WatchLine { speaker: 'agent' | 'customer'; text: string }
 
+export interface QuizOption { id: string; title: string; text: string }
+export interface UnitQuiz {
+  client: { role: string; focus: string; pain: string };
+  question: string;
+  hint: string;
+  options: QuizOption[];
+  correct: string;       // option id
+  why: string;           // one-line rationale for the correct pick
+  whyBullets: string[];  // 2-3 reasons it works
+}
+
 export interface JourneyUnit {
   key: string;
   title: string;
@@ -25,8 +36,12 @@ export interface JourneyUnit {
   /** Index into watchScript of the line that IS the technique ("spot it"). */
   spot: number;
   spotNote: string;
+  /** "Your Turn" knowledge check — free, between Watch and Practice. */
+  quiz: UnitQuiz;
   lessons: JourneyLesson[];
 }
+
+export const JOURNEY_MINUTES = 10; // nominal module length shown in the header
 
 /** Mastery thresholds on best overall score (0-100). */
 export const MASTERY = { bronze: 50, silver: 70, gold: 85 } as const;
@@ -70,6 +85,20 @@ export const JOURNEY: JourneyUnit[] = [
     ],
     spot: 1,
     spotNote: 'Names the time cost and hands over control — that is what buys the next minute.',
+    quiz: {
+      client: { role: 'Busy shop owner', focus: 'Running his store, no patience', pain: 'Gets five sales calls a day and hangs up on all of them' },
+      question: 'How do you earn the first sixty seconds?',
+      hint: 'The best opener is about HIM, and hands him control.',
+      options: [
+        { id: 'A', title: 'Straight to the pitch', text: '"Sir, I have an excellent term plan I want to tell you about."' },
+        { id: 'B', title: 'Time-boxed + their situation', text: '"Sixty seconds — cut me off if it is not useful. It is about the loan on your shop."' },
+        { id: 'C', title: 'Flattery', text: '"You sound like a smart man, sir, you will really appreciate this."' },
+        { id: 'D', title: 'Guilt', text: '"Please just give me two minutes, I have been trying to reach you all week."' },
+      ],
+      correct: 'B',
+      why: 'Handing over control and tying the call to his loan disarms the reflex to hang up.',
+      whyBullets: ['Respects his time out loud', 'The hook is about HIM, not your product', 'Lets him choose to keep listening'],
+    },
     lessons: [
       { key: 'opening-1', scenario: 'Home Insurance — Post-Disaster Call' },
       { key: 'opening-2', scenario: 'Crop Insurance — Skeptical Farmer' },
@@ -108,6 +137,20 @@ What you learn here writes your pitch for you.`,
     ],
     spot: 2,
     spotNote: 'Probes the consequence, not the fact — that is where the real need surfaces.',
+    quiz: {
+      client: { role: 'Salaried father of two', focus: 'Careful with money', pain: 'Has an old policy he does not understand, unsure what he needs' },
+      question: 'Which question best uncovers his real need?',
+      hint: 'Surface the consequence, not just a fact.',
+      options: [
+        { id: 'A', title: 'Product-first', text: '"Would you like a one-crore term plan today?"' },
+        { id: 'B', title: 'Closed fact', text: '"Do you have life insurance?"' },
+        { id: 'C', title: 'Consequence probe', text: '"If your income stopped for six months, what would happen to the family?"' },
+        { id: 'D', title: 'Budget-first', text: '"What is your monthly budget for insurance?"' },
+      ],
+      correct: 'C',
+      why: 'Making him picture the consequence surfaces the real need — far more than a yes/no fact.',
+      whyBullets: ['Gets past "I already have something"', 'Makes the risk feel real, not abstract', 'His own words become your pitch'],
+    },
     lessons: [
       { key: 'discovery-1', scenario: 'Child Education Plan' },
       { key: 'discovery-2', scenario: 'Shopkeeper Package — Multi-Peril Retail' },
@@ -143,6 +186,20 @@ What you learn here writes your pitch for you.`,
     ],
     spot: 1,
     spotNote: 'Every line starts from what the customer said — the product is framed purely as the answer.',
+    quiz: {
+      client: { role: 'Father of a young daughter', focus: 'Her education', pain: 'Told you he is worried about affording college in 14 years' },
+      question: 'Which pitch will land?',
+      hint: 'Connect the product to the exact thing he told you.',
+      options: [
+        { id: 'A', title: 'Feature dump', text: '"It has guaranteed maturity, tax benefit, life cover, and flexible premiums."' },
+        { id: 'B', title: 'Tied to his goal', text: '"You said college in 14 years is the worry — this locks a guaranteed amount for exactly that year."' },
+        { id: 'C', title: 'Generic benefit', text: '"Insurance is very important for every family these days."' },
+        { id: 'D', title: 'Returns-led', text: '"You could get great returns if the market does well."' },
+      ],
+      correct: 'B',
+      why: 'It frames the product as the direct answer to the exact worry he stated — instant relevance.',
+      whyBullets: ['Anchored to HIS stated goal', 'One clear idea, not a feature list', 'No over-promise'],
+    },
     lessons: [
       { key: 'pitch-1', scenario: 'Savings / Endowment Plan — Maturity & Tax' },
       { key: 'pitch-2', scenario: 'Restaurant Public Liability' },
@@ -180,6 +237,20 @@ And when they are right? Say so. Honesty converts better than victory.`,
     ],
     spot: 1,
     spotNote: 'Splits the stated objection from the real one before answering anything.',
+    quiz: {
+      client: { role: 'Young, healthy professional', focus: 'Saving for a house', pain: 'Says health cover is "too expensive" for someone who never gets sick' },
+      question: 'What is your best first move on "too expensive"?',
+      hint: 'Agree first, then find what is really underneath.',
+      options: [
+        { id: 'A', title: 'Argue the price', text: '"It is actually very cheap compared to other companies."' },
+        { id: 'B', title: 'Discount', text: '"Let me see if I can get you a lower premium."' },
+        { id: 'C', title: 'Validate + split', text: '"Fair, it is real money. Is it the amount, or paying for something you might never use?"' },
+        { id: 'D', title: 'Scare tactic', text: '"One hospital visit could bankrupt you, you know."' },
+      ],
+      correct: 'C',
+      why: 'Validating lowers the guard, and splitting the objection tells you which concern to actually answer.',
+      whyBullets: ['Never argue an objection', 'Finds the real concern under "too expensive"', 'Sets up a value answer, not a discount'],
+    },
     lessons: [
       { key: 'objections-1', scenario: 'Critical Illness — Exclusion Concern' },
       { key: 'objections-2', scenario: 'Health Insurance — Price Objection' },
@@ -216,6 +287,20 @@ IRDAI rules are not the ceiling of ethics — they are the floor.`,
     ],
     spot: 1,
     spotNote: 'Corrects the guarantee ask directly — giving up the easy yes to keep the truth.',
+    quiz: {
+      client: { role: 'Eager first-time investor', focus: 'High returns', pain: 'A friend told him a ULIP gives "guaranteed 12%" and he wants you to confirm it' },
+      question: 'He asks "so it is guaranteed 12%, right?" — what do you say?',
+      hint: 'His excitement is not consent. The audit is listening.',
+      options: [
+        { id: 'A', title: 'Confirm it', text: '"Yes sir, around 12% every year."' },
+        { id: 'B', title: 'Dodge', text: '"Returns are usually very good, do not worry about it."' },
+        { id: 'C', title: 'Correct it clearly', text: '"I have to stop you — no. It is market-linked. 12% is possible; zero years happen too."' },
+        { id: 'D', title: 'Soft-pedal', text: '"Almost guaranteed, historically it has done well."' },
+      ],
+      correct: 'C',
+      why: 'Correcting the guarantee is non-negotiable — implying it is mis-selling, no matter how much he wants to hear it.',
+      whyBullets: ['Compliant and honest', 'His excitement is not consent', 'Builds trust that closes the NEXT sale'],
+    },
     lessons: [
       { key: 'compliance-1', scenario: 'ULIP / Investment Plan — Confused Customer' },
       { key: 'compliance-2', scenario: 'Senior Citizen Health Plan — Trust & Clarity' },
@@ -253,6 +338,20 @@ And the moment they say yes — stop selling.`,
     ],
     spot: 1,
     spotNote: 'Turns "I’ll think about it" into the actual objection — then closes on a small, dated step.',
+    quiz: {
+      client: { role: 'Interested but hesitant prospect', focus: 'Wants to feel sure', pain: 'Says "it sounds decent, let me think about it"' },
+      question: 'How do you handle "let me think about it"?',
+      hint: 'A vague maybe is not a close. Surface the real doubt.',
+      options: [
+        { id: 'A', title: 'Accept it', text: '"Sure, take your time and call me whenever."' },
+        { id: 'B', title: 'Pressure', text: '"This offer is only valid today, so decide now."' },
+        { id: 'C', title: 'Surface + shrink', text: '"Of course — what is the one thing you are still weighing?" then propose a small, dated first step.' },
+        { id: 'D', title: 'Repeat the pitch', text: '"Let me explain all the benefits one more time."' },
+      ],
+      correct: 'C',
+      why: 'It converts a polite stall into the real objection you can handle, and closes on a tiny, dated commitment.',
+      whyBullets: ['Finds the true hesitation', 'A small dated step beats a vague maybe', 'No fake urgency'],
+    },
     lessons: [
       { key: 'closing-1', scenario: 'Motor Insurance — Renewal + Add-ons' },
       { key: 'closing-2', scenario: 'Group Health Renewal — Copay Dispute' },
@@ -290,6 +389,20 @@ A customer who felt heard renews. One who was "handled" leaves quietly next year
     ],
     spot: 1,
     spotNote: 'Validates the anger and the loyalty before offering a single fact.',
+    quiz: {
+      client: { role: 'Long-time customer, furious', focus: 'Feeling cheated', pain: 'No claims in years, yet his renewal premium went up — threatening to switch' },
+      question: 'What is your first move with an angry renewal?',
+      hint: 'He wants to be heard before he wants a fact.',
+      options: [
+        { id: 'A', title: 'Defend the company', text: '"The premium is calculated fairly by our system, sir."' },
+        { id: 'B', title: 'Jump to facts', text: '"It went up because of third-party rate revisions."' },
+        { id: 'C', title: 'Validate + honour loyalty', text: '"You are right to be angry — and after this many years, you deserve a straight answer, not a script."' },
+        { id: 'D', title: 'Offer to switch him', text: '"If you find cheaper elsewhere, you are free to move."' },
+      ],
+      correct: 'C',
+      why: 'An angry customer needs to be heard first; validating the feeling and the loyalty is what makes him listen to the facts.',
+      whyBullets: ['Lets him feel heard', 'Acknowledges the relationship', 'Earns the right to explain'],
+    },
     lessons: [
       { key: 'service-1', scenario: 'Motor Renewal — Angry About Premium Hike' },
       { key: 'service-2', scenario: 'Claim Worry + Cross-sell' },
@@ -323,6 +436,20 @@ A customer who felt heard renews. One who was "handled" leaves quietly next year
     ],
     spot: 3,
     spotNote: 'Names her hidden risk before any proposal — safety first, logic after.',
+    quiz: {
+      client: { role: 'Defensive CFO', focus: 'Cost control, compliance', pain: 'Under board pressure to cut; a past programme she sponsored went badly' },
+      question: 'She opens with "we are cutting, not spending." What now?',
+      hint: 'Create safety before any business case.',
+      options: [
+        { id: 'A', title: 'Push the ROI', text: '"But our programme pays for itself in twelve months."' },
+        { id: 'B', title: 'Name her risk', text: '"Most CFOs worry less about a programme\'s cost and more about sponsoring one that fails. Is that closer?"' },
+        { id: 'C', title: 'Discount', text: '"We can offer you a special reduced price this quarter."' },
+        { id: 'D', title: 'Flatter', text: '"A leader as sharp as you will see the value immediately."' },
+      ],
+      correct: 'B',
+      why: 'Naming her hidden risk creates psychological safety — a defensive stakeholder cannot hear logic until the guard drops.',
+      whyBullets: ['Safety before logic', 'Speaks to her real fear, not your product', 'Turns a wall into a conversation'],
+    },
     lessons: [
       { key: 'growth1-1', scenario: 'Neuro Selling — The Overloaded VP' },
       { key: 'growth1-2', scenario: 'Neuro Selling — The Comfortable COO' },
@@ -363,6 +490,20 @@ Do this every time, and the client starts taking your calls first.`,
     ],
     spot: 1,
     spotNote: 'A specific, sourced, free insight — with no pitch attached. That is the cookie.',
+    quiz: {
+      client: { role: 'Healthcare CFO', focus: 'Cost control, compliance, efficiency', pain: 'Rising operational cost, pressure to do more with less' },
+      question: 'Which story from the Cookie Jar would you use?',
+      hint: 'Pick the story that lands on THIS client\'s top priority.',
+      options: [
+        { id: 'A', title: 'Claims Automation', text: 'Automated 65% of claims, reduced TAT by 40% and improved accuracy.' },
+        { id: 'B', title: 'Cost to Value', text: 'Delivered 18% cost savings and reinvested capacity in member care.' },
+        { id: 'C', title: 'Member Experience', text: 'Improved NPS by 22 points through personalized member journeys.' },
+        { id: 'D', title: 'Compliance & Risk', text: 'Zero audit findings for 3 consecutive years with our quality framework.' },
+      ],
+      correct: 'B',
+      why: 'Cost savings directly connects to the CFO\'s top priority — this story builds instant relevance and credibility.',
+      whyBullets: ['Shows measurable financial impact', 'Addresses their core pain', 'Builds confidence in our ability to deliver'],
+    },
     lessons: [
       { key: 'growth2-1', scenario: 'Meaningful Conversations — The Status-Update Trap' },
       { key: 'growth2-2', scenario: 'The Cookie — "So, What Have You Got For Me?"' },
