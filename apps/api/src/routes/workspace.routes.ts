@@ -142,4 +142,151 @@ router.delete('/:id/assignments/:aid', wrap(async (req, res) => {
   ok(res, { removed: true });
 }));
 
+// ===== Enterprise cockpit ====================================================
+
+import { JOURNEY, masteryFor } from '@avatar-platform/shared';
+import { adjustWallet } from '../services/wallet-service';
+
+const JOURNEY_TITLES = new Set(JOURNEY.flatMap((u) => u.lessons.map((l) => l.scenario)));
+const JOURNEY_TOTAL = JOURNEY.reduce((s, u) => s + u.lessons.length, 0);
+const isEthicsCriterion = (name: string) => /ethic|compliance/i.test(name);
+
+/**
+ * GET /:id/dashboard — the manager cockpit (leader only): per-member skill
+ * heatmap, readiness index, activity, compliance summary + recent scored calls
+ * (for the exportable report), and the minute pool. One query, aggregated here.
+ */
+router.get('/:id/dashboard', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const id = req.params.id;
+  if ((await roleIn(id, me)) !== 'leader') return bad(res, 'Only the workspace leader can view the dashboard.', 403);
+
+  const ws = await db.query('SELECT name, pool_seconds FROM workspaces WHERE id = $1', [id]);
+  const rows = await db.query(
+    `SELECT wm.user_id, u.name, u.email,
+            s.id AS session_id, s.created_at AS session_at, sc2.title AS scenario_title,
+            ss.overall_score, ss.criteria_scores, ss.narrative_feedback
+     FROM workspace_members wm
+     JOIN users u ON u.id = wm.user_id
+     LEFT JOIN sessions s ON s.user_id = wm.user_id AND s.created_at > NOW() - INTERVAL '90 days'
+     LEFT JOIN session_scores ss ON ss.session_id = s.id
+     LEFT JOIN scenarios sc2 ON sc2.id = s.scenario_id
+     WHERE wm.workspace_id = $1
+     ORDER BY s.created_at DESC NULLS LAST`,
+    [id],
+  );
+
+  interface Agg {
+    user_id: string; name: string | null; email: string;
+    lastAt: string | null; sessions14d: number; scored: number;
+    overallSum: number; bestByScenario: Map<string, number>;
+    critSum: Map<string, { sum: number; n: number }>;
+    ethicsSum: number; ethicsN: number; flags: number;
+    recent: { at: string; title: string; overall: number; ethics: number | null; flagged: boolean }[];
+  }
+  const members = new Map<string, Agg>();
+  const now = Date.now();
+
+  for (const r of rows.rows) {
+    let m = members.get(r.user_id);
+    if (!m) {
+      m = { user_id: r.user_id, name: r.name, email: r.email, lastAt: null, sessions14d: 0, scored: 0,
+            overallSum: 0, bestByScenario: new Map(), critSum: new Map(), ethicsSum: 0, ethicsN: 0, flags: 0, recent: [] };
+      members.set(r.user_id, m);
+    }
+    if (!r.session_id) continue;
+    if (!m.lastAt) m.lastAt = r.session_at;
+    if (now - new Date(r.session_at).getTime() < 14 * 86_400_000) m.sessions14d++;
+    if (r.overall_score == null) continue;
+
+    m.scored++;
+    if (m.scored <= 10) m.overallSum += Number(r.overall_score);
+    if (r.scenario_title && JOURNEY_TITLES.has(r.scenario_title)) {
+      const best = m.bestByScenario.get(r.scenario_title) ?? 0;
+      if (Number(r.overall_score) > best) m.bestByScenario.set(r.scenario_title, Number(r.overall_score));
+    }
+
+    let ethics: number | null = null;
+    const crits = Array.isArray(r.criteria_scores) ? r.criteria_scores : [];
+    for (const c of crits) {
+      const name = String(c.criterion_name ?? '');
+      const pct = (Number(c.score) / 5) * 100;
+      const agg = m.critSum.get(name) ?? { sum: 0, n: 0 };
+      agg.sum += pct; agg.n++;
+      m.critSum.set(name, agg);
+      if (isEthicsCriterion(name)) { m.ethicsSum += pct; m.ethicsN++; ethics = pct; }
+    }
+    const flagged = /WARNING|VIOLATION|⚠/.test(String(r.narrative_feedback ?? ''));
+    if (flagged) m.flags++;
+    if (m.recent.length < 8) {
+      m.recent.push({ at: r.session_at, title: r.scenario_title, overall: Number(r.overall_score), ethics, flagged });
+    }
+  }
+
+  const criteriaSet = new Set<string>();
+  const out = [...members.values()].map((m) => {
+    const avgOverall = m.scored ? m.overallSum / Math.min(m.scored, 10) : 0;
+    const coverage = 100 * [...m.bestByScenario.values()].filter((b) => masteryFor(b) !== 'none').length / JOURNEY_TOTAL;
+    const daysSince = m.lastAt ? (now - new Date(m.lastAt).getTime()) / 86_400_000 : Infinity;
+    const recency = daysSince <= 7 ? 100 : daysSince <= 14 ? 50 : 0;
+    const readiness = Math.round(0.5 * avgOverall + 0.3 * coverage + 0.2 * recency);
+    const skills: Record<string, number> = {};
+    m.critSum.forEach((v, k) => { skills[k] = Math.round(v.sum / v.n); criteriaSet.add(k); });
+    return {
+      user_id: m.user_id, name: m.name, email: m.email,
+      last_practice: m.lastAt, sessions_14d: m.sessions14d, scored_calls: m.scored,
+      avg_score: Math.round(avgOverall), coverage: Math.round(coverage), readiness,
+      ethics_avg: m.ethicsN ? Math.round(m.ethicsSum / m.ethicsN) : null, compliance_flags: m.flags,
+      inactive: daysSince > 14, skills, recent: m.recent,
+    };
+  }).sort((a, b) => b.readiness - a.readiness);
+
+  ok(res, {
+    workspace: { name: ws.rows[0]?.name, pool_seconds: ws.rows[0]?.pool_seconds ?? 0 },
+    criteria: [...criteriaSet].sort(),
+    members: out,
+  });
+}));
+
+/**
+ * POST /:id/pool — credit the workspace pool (platform admin only; the manual
+ * stand-in for enterprise purchases until payments go live).
+ */
+router.post('/:id/pool', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const meta = await db.query('SELECT metadata FROM users WHERE id = $1', [me]);
+  if ((meta.rows[0]?.metadata as { role?: string } | null)?.role !== 'admin') {
+    return bad(res, 'Only platform admins can credit a pool.', 403);
+  }
+  const seconds = Math.floor(Number(req.body?.seconds));
+  if (!Number.isFinite(seconds) || seconds <= 0) return bad(res, 'seconds must be a positive number.');
+  const r = await db.query(
+    'UPDATE workspaces SET pool_seconds = pool_seconds + $2, updated_at = NOW() WHERE id = $1 RETURNING pool_seconds',
+    [req.params.id, seconds],
+  );
+  ok(res, { pool_seconds: r.rows[0]?.pool_seconds ?? 0 });
+}));
+
+/**
+ * POST /:id/allocate — leader moves minutes from the pool to a member's wallet.
+ */
+router.post('/:id/allocate', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const id = req.params.id;
+  if ((await roleIn(id, me)) !== 'leader') return bad(res, 'Only the workspace leader can allocate minutes.', 403);
+  const { user_id, seconds } = req.body ?? {};
+  const secs = Math.floor(Number(seconds));
+  if (!user_id || !Number.isFinite(secs) || secs <= 0) return bad(res, 'user_id and positive seconds required.');
+  if (!(await roleIn(id, user_id))) return bad(res, 'That user is not a member of this workspace.', 404);
+
+  // Atomic pool decrement — fails cleanly if the pool is short.
+  const dec = await db.query(
+    'UPDATE workspaces SET pool_seconds = pool_seconds - $2, updated_at = NOW() WHERE id = $1 AND pool_seconds >= $2 RETURNING pool_seconds',
+    [id, secs],
+  );
+  if (dec.rows.length === 0) return bad(res, 'Not enough minutes in the pool.', 402);
+  await adjustWallet(user_id, secs, 'allocation', id);
+  ok(res, { pool_seconds: dec.rows[0].pool_seconds });
+}));
+
 export const workspaceRoutes: Router = router;

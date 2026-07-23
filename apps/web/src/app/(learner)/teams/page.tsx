@@ -124,10 +124,18 @@ export default function TeamsPage() {
                 <p className="text-xs text-muted-foreground">{detail.members.length} member{detail.members.length === 1 ? '' : 's'} · you are the {detail.workspace.my_role}</p>
               </div>
             </div>
-            <button onClick={copyCode} className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm">
-              Invite code <span className="font-mono font-semibold tracking-widest">{detail.workspace.join_code}</span>
-              {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
-            </button>
+            <div className="flex items-center gap-2">
+              {isLeader && (
+                <a href={`/teams/${detail.workspace.id}/dashboard`}
+                  className="press inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                  Readiness dashboard
+                </a>
+              )}
+              <button onClick={copyCode} className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm">
+                Invite code <span className="font-mono font-semibold tracking-widest">{detail.workspace.join_code}</span>
+                {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-5">
