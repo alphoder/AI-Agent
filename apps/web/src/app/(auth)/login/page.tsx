@@ -27,6 +27,11 @@ function LoginInner() {
 
   const dest = safeRedirect(params.get('redirect'));
 
+  // Dev sign-in: on by default locally; in prod only when explicitly enabled.
+  const devLoginOn = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEV_LOGIN === 'true';
+  const [devEmail, setDevEmail] = useState('dev@speakcoach.local');
+  const [devPass, setDevPass] = useState('speakcoach-dev-2026');
+
   useEffect(() => { warmBackend(); }, []); // wake the backend while the user signs in
 
   async function finish(token: string, fallbackUser: unknown) {
@@ -40,6 +45,21 @@ function LoginInner() {
       setUser(fallbackUser as never);
     }
     router.push(dest);
+  }
+
+  async function onDevLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await apiClient.post('/auth/dev-login', { email: devEmail, password: devPass });
+      finish(data.data.accessToken, data.data.user);
+    } catch (err: any) {
+      setError(err?.response?.status === 404
+        ? 'Dev sign-in is disabled on this environment.'
+        : 'Invalid dev email or password.');
+      setBusy(false);
+    }
   }
 
   async function onGoogle(credential?: string) {
@@ -111,6 +131,30 @@ function LoginInner() {
               </p>
             )}
           </div>
+
+          {/* Dev / demo sign-in — admin + learner in one account */}
+          {devLoginOn && (
+            <div className="space-y-3 rounded-xl border border-dashed border-border p-4">
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dev</span>
+                <p className="text-xs text-muted-foreground">Sign in without Google — full admin + learner access.</p>
+              </div>
+              <form onSubmit={onDevLogin} className="space-y-2">
+                <input
+                  type="email" value={devEmail} onChange={(e) => setDevEmail(e.target.value)} autoComplete="username"
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  type="password" value={devPass} onChange={(e) => setDevPass(e.target.value)} autoComplete="current-password"
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                />
+                <button type="submit" disabled={busy}
+                  className="press w-full rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-60">
+                  {busy ? 'Signing in…' : 'Dev sign in'}
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       </div>
     </main>

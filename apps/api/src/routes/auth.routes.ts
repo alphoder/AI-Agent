@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
+import crypto from 'crypto';
 import { JWTService } from '../services/jwt-service';
 import { verifyGoogleIdToken } from '../services/google-auth';
 import { upsertGoogleUser } from '../services/user-service';
@@ -39,6 +40,69 @@ function setAuthCookies(res: Response, accessToken: string, refreshToken: string
 const router: Router = Router();
 
 router.use(rateLimit(isProd ? 20 : 200));
+
+/**
+ * POST /api/auth/dev-login — email + password sign-in for local development and
+ * demos, so the whole app can be tried without Google OAuth.
+ *
+ * SECURITY (deliberate, do not loosen):
+ *  - Only ONE allow-listed email can ever sign in this way (DEV_LOGIN_EMAIL).
+ *  - In production the route is DISABLED unless DEV_LOGIN_PASSWORD is explicitly
+ *    set to >=12 chars. There is no hardcoded password that works on the live
+ *    site; the dev default only applies when NODE_ENV !== 'production'.
+ *  - Timing-safe comparison, and it 404s (not 401s) when disabled so the
+ *    endpoint is invisible.
+ * The account is created as an admin, which also has every learner capability.
+ */
+const DEV_LOGIN_EMAIL = (process.env.DEV_LOGIN_EMAIL || 'dev@speakcoach.local').toLowerCase();
+
+function devLoginPassword(): string | null {
+  const explicit = process.env.DEV_LOGIN_PASSWORD;
+  if (explicit && explicit.length >= 12) return explicit;
+  if (isProd) return null;            // never a default credential in production
+  return 'speakcoach-dev-2026';       // local convenience only
+}
+
+router.post('/dev-login', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const expected = devLoginPassword();
+    if (!expected) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Route not found' } });
+    }
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const password = String(req.body?.password ?? '');
+    const emailOk = email === DEV_LOGIN_EMAIL;
+    const passOk = password.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(password), Buffer.from(expected));
+    if (!emailOk || !passOk) {
+      logger.warn({ email }, 'dev-login rejected');
+      return res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
+    }
+
+    // Upsert the dev account as an admin (admins get learner features too).
+    const result = await db.query(
+      `INSERT INTO users (email, name, is_active, last_login_at, metadata)
+       VALUES ($1, $2, true, NOW(), '{"role":"admin"}'::jsonb)
+       ON CONFLICT (email) WHERE deleted_at IS NULL DO UPDATE SET
+         last_login_at = NOW(),
+         metadata = COALESCE(users.metadata, '{}'::jsonb) || '{"role":"admin"}'::jsonb,
+         updated_at = NOW()
+       RETURNING id, email, name, picture, is_active`,
+      [DEV_LOGIN_EMAIL, 'Dev Tester'],
+    );
+    const user = result.rows[0];
+    const { accessToken, refreshToken } = await JWTService.issueTokens(user);
+    setAuthCookies(res, accessToken, refreshToken);
+    logger.info({ userId: user.id }, 'dev-login success');
+
+    res.json({
+      success: true,
+      data: { accessToken, user: { id: user.id, email: user.email, name: user.name, picture: user.picture } },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * POST /api/auth/google
