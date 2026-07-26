@@ -11,7 +11,9 @@ import { languageName, VOICE_IDS, accentLabel } from '@avatar-platform/shared';
 import { ensureWallet, adjustWallet, walletEnforced } from '../services/wallet-service';
 import { getStreak } from '../services/game-service';
 
-const MIN_REPORT_SEC = 90; // sessions shorter than 1m30s aren't scored
+// Scoring thresholds. If the CUSTOMER hangs up the call is always scored (being
+// hung up on is the lesson). If the LEARNER ends it, require a real attempt.
+const USER_END_MIN_SEC = 60;
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -149,14 +151,25 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
  */
 router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
+  // Who hung up decides the scoring rule below.
+  const endedBy: 'user' | 'customer' = req.body?.ended_by === 'customer' ? 'customer' : 'user';
+  // The client's on-screen timer starts at the customer's first word, so it
+  // excludes ring/connect time. Trust it only to REDUCE the server-measured
+  // duration (never to inflate it), so ringing isn't billed or scored.
+  const clientElapsed = Number(req.body?.elapsed_sec);
+  const cap = Number.isFinite(clientElapsed) && clientElapsed >= 0 ? Math.floor(clientElapsed) : null;
+
   const result = await db.query(
     `UPDATE sessions
      SET status = 'completed', ended_at = NOW(),
-         duration_sec = EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at)))::int,
+         duration_sec = LEAST(
+           EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at)))::int,
+           COALESCE($3::int, 2147483647)
+         ),
          updated_at = NOW()
      WHERE id = $1 AND user_id = $2 AND status != 'completed'
      RETURNING id, scenario_id, language, body_language_notes, duration_sec`,
-    [req.params.id, me],
+    [req.params.id, me, cap],
   );
   if (result.rows.length === 0) {
     return res.json({ success: true, data: { id: req.params.id, alreadyEnded: true } });
@@ -183,8 +196,13 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
     }
   } catch { /* ignore */ }
 
-  // Only score sessions long enough to be meaningful (>= 90s).
-  const scored = (session.duration_sec ?? 0) >= MIN_REPORT_SEC;
+  // Scoring rule depends on who hung up:
+  //  - the CUSTOMER ended it -> always score. Getting hung up on is itself the
+  //    lesson, and the report explains why they walked (no minimum).
+  //  - the LEARNER ended it -> needs >= 60s, so an accidental exit isn't scored.
+  const duration = session.duration_sec ?? 0;
+  const threshold = endedBy === 'customer' ? 0 : USER_END_MIN_SEC;
+  const scored = duration >= threshold;
   if (scored) {
     const sc = await db.query(
       'SELECT objective, system_prompt, scoring_rubric, difficulty_level FROM scenarios WHERE id = $1',
@@ -208,7 +226,7 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
     });
   }
 
-  res.json({ success: true, data: { id: session.id, scored, durationSec: session.duration_sec, minReportSec: MIN_REPORT_SEC } });
+  res.json({ success: true, data: { id: session.id, scored, endedBy, durationSec: duration, minReportSec: threshold } });
 }));
 
 /**

@@ -44,7 +44,7 @@ Then CALL create_scenario. Write character_prompt as a REAL PERSON, never a list
   - their real concern in their own words, plus the relationship (cold stranger / existing customer / senior client)
   - a HIDDEN need, fear or motive they will NOT volunteer until the trainee earns it
   - do NOT script outcomes like "if the agent says X, they agree" — the app judges the trainee's reasoning itself
-Match difficulty to their answer to Q5. create_scenario immediately LAUNCHES the call — so once you have the five answers, build it and say it's starting now.`;
+Match difficulty to their answer to Q5. create_scenario SHOWS the finished scenario as a card on screen — it does NOT start the call. Once it is built, tell them it is ready and that they can hit Start when they want. NEVER claim the call is starting, and never start it yourself.`;
 
   const recommend = `
 
@@ -68,7 +68,7 @@ const TOOLS = [
         parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'optional search text' } } } },
       { name: 'start_practice', description: 'Start a practice session for a scenario the user names, optionally in a chosen language.',
         parameters: { type: 'OBJECT', properties: { scenario: { type: 'STRING', description: 'name or topic' }, language: { type: 'STRING', description: 'ISO code e.g. en, hi, es' } }, required: ['scenario'] } },
-      { name: 'create_scenario', description: 'Design a custom practice scenario AND immediately launch the call. Call this only after the five questions are answered (or the user asks you to just build it).',
+      { name: 'create_scenario', description: 'Design a custom practice scenario and show it to the user as a card. Does NOT start the call — the user starts it. Call this only after the five questions are answered (or the user asks you to just build it).',
         parameters: { type: 'OBJECT', properties: {
           title: { type: 'STRING', description: 'short title, e.g. "Angry motor-renewal customer"' },
           description: { type: 'STRING', description: 'one line describing the situation' },
@@ -113,6 +113,8 @@ export function AssistantWidget() {
   const [last, setLast] = useState<Entry | null>(null); // latest line, for the inline caption
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState(0);
+  // A scenario Bixy just built — shown as a card; the user starts it.
+  const [built, setBuilt] = useState<{ id: string; title: string; description: string; objective: string; difficulty: string; language: string; voice: string } | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
@@ -252,9 +254,10 @@ export function AssistantWidget() {
           visibility: 'private', tags: ['custom'], scoring_rubric: [],
         };
         const { data } = await apiClient.post('/scenarios', payload);
-        // Create AND launch the call — "build it and run it" in one step.
-        router.push(`/session/${data.data.id}?lang=${lang}&voice=${voice}&grade=0`);
-        return { ok: true, launching: payload.title };
+        // Build it, then SHOW it — the user decides when to start the call.
+        setBuilt({ id: data.data.id, title: payload.title, description: payload.description,
+          objective: payload.objective, difficulty: payload.difficulty_level, language: lang, voice });
+        return { ok: true, created: payload.title, note: 'Scenario card is now on screen. Tell the user it is ready and that they can start it whenever they like. Do NOT start it yourself.' };
       }
       if (name === 'view_history') {
         router.push('/reports');
@@ -439,6 +442,35 @@ export function AssistantWidget() {
 
   return (
     <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+      {/* A scenario Bixy just built — the user decides when to start it. */}
+      {built && (
+        <div className="animate-pop-in w-[300px] rounded-2xl border border-border bg-card p-4 text-left shadow-xl">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-primary">Bixy built this for you</p>
+          <p className="mt-1 text-sm font-semibold leading-snug">{built.title}</p>
+          {built.description && <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{built.description}</p>}
+          {built.objective && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Goal: </span>{built.objective}
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+            <span className="rounded-full border border-border px-2 py-0.5 capitalize">{built.difficulty}</span>
+            <span className="rounded-full border border-border px-2 py-0.5">{languageName(built.language)}</span>
+            <span className="rounded-full border border-border px-2 py-0.5">{built.voice}</span>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => { const b = built; setBuilt(null); goToSleep(); router.push(`/session/${b.id}?lang=${b.language}&voice=${b.voice}&grade=0`); }}
+              className="press flex-1 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
+              Start the call
+            </button>
+            <button onClick={() => setBuilt(null)}
+              className="press rounded-full border border-border px-3 py-2 text-xs font-medium hover:bg-muted">
+              Later
+            </button>
+          </div>
+        </div>
+      )}
       <div
         key={caption}
         className="tooltip-bob animate-pop-in max-w-[260px] rounded-2xl rounded-br-sm bg-zinc-900 text-white text-xs font-medium px-3.5 py-2 shadow-lg text-right line-clamp-3"

@@ -54,6 +54,8 @@ function SessionInner() {
   const [micOn, setMicOn] = useState(true);
   const [elapsed, setElapsed] = useState(0);
   const [config, setConfig] = useState<SessionConfig | null>(null);
+  const [callStarted, setCallStarted] = useState(false); // customer has spoken
+  const [hangUp, setHangUp] = useState<string | null>(null); // customer ended the call
 
   const sessionIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -68,6 +70,9 @@ function SessionInner() {
   const micLevelRef = useRef(0);
   const runningRef = useRef(false);
   const endedRef = useRef(false);
+  const noRetryRef = useRef(false);   // stop WS reconnects without blocking endSession
+  const startedRef = useRef(false);   // timer starts on the customer's FIRST word
+  const elapsedRef = useRef(0);       // mirrors `elapsed` for the end payload
   const captionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const gradeBodyActiveRef = useRef(gradeBody);
@@ -109,19 +114,21 @@ function SessionInner() {
     outCtxRef.current?.close().catch(() => {});
   }, []);
 
-  const endSession = useCallback(async () => {
+  /** End the call. `endedBy` decides the scoring rule server-side:
+   *  'customer' (they hung up) is always scored; 'user' needs >= 60s. */
+  const endSession = useCallback(async (endedBy: 'user' | 'customer' = 'user') => {
     if (endedRef.current) return;
     endedRef.current = true;
+    noRetryRef.current = true;
     setPhase('ending');
-    setStatus('Scoring your call…');
+    setStatus(endedBy === 'customer' ? 'The customer hung up. Scoring your call…' : 'Scoring your call…');
     cleanup();
     const sid = sessionIdRef.current;
-    if (sid) {
-      try { await apiClient.post(`/sessions/${sid}/end`); } catch { /* ignore */ }
-      router.push(`/reports?session=${sid}`);
-    } else {
-      router.push('/scenarios');
-    }
+    if (!sid) { router.push('/scenarios'); return; }
+    try {
+      await apiClient.post(`/sessions/${sid}/end`, { ended_by: endedBy, elapsed_sec: elapsedRef.current });
+    } catch { /* ignore */ }
+    router.push(`/reports?session=${sid}`);
   }, [cleanup, router]);
 
   // ---- particle sphere: white points on black; expands when the customer
@@ -337,13 +344,15 @@ function SessionInner() {
                 showCaption('customer', msg.text);
                 break;
               case 'audio_out':
+                // The call clock starts on the customer's FIRST word, not on connect.
+                if (!startedRef.current) { startedRef.current = true; setCallStarted(true); }
                 playAudioChunk(msg.data);
                 break;
               case 'call_ended':
-                // The customer hung up (ran out of patience, or the call wrapped).
-                // End & score it — the report explains why they ended it.
-                endedRef.current = true; // stop onclose from retrying
-                endSession();
+                // The customer hung up. Show it, then end & score (always scored).
+                noRetryRef.current = true;
+                setHangUp(msg.reason || 'The customer ended the call.');
+                setTimeout(() => endSession('customer'), 2200);
                 break;
               case 'error':
                 setError(msg.message || 'Connection error');
@@ -353,10 +362,10 @@ function SessionInner() {
 
           ws.onerror = () => { /* surfaced via onclose so we can retry */ };
           ws.onclose = () => {
-            if (disposed || endedRef.current) return;
+            if (disposed || endedRef.current || noRetryRef.current) return;
             if (live) { setStatus('Connection closed.'); return; }
             if (attempt < MAX_ATTEMPTS) {
-              setTimeout(() => { if (!disposed && !endedRef.current) openWs(); }, 2500);
+              setTimeout(() => { if (!disposed && !endedRef.current && !noRetryRef.current) openWs(); }, 2500);
             } else {
               setError('Could not connect. It may be waking up. Please try again in a minute.');
             }
@@ -375,18 +384,20 @@ function SessionInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarioId]);
 
-  // Elapsed timer + auto-end at max duration.
+  // Elapsed timer + auto-end at max duration. The clock only runs once the
+  // customer has actually spoken — connecting time is not the learner's call.
   useEffect(() => {
-    if (phase !== 'live') return;
+    if (phase !== 'live' || !callStarted) return;
     const t = setInterval(() => {
       setElapsed((e) => {
         const next = e + 1;
-        if (config && next >= config.maxDurationSec) endSession();
+        elapsedRef.current = next;
+        if (config && next >= config.maxDurationSec) endSession('user');
         return next;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [phase, config, endSession]);
+  }, [phase, callStarted, config, endSession]);
 
   function toggleMic() {
     const next = !micOn;
@@ -412,7 +423,9 @@ function SessionInner() {
         <div className="text-[13px] font-medium tracking-wide text-white/55 truncate">{config?.scenarioTitle || 'Practice call'}</div>
         <div className="flex items-center gap-2 rounded-full border border-white/12 px-3.5 py-1.5 text-xs text-white/60">
           <span className={`h-1.5 w-1.5 rounded-full ${phase === 'live' ? 'bg-blue-400 animate-pulse' : 'bg-white/40'}`} />
-          {phase === 'live' ? <>Live · <span className="tabular-nums">{mm}:{ss}</span></> : phase === 'ending' ? 'Wrapping up' : 'Connecting'}
+          {phase === 'live'
+            ? (callStarted ? <>Live · <span className="tabular-nums">{mm}:{ss}</span></> : 'Ringing…')
+            : phase === 'ending' ? 'Wrapping up' : 'Connecting'}
         </div>
       </header>
 
@@ -421,6 +434,18 @@ function SessionInner() {
         <div className="absolute inset-x-0 bottom-28 z-10 mx-auto max-w-[min(680px,86vw)] px-6 text-center">
           <span className="text-[11px] uppercase tracking-[0.15em] text-white/35">{caption.role === 'you' ? 'You' : 'Customer'}</span>
           <p className="mt-1.5 text-[15px] leading-relaxed text-white/80 animate-chip-in">{caption.text}</p>
+        </div>
+      )}
+
+      {/* The customer hung up — say so plainly before the report loads. */}
+      {hangUp && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 px-6">
+          <div className="max-w-sm rounded-2xl border border-white/15 bg-black px-6 py-5 text-center animate-pop-in">
+            <PhoneOff className="mx-auto h-7 w-7 text-red-400" />
+            <p className="mt-3 text-base font-semibold text-white">The customer ended the call</p>
+            <p className="mt-1 text-sm text-white/60">{hangUp}</p>
+            <p className="mt-3 text-xs text-white/40">Scoring your call…</p>
+          </div>
         </div>
       )}
 
@@ -448,7 +473,7 @@ function SessionInner() {
           </button>
         )}
         {(phase === 'live' || error) && (
-          <button onClick={endSession} title="End call"
+          <button onClick={() => endSession('user')} title="End call"
             className="rounded-full bg-white text-black px-6 py-4 flex items-center gap-2 text-sm font-semibold transition-all active:scale-95 hover:opacity-90">
             <PhoneOff className="h-5 w-5" /> End &amp; get feedback
           </button>
