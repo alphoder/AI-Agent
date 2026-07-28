@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Play, BookOpen, MessageSquare, RotateCcw, Lock, Flame, Zap, Award } from 'lucide-react';
-import { TASK_MINUTES, JOURNEY, type PlanTaskType } from '@avatar-platform/shared';
+import { TASK_MINUTES, type PlanTaskType } from '@avatar-platform/shared';
 import { cn } from '@/lib/utils';
 
 export interface PlanTaskView {
@@ -62,14 +62,9 @@ export function Roadmap({ plan, streak, xp, certificates }: {
   function open(t: PlanTaskView) {
     if (t.missing) return;
     if (t.type === 'drill') return router.push(`/drill/${t.scenarioId}`);
-    if (t.type === 'module') {
-      // The module page is still keyed by unit (Section 3 re-keys it by scenario).
-      // Resolve the owning unit by title; a scenario outside the 9 units just
-      // goes straight to the call rather than a dead page.
-      const unit = JOURNEY.find((u) => u.lessons.some((l) => l.scenario === t.title));
-      if (unit) return router.push(`/module/${unit.key}`);
-    }
-    router.push(`/session/${t.scenarioId}?lang=${t.language || 'en'}&grade=0`);
+    // module, call and review all open the scenario module page; it owns the
+    // Learn step and the pre-call brief, so nothing starts a call blind.
+    router.push(`/scenarios/module/${t.scenarioId}`);
   }
 
   return (

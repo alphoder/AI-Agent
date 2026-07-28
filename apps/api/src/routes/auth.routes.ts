@@ -5,11 +5,10 @@ import { verifyGoogleIdToken } from '../services/google-auth';
 import { upsertGoogleUser } from '../services/user-service';
 import { rateLimit } from '../middleware/rate-limit';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { wrap } from '../utils/wrap';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 
-type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
-const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
 const ACCESS_COOKIE_MAX_AGE = 60 * 60 * 1000; // 1h, matches JWT
 const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7d

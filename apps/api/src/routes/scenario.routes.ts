@@ -1,13 +1,12 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { wrap } from '../utils/wrap';
 import { rateLimit } from '../middleware/rate-limit';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 import { validateUuidParam } from '../middleware/validate-uuid';
 import { callAIService } from '../utils/ai-service-client';
 
-type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
-const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
 const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);
@@ -157,7 +156,7 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
     [
       b.title.trim(), b.description || null, b.objective.trim(), b.system_prompt.trim(),
       b.opening_message || null, b.language || 'en', b.voice || 'Aoede',
-      JSON.stringify(b.scoring_rubric), b.visibility || 'private',
+      JSON.stringify(b.scoring_rubric ?? []), b.visibility || 'private',
       b.max_duration_sec || 600, b.max_turns || 40, b.difficulty_level || 'intermediate',
       Array.isArray(b.tags) ? b.tags : [], me,
     ],

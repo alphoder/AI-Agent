@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, notFound } from 'next/navigation';
 import { ChevronLeft, Search, Dices, ArrowUpDown, Mic } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { fetchAllScenarios } from '@/lib/scenarios';
 import { categoryByKey, trackByKey, categoryFor, trackFor, languageName } from '@avatar-platform/shared';
 import { ScenarioCard, FilterPill, DIFFICULTIES, type Scenario } from '@/components/scenarios/scenario-card';
-import { CallPicker, newPicker, type PickerState } from '@/components/scenarios/call-picker';
 
 const SORTS = [
   { key: 'az', label: 'A to Z' },
@@ -34,8 +34,8 @@ export default function TrackPage() {
   const [difficulty, setDifficulty] = useState<string | null>(null);
   const [language, setLanguage] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>('level-asc');
-  const [picker, setPicker] = useState<PickerState | null>(null);
   const [rolling, setRolling] = useState(false);
+  const router = useRouter();
 
   useEffect(() => { load(); }, []);
   async function load() {
@@ -82,8 +82,8 @@ export default function TrackPage() {
     if (filtered.length === 0 || rolling) return;
     setRolling(true);
     const chosen = filtered[Math.floor(Math.random() * filtered.length)];
-    // Let the dice finish its turn before the modal covers it.
-    setTimeout(() => { setRolling(false); setPicker(newPicker(chosen)); }, 400);
+    // Let the dice finish its turn before we leave the page.
+    setTimeout(() => router.push(`/scenarios/module/${chosen.id}`), 400);
   }
 
   const showing = all !== null;
@@ -177,12 +177,11 @@ export default function TrackPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((s) => (
-            <ScenarioCard key={s.id} s={s} starting={false} onStart={() => setPicker(newPicker(s))} />
+            <ScenarioCard key={s.id} s={s} starting={false} onStart={() => router.push(`/scenarios/module/${s.id}`)} />
           ))}
         </div>
       )}
 
-      {picker && <CallPicker picker={picker} setPicker={setPicker} onClose={() => setPicker(null)} />}
     </div>
   );
 }

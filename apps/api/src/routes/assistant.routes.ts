@@ -1,11 +1,10 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { wrap } from '../utils/wrap';
 import { rateLimit } from '../middleware/rate-limit';
 import { aiServiceWsUrl } from '../utils/ai-service-client';
 import { signWsTicket } from '../utils/ws-ticket';
 
-type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
-const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
 const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);

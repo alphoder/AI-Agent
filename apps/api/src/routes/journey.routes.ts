@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { wrap } from '../utils/wrap';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
 import { callAIService } from '../utils/ai-service-client';
@@ -7,8 +8,6 @@ import { getStreak, getXp } from '../services/game-service';
 import { normaliseIntake, generatePlan, getPlan, plansToday, PLAN_LIMIT_PER_DAY } from '../services/plan-service';
 import { JOURNEY, MASTERY, masteryFor, Mastery, type JourneyPlan } from '@avatar-platform/shared';
 
-type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
-const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
 const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);

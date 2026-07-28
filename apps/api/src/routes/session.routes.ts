@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { wrap } from '../utils/wrap';
 import { rateLimit } from '../middleware/rate-limit';
 import { db } from '../config/database';
 import { logger } from '../config/logger';
@@ -15,8 +16,6 @@ import { getStreak } from '../services/game-service';
 // hung up on is the lesson). If the LEARNER ends it, require a real attempt.
 const USER_END_MIN_SEC = 60;
 
-type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
-const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 
 const router: Router = Router();
 router.use(authMiddleware as unknown as RequestHandler);

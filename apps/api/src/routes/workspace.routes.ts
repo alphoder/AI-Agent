@@ -1,11 +1,10 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import crypto from 'crypto';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
+import { wrap } from '../utils/wrap';
 import { rateLimit } from '../middleware/rate-limit';
 import { db } from '../config/database';
 
-type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
-const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
 const ok = (res: Response, data: unknown) => res.json({ success: true, data });
 const bad = (res: Response, message: string, code = 400) => res.status(code).json({ success: false, error: { code: 'BAD_REQUEST', message } });
 
