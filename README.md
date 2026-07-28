@@ -96,7 +96,7 @@ apps/
   ai-service/  FastAPI (Gemini Live relay + body language + scoring)
 packages/
   shared/      Shared TypeScript types & enums
-docs/          architecture.md, CODEMAP.md
+docs/          ARCHITECTURE.md · CODEMAP.md · claude.md  (local-only; read these first)
 ```
 
 ## License
