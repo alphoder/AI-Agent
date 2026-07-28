@@ -121,7 +121,7 @@ export default function ModulePage() {
   }
 
   if (loading) return <div className="h-[70vh] animate-pulse rounded-2xl border border-border bg-card" />;
-  if (!unit || !staticUnit) return <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground">Module not found. <Link href="/home" className="text-primary underline">Back to journey</Link></div>;
+  if (!unit || !staticUnit) return <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground">Module not found. <Link href="/journey" className="text-primary underline">Back to journey</Link></div>;
 
   const practiceLessons = unit.lessons.filter((l) => l.level !== 'advanced');
   const applyLessons = unit.lessons.filter((l) => l.level === 'advanced');

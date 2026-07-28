@@ -15,7 +15,7 @@ const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
 
 function safeRedirect(target: string | null): string {
   if (target && target.startsWith('/') && !target.startsWith('//')) return target;
-  return '/home';
+  return '/journey';
 }
 
 function LoginInner() {

@@ -1,4 +1,4 @@
-import { Mic, AudioLines, FileText, BarChart3, Users, Building2, Settings, LifeBuoy, Route, Wallet, type LucideIcon } from 'lucide-react';
+import { Mic, AudioLines, FileText, BarChart3, Building2, Settings, Route, Wallet, CheckCircle2, Trophy, UserRound, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   href: string;
@@ -12,19 +12,20 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** Lean IA for the insurance sales-training focus — practice, review, team. */
+/** v2 IA — see docs/PRODUCT-V2.md §1. */
 export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Train',
     items: [
-      { href: '/home', label: 'My Journey', icon: Route },
-      { href: '/scenarios', label: 'Practice', icon: Mic },
+      { href: '/journey', label: 'My Journey', icon: Route },
+      { href: '/scenarios', label: 'Scenarios', icon: Mic },
       { href: '/live', label: 'Live Room', icon: AudioLines },
     ],
   },
   {
     title: 'Review',
     items: [
+      { href: '/completed', label: 'Completed', icon: CheckCircle2 },
       { href: '/reports', label: 'Reports', icon: FileText },
       { href: '/analytics', label: 'Analytics', icon: BarChart3 },
     ],
@@ -33,15 +34,15 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'Team',
     items: [
       { href: '/teams', label: 'Teams', icon: Building2 },
-      { href: '/community', label: 'Community', icon: Users },
+      { href: '/competition', label: 'Competition', icon: Trophy },
     ],
   },
   {
     title: 'Account',
     items: [
-      { href: '/wallet', label: 'Minutes', icon: Wallet },
+      { href: '/wallet', label: 'Balance', icon: Wallet },
       { href: '/settings', label: 'Settings', icon: Settings },
-      { href: '/help', label: 'Help', icon: LifeBuoy },
+      { href: '/profile', label: 'My Profile', icon: UserRound },
     ],
   },
 ];

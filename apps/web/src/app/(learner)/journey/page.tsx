@@ -1,246 +1,223 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import Link from 'next/link';
-import { Route, Lock, CheckCircle2, Play, ChevronRight, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Mic, Play, Crown, Lock, ChevronRight, Flame, Zap, Award, Download, ArrowRight } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
-import { Card } from '@/components/ui/card';
-import { Accent } from '@/components/ui/accent';
+import { JOURNEY, type Mastery } from '@avatar-platform/shared';
 
-interface Scenario {
-  id: string;
-  title: string;
-  language: string;
-  difficulty_level: string;
-  description: string;
+interface Lesson {
+  key: string; unit: string; scenarioId: string | null; title: string; level: string | null;
+  attempts: number; best: number | null; mastery: Mastery; state: 'done' | 'next' | 'upcoming'; review?: boolean;
+}
+interface Unit { key: string; title: string; drills: string; lessons: Lesson[]; doneCount: number }
+
+const MASTERY_STYLE: Record<Mastery, string> = { none: '', bronze: 'text-orange-600', silver: 'text-slate-400', gold: 'text-yellow-500' };
+
+/** Live mic level bar — the whole "mic check". */
+function MicCheck() {
+  const [level, setLevel] = useState<number | null>(null);
+  const [err, setErr] = useState(false);
+  const stopRef = useRef<(() => void) | null>(null);
+
+  async function start() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const ctx = new AudioContext();
+      const src = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser();
+      an.fftSize = 256;
+      src.connect(an);
+      const buf = new Uint8Array(an.frequencyBinCount);
+      let raf = 0;
+      const tick = () => {
+        an.getByteFrequencyData(buf);
+        setLevel(Math.min(1, buf.reduce((s, v) => s + v, 0) / buf.length / 80));
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+      stopRef.current = () => { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); ctx.close(); setLevel(null); };
+    } catch { setErr(true); }
+  }
+  useEffect(() => () => stopRef.current?.(), []);
+
+  if (err) return <p className="text-xs text-destructive">Mic blocked — allow microphone access in your browser bar.</p>;
+  if (level === null) {
+    return (
+      <button onClick={start} className="press inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted">
+        <Mic className="h-3.5 w-3.5" /> Test my mic
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <Mic className="h-3.5 w-3.5 text-primary" />
+      <div className="h-2 w-40 overflow-hidden rounded-full bg-muted">
+        <div className="h-full bg-primary transition-[width] duration-75" style={{ width: `${Math.round(level * 100)}%` }} />
+      </div>
+      <span className="text-xs text-muted-foreground">{level > 0.05 ? 'Hearing you ✓' : 'Say something…'}</span>
+      <button onClick={() => stopRef.current?.()} className="text-xs text-muted-foreground underline">done</button>
+    </div>
+  );
 }
 
-interface SessionRow {
-  scenario_id: string;
-  status: string;
-  overall_score: number | null;
-}
-
-interface JourneyStep {
-  day: number;
-  scenarioTitle: string;
-  focus: string;
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-}
-
-const PATHS: Record<string, JourneyStep[]> = {
-  interviews: [
-    { day: 1, scenarioTitle: 'Exit Interview', focus: 'Handling transitions with composure', difficulty: 'beginner' },
-    { day: 2, scenarioTitle: 'Job Interview: Software Engineer', focus: 'Using the STAR framework for tech questions', difficulty: 'intermediate' },
-    { day: 3, scenarioTitle: 'Performance Review: Receiving Feedback', focus: 'Active listening and accepting critiques', difficulty: 'intermediate' },
-    { day: 4, scenarioTitle: 'Asking for a Promotion', focus: 'Building value claims and presenting outcomes', difficulty: 'intermediate' },
-    { day: 5, scenarioTitle: 'Salary Negotiation', focus: 'Objection handling and closing deals', difficulty: 'advanced' },
-  ],
-  public_speaking: [
-    { day: 1, scenarioTitle: 'Wedding Toast', focus: 'Pacing, presence, and storytelling', difficulty: 'beginner' },
-    { day: 2, scenarioTitle: 'Public Speaking: Elevator Pitch', focus: 'Capturing attention in under 2 minutes', difficulty: 'beginner' },
-    { day: 3, scenarioTitle: 'Conference Talk Q&A', focus: 'Thinking on your feet and answering audience follow-ups', difficulty: 'intermediate' },
-    { day: 4, scenarioTitle: 'Investor Pitch', focus: 'Pitching financial metrics and defending decisions', difficulty: 'advanced' },
-    { day: 5, scenarioTitle: 'Press Interview: Tough Questions', focus: 'Staying on message under adversarial pressure', difficulty: 'advanced' },
-  ],
-  difficult_conversations: [
-    { day: 1, scenarioTitle: 'Exit Interview', focus: 'Delivering constructive feedback gracefully', difficulty: 'beginner' },
-    { day: 2, scenarioTitle: 'Delegating a Big Task', focus: 'Setting clear expectations and capacity building', difficulty: 'intermediate' },
-    { day: 3, scenarioTitle: 'Parent–Teacher Conference', focus: 'De-escalating concern and building trust', difficulty: 'intermediate' },
-    { day: 4, scenarioTitle: 'Difficult Conversation: Giving Feedback', focus: 'Delivering behavior-focused performance critiques', difficulty: 'advanced' },
-    { day: 5, scenarioTitle: 'Resolving a Conflict with a Coworker', focus: 'De-escalating coworker tensions and creating paths forward', difficulty: 'advanced' },
-  ],
-  default: [
-    { day: 1, scenarioTitle: 'Networking: Breaking the Ice', focus: 'Social small-talk and conversational hooks', difficulty: 'beginner' },
-    { day: 2, scenarioTitle: 'First Date Conversation', focus: 'Developing rapport and balancing conversation share', difficulty: 'beginner' },
-    { day: 3, scenarioTitle: 'Hotel Front Desk: Handling a Complaint', focus: 'Empathetic listening and solution discovery', difficulty: 'intermediate' },
-    { day: 4, scenarioTitle: 'Customer Support: Calming an Upset Customer', focus: 'Handling active complaints and de-escalation', difficulty: 'intermediate' },
-    { day: 5, scenarioTitle: 'Customer Discovery Interview', focus: 'Asking open-ended discovery questions', difficulty: 'intermediate' },
-  ],
-};
-
-export default function JourneyPage() {
+export default function JourneyHome() {
+  const router = useRouter();
   const user = useAuth((s) => s.user);
-  const userGoals = useMemo(() => {
-    return (user?.metadata?.onboarding as { goals?: string[] } | null)?.goals || [];
-  }, [user]);
-
-  const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [next, setNext] = useState<Lesson | null>(null);
+  const [firstTimer, setFirstTimer] = useState(false);
+  const [streak, setStreak] = useState(0);
+  const [xp, setXp] = useState(0);
+  const [certs, setCerts] = useState<{ unit_key: string; issued_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch scenarios and sessions history to link items
   useEffect(() => {
-    Promise.all([
-      apiClient.get('/scenarios?limit=60'),
-      apiClient.get('/sessions')
-    ])
-      .then(([scRes, sessRes]) => {
-        setScenarios(scRes.data.data || []);
-        setSessions(sessRes.data.data || []);
+    apiClient.get('/journey')
+      .then(({ data }) => {
+        setUnits(data.data.units); setNext(data.data.next); setFirstTimer(data.data.firstTimer);
+        setStreak(data.data.streak ?? 0); setXp(data.data.xp ?? 0); setCerts(data.data.certificates ?? []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  // Determine which curriculum path to display
-  const activePath = useMemo(() => {
-    if (userGoals.includes('interviews')) return PATHS.interviews;
-    if (userGoals.includes('public_speaking')) return PATHS.public_speaking;
-    if (userGoals.includes('difficult_conversations')) return PATHS.difficult_conversations;
-    return PATHS.default;
-  }, [userGoals]);
+  const openModule = (unitKey: string) => router.push(`/module/${unitKey}`);
 
-  // Map journey steps to actual scenarios and session records
-  const journeySteps = useMemo(() => {
-    let lastCompleted = true; // First step is unlocked by default
-    
-    return activePath.map((step, idx) => {
-      // Find matching seeded scenario
-      const scenario = scenarios.find(
-        (s) => s.title.toLowerCase().trim() === step.scenarioTitle.toLowerCase().trim()
-      );
-      
-      // Check if user has a completed session for this scenario
-      const relevantSessions = scenario 
-        ? sessions.filter((s) => s.scenario_id === scenario.id && s.status === 'completed')
-        : [];
-      
-      const completed = relevantSessions.length > 0;
-      const bestScore = completed 
-        ? Math.max(...relevantSessions.map((s) => s.overall_score || 0))
-        : null;
+  async function downloadCert(unitKey: string, issuedAt: string) {
+    const j = JOURNEY.find((u) => u.key === unitKey);
+    if (!j) return;
+    const [{ pdf }, { CertificatePDF }] = await Promise.all([import('@react-pdf/renderer'), import('@/components/certificate-pdf')]);
+    const blob = await pdf(
+      <CertificatePDF data={{ name: user?.name || 'SpeakCoach Learner', unitTitle: j.title, unitDrills: j.drills, date: new Date(issuedAt).toLocaleDateString() }} />,
+    ).toBlob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `speakcoach-certificate-${unitKey}.pdf`; a.click();
+    URL.revokeObjectURL(url);
+  }
 
-      // A step is unlocked if the previous one was completed
-      const unlocked = lastCompleted;
-      
-      // Update for the next iteration
-      lastCompleted = completed;
-
-      return {
-        ...step,
-        scenarioId: scenario?.id,
-        language: scenario?.language || 'en',
-        completed,
-        bestScore,
-        unlocked,
-      };
-    });
-  }, [activePath, scenarios, sessions]);
-
-  // Current day count
-  const currentStepIndex = journeySteps.findIndex((s) => !s.completed);
-  const currentDay = currentStepIndex !== -1 ? currentStepIndex + 1 : journeySteps.length;
+  if (loading) {
+    return <div className="space-y-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 animate-pulse rounded-2xl border border-border bg-card" />)}</div>;
+  }
 
   return (
     <div className="space-y-8">
-      <div>
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
-            <Route className="h-5 w-5" />
+      {/* Game bar */}
+      {(streak > 0 || xp > 0 || certs.length > 0) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold ${streak > 0 ? 'border-orange-500/40 bg-orange-500/10 text-orange-500' : 'border-border text-muted-foreground'}`}>
+            <Flame className="h-4 w-4" /> {streak}-day streak
           </span>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Adaptive Journey</h1>
-            <p className="mt-0.5 max-w-xl text-sm text-muted-foreground">
-              Your personalized day-by-day curriculum path, tailored to your growth goals.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="space-y-4 max-w-2xl mx-auto">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-32 rounded-3xl border border-border bg-card animate-pulse" />
-          ))}
-        </div>
-      ) : (
-        <div className="max-w-2xl mx-auto space-y-8 relative">
-          {/* Header Summary */}
-          <Card className="p-5 flex items-center justify-between border-primary/10 bg-primary/[0.01]">
-            <div className="space-y-1">
-              <h2 className="text-sm font-semibold">Active Path Progress</h2>
-              <p className="text-xs text-muted-foreground">
-                Day {currentDay} of {journeySteps.length} · {journeySteps.filter((s) => s.completed).length} completed
-              </p>
-            </div>
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Sparkles className="h-4 w-4" />
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
+            <Zap className="h-4 w-4" /> {xp.toLocaleString()} XP
+          </span>
+          {certs.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-yellow-500/40 bg-yellow-500/10 px-3 py-1.5 text-sm font-semibold text-yellow-600">
+              <Award className="h-4 w-4" /> {certs.length} certificate{certs.length > 1 ? 's' : ''}
             </span>
-          </Card>
+          )}
+        </div>
+      )}
 
-          {/* Timeline Node Chain */}
-          <div className="relative pl-8 border-l border-border/80 ml-4 space-y-8">
-            {journeySteps.map((step, idx) => {
-              const isActive = !step.completed && step.unlocked;
-              
-              return (
-                <div key={step.day} className="relative">
-                  {/* Timeline indicator bubble */}
-                  <span className={`absolute -left-[45px] top-1.5 flex h-7.5 w-7.5 items-center justify-center rounded-full border-2 transition-all ${
-                    step.completed 
-                      ? 'bg-primary border-primary text-primary-foreground' 
-                      : isActive 
-                        ? 'bg-card border-primary text-primary animate-pulse' 
-                        : 'bg-card border-border text-muted-foreground'
-                  }`}>
-                    {step.completed ? (
-                      <CheckCircle2 className="h-4.5 w-4.5 stroke-[2.5]" />
-                    ) : (
-                      <span className="text-xs font-bold">{step.day}</span>
-                    )}
-                  </span>
-
-                  {/* Card content */}
-                  <div className={`rounded-2xl border bg-card p-5 transition-all ${
-                    isActive 
-                      ? 'border-primary shadow-sm ring-1 ring-primary/20' 
-                      : 'border-border/60'
-                  } ${!step.unlocked ? 'opacity-50' : ''}`}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            Day {step.day}
-                          </span>
-                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${
-                            step.difficulty === 'beginner' ? 'bg-emerald-500/10 text-emerald-500' :
-                            step.difficulty === 'intermediate' ? 'bg-amber-500/10 text-amber-500' : 'bg-rose-500/10 text-rose-500'
-                          }`}>
-                            {step.difficulty}
-                          </span>
-                        </div>
-                        
-                        <h3 className="font-bold text-sm mt-1.5">{step.scenarioTitle}</h3>
-                        <p className="text-xs text-muted-foreground mt-1">{step.focus}</p>
-                      </div>
-
-                      <div className="shrink-0 pt-1">
-                        {step.completed ? (
-                          <div className="text-right">
-                            <span className="text-xs text-muted-foreground">Best Score</span>
-                            <p className="text-sm font-bold text-emerald-500">{step.bestScore}/100</p>
-                          </div>
-                        ) : step.unlocked && step.scenarioId ? (
-                          <Link
-                            href={`/session/${step.scenarioId}?lang=${step.language || 'en'}`}
-                            className="press inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                          >
-                            <Play className="h-4 w-4 fill-current ml-0.5" />
-                          </Link>
-                        ) : (
-                          <Lock className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+      {/* The one action */}
+      {next && (
+        <div className="rounded-3xl border border-primary/30 bg-primary/5 p-6">
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary">{firstTimer ? 'Start here' : 'Continue your journey'}</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">{units.find((u) => u.key === next.unit)?.title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {firstTimer ? 'Learn the technique, watch it done, then take your first live call. Check your mic below.' : units.find((u) => u.key === next.unit)?.drills}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            <button onClick={() => openModule(next.unit)}
+              className="press inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+              <Play className="h-4 w-4" /> {firstTimer ? 'Open module 1' : 'Continue'}
+            </button>
+            <MicCheck />
           </div>
         </div>
       )}
+
+      {/* Daily free drill */}
+      {(() => {
+        const all = units.flatMap((u) => u.lessons).filter((l) => l.scenarioId);
+        if (all.length === 0) return null;
+        const day = Math.floor(Date.now() / 86_400_000);
+        const daily = all[day % all.length];
+        return (
+          <button onClick={() => router.push(`/drill/${daily.scenarioId}`)}
+            className="press flex w-full items-center gap-3 rounded-2xl border border-success/30 bg-success/5 px-4 py-3 text-left transition-colors hover:bg-success/10">
+            <span className="rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">FREE</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">Daily text drill · {daily.title}</span>
+              <span className="block text-xs text-muted-foreground">2 minutes of typed practice with live coaching — costs nothing, keeps the streak alive.</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+        );
+      })()}
+
+      {/* Earned certificates */}
+      {certs.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {certs.map((c) => {
+            const j = JOURNEY.find((u) => u.key === c.unit_key);
+            return (
+              <button key={c.unit_key} onClick={() => downloadCert(c.unit_key, c.issued_at)}
+                className="press inline-flex items-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-left text-xs hover:bg-yellow-500/10">
+                <Award className="h-4 w-4 shrink-0 text-yellow-600" />
+                <span>
+                  <span className="block font-semibold">{j?.title ?? c.unit_key}</span>
+                  <span className="text-muted-foreground">Certified {new Date(c.issued_at).toLocaleDateString()}</span>
+                </span>
+                <Download className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* The path — units are modules */}
+      {units.map((u, idx) => (
+        <section key={u.key}>
+          <button onClick={() => openModule(u.key)} className="press group mb-3 flex w-full items-baseline justify-between text-left">
+            <div>
+              <h2 className="text-base font-bold tracking-tight">
+                <span className="text-muted-foreground">Module {idx + 1} · </span>{u.title}
+                <ArrowRight className="ml-1.5 inline h-4 w-4 -translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+              </h2>
+              <p className="text-xs text-muted-foreground">{u.drills}</p>
+            </div>
+            <span className="text-xs font-medium text-muted-foreground">{u.doneCount}/{u.lessons.length}</span>
+          </button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {u.lessons.map((l) => (
+              <button key={l.key} onClick={() => openModule(u.key)}
+                className={`press flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                  l.state === 'next' ? 'border-primary bg-primary/10'
+                  : l.mastery !== 'none' ? 'border-border bg-card'
+                  : 'border-border/50 bg-card/50 hover:bg-card'}`}>
+                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
+                  l.state === 'next' ? 'bg-primary text-primary-foreground'
+                  : l.mastery !== 'none' ? 'bg-muted' : 'bg-muted/50 text-muted-foreground'}`}>
+                  {l.mastery !== 'none' ? <Crown className={`h-4 w-4 ${MASTERY_STYLE[l.mastery]}`} />
+                    : l.state === 'next' ? <Play className="h-4 w-4" />
+                    : <Lock className="h-3.5 w-3.5" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate text-sm ${l.state === 'next' ? 'font-semibold' : 'font-medium'}`}>{l.title}</span>
+                  <span className="block text-xs capitalize text-muted-foreground">
+                    {l.level}{l.best != null && ` · best ${Math.round(l.best)}`}{l.mastery !== 'none' && ` · ${l.mastery}`}
+                    {l.review && <span className="ml-1.5 rounded bg-warning/15 px-1 py-px text-[10px] font-semibold uppercase text-warning">review</span>}
+                  </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

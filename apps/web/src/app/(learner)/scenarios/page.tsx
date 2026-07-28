@@ -485,7 +485,7 @@ function ScenarioCard({ s, starting, onStart }: { s: Scenario; starting: boolean
           <Mic className="h-4 w-4" /> {starting ? 'Starting…' : 'Practice'}
         </button>
         {s.is_owner && (
-          <Link href={`/scenarios/${s.id}/edit`} className="press rounded-full border border-border p-2 text-muted-foreground hover:bg-muted" title="Edit"><Pencil className="h-4 w-4" /></Link>
+          <Link href={`/scenarios/edit/${s.id}`} className="press rounded-full border border-border p-2 text-muted-foreground hover:bg-muted" title="Edit"><Pencil className="h-4 w-4" /></Link>
         )}
       </div>
     </div>

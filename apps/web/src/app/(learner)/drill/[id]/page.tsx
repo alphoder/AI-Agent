@@ -24,7 +24,7 @@ export default function DrillPage() {
       setTitle(data.data.title);
       // The customer opens, like on a real call.
       setMsgs([{ role: 'customer', text: data.data.opening_message || 'Hello?' }]);
-    }).catch(() => router.push('/home'));
+    }).catch(() => router.push('/journey'));
   }, [id, router]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, busy]);
@@ -87,7 +87,7 @@ export default function DrillPage() {
           <div className="rounded-xl border border-success/30 bg-success/5 p-4 text-sm">
             <p className="font-semibold text-success">Technique landed. 🎉</p>
             <p className="mt-1 text-muted-foreground">You handled that in text — now do it with a live voice on the line.</p>
-            <button onClick={() => router.push('/home')}
+            <button onClick={() => router.push('/journey')}
               className="press mt-3 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground">
               <Phone className="h-3.5 w-3.5" /> Take the live call
             </button>

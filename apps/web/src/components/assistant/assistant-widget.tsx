@@ -63,7 +63,7 @@ const TOOLS = [
   {
     function_declarations: [
       { name: 'navigate', description: 'Navigate the user to a page on the site.',
-        parameters: { type: 'OBJECT', properties: { page: { type: 'STRING', enum: ['scenarios', 'reports', 'analytics', 'teams', 'community', 'live', 'settings', 'help', 'create_scenario'], description: 'Which page: scenarios (Practice), reports, analytics, teams, community, live (Live Room), settings, help, create_scenario' } }, required: ['page'] } },
+        parameters: { type: 'OBJECT', properties: { page: { type: 'STRING', enum: ['journey', 'scenarios', 'live', 'completed', 'reports', 'analytics', 'teams', 'competition', 'wallet', 'settings', 'profile', 'create_scenario'], description: 'Which page: journey (My Journey), scenarios, live (Live Room), completed, reports, analytics, teams, competition, wallet (Balance), settings, profile, create_scenario' } }, required: ['page'] } },
       { name: 'list_scenarios', description: 'List or search the available practice scenarios.',
         parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'optional search text' } } } },
       { name: 'start_practice', description: 'Start a practice session for a scenario the user names, optionally in a chosen language.',
@@ -220,7 +220,7 @@ export function AssistantWidget() {
   const executeTool = useCallback(async (name: string, args: Record<string, unknown>) => {
     try {
       if (name === 'navigate') {
-        const map: Record<string, string> = { scenarios: '/scenarios', reports: '/reports', analytics: '/analytics', teams: '/teams', community: '/community', live: '/live', settings: '/settings', help: '/help', create_scenario: '/scenarios/create' };
+        const map: Record<string, string> = { journey: '/journey', scenarios: '/scenarios', live: '/live', completed: '/completed', reports: '/reports', analytics: '/analytics', teams: '/teams', competition: '/competition', wallet: '/wallet', settings: '/settings', profile: '/profile', create_scenario: '/scenarios/create' };
         const path = map[String(args.page)] || '/scenarios';
         router.push(path); return { ok: true, navigated_to: path };
       }

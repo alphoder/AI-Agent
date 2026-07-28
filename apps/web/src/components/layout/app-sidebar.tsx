@@ -24,13 +24,14 @@ function NavLinks({ pathname, onNavigate }: { pathname: string | null; onNavigat
                   key={item.href}
                   href={item.href}
                   onClick={onNavigate}
+                  aria-current={active ? 'page' : undefined}
                   className={cn(
                     'group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors press',
-                    active ? 'bg-secondary text-foreground font-medium' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                    active ? 'bg-primary/10 text-foreground font-medium' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
                   )}
                 >
-                  {active && <span aria-hidden className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />}
-                  <item.icon className={cn('h-4 w-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground')} strokeWidth={2} />
+                  {active && <span aria-hidden className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-primary" />}
+                  <item.icon className={cn('h-4 w-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} strokeWidth={2} />
                   <span className="flex-1 truncate">{item.label}</span>
                   {item.soon && <span className="rounded-full border border-border px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground/80">Soon</span>}
                 </Link>
@@ -45,7 +46,7 @@ function NavLinks({ pathname, onNavigate }: { pathname: string | null; onNavigat
 
 function Brand() {
   return (
-    <Link href="/home" className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-5 font-semibold tracking-tight">
+    <Link href="/journey" className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-5 font-semibold tracking-tight">
       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Mic className="h-4 w-4" /></span>
       SpeakCoach
     </Link>
@@ -91,7 +92,7 @@ export function AppSidebar() {
 
       {/* Mobile top bar */}
       <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-lg lg:hidden">
-        <Link href="/home" className="flex items-center gap-2 font-semibold text-foreground">
+        <Link href="/journey" className="flex items-center gap-2 font-semibold text-foreground">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Mic className="h-4 w-4" /></span>
           SpeakCoach
         </Link>

@@ -90,13 +90,13 @@ export default function WelcomePage() {
 
   async function skip() {
     await persist();
-    router.push('/home');
+    router.push('/journey');
   }
 
   // Already onboarded? Don't strand them here.
   useEffect(() => {
     const done = (user?.metadata as { onboarding?: { completed?: boolean } } | null)?.onboarding?.completed;
-    if (done && step === 0) router.replace('/home');
+    if (done && step === 0) router.replace('/journey');
   }, [user, step, router]);
 
   // Step 0 — persona
@@ -149,7 +149,7 @@ export default function WelcomePage() {
       title={<>Your starting <Accent>lineup</Accent>.</>}
       subtitle="Tap one to start talking, or head to your home."
       footer={
-        <button onClick={() => router.push('/home')} className="press flex w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-5 py-3 text-sm font-semibold transition-colors hover:bg-muted">
+        <button onClick={() => router.push('/journey')} className="press flex w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-5 py-3 text-sm font-semibold transition-colors hover:bg-muted">
           Go to my home
         </button>
       }

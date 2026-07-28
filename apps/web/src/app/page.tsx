@@ -35,7 +35,7 @@ export default function Landing() {
   const [moment, setMoment] = useState(0);
 
   useEffect(() => {
-    try { if (localStorage.getItem('access_token')) setDest('/home'); } catch { /* ignore */ }
+    try { if (localStorage.getItem('access_token')) setDest('/journey'); } catch { /* ignore */ }
     warmBackend(); // wake the backend now, while the visitor reads the page
   }, []);
 
