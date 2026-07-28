@@ -36,8 +36,8 @@ function LoginInner() {
 
   async function finish(token: string, fallbackUser: unknown) {
     setAccessToken(token);
-    // Pull the full user (incl. metadata.onboarding) so the app shell knows
-    // whether to route to /welcome or straight to /home.
+    // Pull the full user (incl. metadata) so the store is complete before we
+    // land on the journey.
     try {
       const { data } = await apiClient.get('/auth/me');
       setUser(data.data);

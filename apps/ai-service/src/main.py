@@ -7,7 +7,7 @@ import structlog
 
 from src.config import settings
 from src.metrics import metrics_endpoint
-from src.routes import scoring, session, prompt, assistant, drill
+from src.routes import scoring, session, prompt, assistant, drill, plan
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +78,7 @@ app.add_api_route("/metrics", protected_metrics_endpoint, methods=["GET"], tags=
 app.include_router(scoring.router, prefix="/scoring", tags=["scoring"], dependencies=[Depends(require_internal_key)])
 app.include_router(prompt.router, prefix="/prompt", tags=["prompt"], dependencies=[Depends(require_internal_key)])
 app.include_router(drill.router, prefix="/drill", tags=["drill"], dependencies=[Depends(require_internal_key)])
+app.include_router(plan.router, prefix="/plan", tags=["plan"], dependencies=[Depends(require_internal_key)])
 # Live WebSockets — browser connects directly with a signed ticket (no internal key).
 app.include_router(session.router, tags=["session"])
 app.include_router(assistant.router, tags=["assistant"])

@@ -1,9 +1,11 @@
 import { Router, Response, NextFunction, RequestHandler } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { db } from '../config/database';
+import { logger } from '../config/logger';
 import { callAIService } from '../utils/ai-service-client';
 import { getStreak, getXp } from '../services/game-service';
-import { JOURNEY, MASTERY, masteryFor, Mastery } from '@avatar-platform/shared';
+import { normaliseIntake, generatePlan, getPlan, plansToday, PLAN_LIMIT_PER_DAY } from '../services/plan-service';
+import { JOURNEY, MASTERY, masteryFor, Mastery, type JourneyPlan } from '@avatar-platform/shared';
 
 type AuthHandler = (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>;
 const wrap = (fn: AuthHandler): RequestHandler => fn as unknown as RequestHandler;
@@ -113,7 +115,123 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   );
   const branding = brand.rows[0] ?? { academy_name: null, accent_color: null, logo_url: null };
 
-  res.json({ success: true, data: { units, next, firstTimer, streak, xp, certificates: certs.rows, branding } });
+  // --- The personalised plan (v2). Kept alongside `units`, which the module
+  // page still reads. Progress is computed here the same way: from sessions.
+  const plan = await getPlan(me);
+  const planView = plan ? await withProgress(me, plan) : null;
+
+  res.json({ success: true, data: { units, next, firstTimer, streak, xp, certificates: certs.rows, branding, plan: planView } });
+}));
+
+/**
+ * Attach per-task progress + scenario titles to a stored plan. ponytail: no task
+ * progress rows — attempts per scenario already tell us everything.
+ */
+async function withProgress(userId: string, plan: JourneyPlan) {
+  const ids = [...new Set(plan.days.flatMap((d) => d.tasks.map((t) => t.scenarioId)))];
+  if (ids.length === 0) return { ...plan, days: [], currentDay: 1 };
+
+  const [scenarios, attempts] = await Promise.all([
+    db.query(
+      'SELECT id, title, difficulty_level, language FROM scenarios WHERE id = ANY($1) AND deleted_at IS NULL',
+      [ids],
+    ),
+    db.query(
+      `SELECT s.scenario_id, COUNT(*)::int AS attempts, MAX(sc.overall_score)::float AS best
+         FROM sessions s
+         LEFT JOIN session_scores sc ON sc.session_id = s.id
+        WHERE s.user_id = $1 AND s.scenario_id = ANY($2)
+        GROUP BY s.scenario_id`,
+      [userId, ids],
+    ),
+  ]);
+  const meta = new Map(scenarios.rows.map((r) => [r.id, r]));
+  const stat = new Map(attempts.rows.map((r) => [r.scenario_id, r]));
+
+  const days = plan.days.map((d) => {
+    const tasks = d.tasks.map((t) => {
+      const s = stat.get(t.scenarioId);
+      const n = s?.attempts ?? 0;
+      // A review only counts once they have come BACK to the scenario.
+      const done = t.type === 'review' ? n >= 2 : n >= 1;
+      const m = meta.get(t.scenarioId);
+      return {
+        ...t,
+        title: m?.title ?? 'Scenario',
+        level: m?.difficulty_level ?? null,
+        language: m?.language ?? 'en',
+        attempts: n,
+        best: s?.best ?? null,
+        mastery: masteryFor(s?.best ?? null),
+        done,
+        // A scenario that vanished from the library must not strand the day.
+        missing: !m,
+      };
+    });
+    return { ...d, tasks, done: tasks.every((t) => t.done || t.missing) };
+  });
+
+  const currentDay = days.find((d) => !d.done)?.day ?? days[days.length - 1]?.day ?? 1;
+  return { headline: plan.headline, days, currentDay };
+}
+
+/**
+ * POST /api/journey/intake — save the questionnaire and build the plan.
+ * Synchronous by design: the user is watching a "building your path" screen and
+ * the plan IS the payoff. Rate limited because it costs a Gemini call.
+ */
+router.post('/intake', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const intake = normaliseIntake(req.body);
+  if (intake.outcomes.length === 0) {
+    return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'Pick at least one goal.' } });
+  }
+  if (await plansToday(me) >= PLAN_LIMIT_PER_DAY) {
+    return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can rebuild your plan ${PLAN_LIMIT_PER_DAY} times a day. Try again tomorrow.` } });
+  }
+
+  const user = await db.query(
+    `UPDATE users
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('intake', $2::jsonb),
+            updated_at = NOW()
+      WHERE id = $1 AND deleted_at IS NULL
+      RETURNING name`,
+    [me, JSON.stringify(intake)],
+  );
+  if (user.rows.length === 0) {
+    return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } });
+  }
+
+  try {
+    const plan = await generatePlan(me, intake, user.rows[0].name ?? '');
+    res.json({ success: true, data: { plan: await withProgress(me, plan) } });
+  } catch (err) {
+    logger.error({ err, userId: me }, 'plan generation failed');
+    res.status(502).json({ success: false, error: { code: 'PLAN_FAILED', message: 'Could not build your plan. Your answers are saved, please try again.' } });
+  }
+}));
+
+/** POST /api/journey/plan/refresh — rebuild from the saved intake, no re-asking. */
+router.post('/plan/refresh', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  if (await plansToday(me) >= PLAN_LIMIT_PER_DAY) {
+    return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can rebuild your plan ${PLAN_LIMIT_PER_DAY} times a day. Try again tomorrow.` } });
+  }
+  const row = await db.query(
+    "SELECT name, metadata->'intake' AS intake FROM users WHERE id = $1 AND deleted_at IS NULL",
+    [me],
+  );
+  const saved = row.rows[0]?.intake;
+  if (!saved) {
+    return res.status(400).json({ success: false, error: { code: 'NO_INTAKE', message: 'Answer the questions first.' } });
+  }
+  try {
+    const plan = await generatePlan(me, normaliseIntake(saved), row.rows[0].name ?? '');
+    res.json({ success: true, data: { plan: await withProgress(me, plan) } });
+  } catch (err) {
+    logger.error({ err, userId: me }, 'plan refresh failed');
+    res.status(502).json({ success: false, error: { code: 'PLAN_FAILED', message: 'Could not rebuild your plan right now.' } });
+  }
 }));
 
 /**
