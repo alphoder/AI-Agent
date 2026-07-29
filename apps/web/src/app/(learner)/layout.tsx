@@ -1,9 +1,11 @@
 'use client';
 
+import { Suspense } from 'react';
 import { usePathname } from 'next/navigation';
 import { AssistantWidget } from '@/components/assistant/assistant-widget';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { WakeGuard } from '@/components/system/wake-guard';
+import { NotesDock } from '@/components/notes/notes-dock';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -13,7 +15,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // The live session is its own full-bleed immersive (dark) view.
   const immersive = pathname?.startsWith('/session/');
-  if (immersive) return <div className="dark"><WakeGuard />{children}</div>;
+  if (immersive) return <div className="dark"><WakeGuard />{children}<Suspense fallback={null}><NotesDock /></Suspense></div>;
 
   return (
     <div className="dark min-h-screen bg-background text-foreground">
@@ -23,6 +25,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div key={pathname} className="mx-auto max-w-6xl px-4 py-8 sm:px-6 page-enter">{children}</div>
       </main>
       <AssistantWidget />
+      <Suspense fallback={null}><NotesDock /></Suspense>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Mic, MicOff, PhoneOff, Loader2 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+import { setCallClock, startCallClock, stopCallClock } from '@/lib/call-clock';
 
 interface SessionConfig {
   scenarioTitle: string;
@@ -386,17 +387,20 @@ function SessionInner() {
 
   // Elapsed timer + auto-end at max duration. The clock only runs once the
   // customer has actually spoken — connecting time is not the learner's call.
+  // It is also published to the notes dock so a marker gets the right timestamp.
   useEffect(() => {
     if (phase !== 'live' || !callStarted) return;
+    startCallClock();
     const t = setInterval(() => {
       setElapsed((e) => {
         const next = e + 1;
         elapsedRef.current = next;
+        setCallClock(next);
         if (config && next >= config.maxDurationSec) endSession('user');
         return next;
       });
     }, 1000);
-    return () => clearInterval(t);
+    return () => { clearInterval(t); stopCallClock(); };
   }, [phase, callStarted, config, endSession]);
 
   function toggleMic() {

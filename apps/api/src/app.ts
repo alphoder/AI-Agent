@@ -14,6 +14,7 @@ import { sessionRoutes } from './routes/session.routes';
 import { assistantRoutes } from './routes/assistant.routes';
 import { workspaceRoutes } from './routes/workspace.routes';
 import { journeyRoutes } from './routes/journey.routes';
+import { notesRoutes } from './routes/notes.routes';
 import { walletRoutes } from './routes/wallet.routes';
 import { internalRoutes } from './routes/internal.routes';
 
@@ -89,6 +90,7 @@ export function createApp(): express.Express {
   app.use('/api/workspaces', workspaceRoutes);
   app.use('/api/journey', journeyRoutes);
   app.use('/api/wallet', walletRoutes);
+  app.use('/api/notes', notesRoutes);
   app.use('/api/internal', internalRoutes);
 
   // 404 catch-all

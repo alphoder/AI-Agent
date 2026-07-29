@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, ArrowLeft, Trophy, PersonStanding, Download } from 'lucide-react';
+import { Loader2, ArrowLeft, Trophy, PersonStanding, Download, Flag } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import type { ReportData } from '@/components/report-pdf';
 
@@ -37,6 +37,7 @@ function ReportView({ sessionId }: { sessionId: string }) {
   const [report, setReport] = useState<Report | null>(null);
   const [meta, setMeta] = useState<{ scenario_title: string; language: string; ended_at: string | null; duration_sec: number | null } | null>(null);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
+  const [markers, setMarkers] = useState<{ id: string; at_sec: number | null; body: string }[]>([]);
   const [waiting, setWaiting] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -44,6 +45,10 @@ function ReportView({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     apiClient.get(`/sessions/${sessionId}`).then(({ data }) => setMeta(data.data)).catch(() => {});
     apiClient.get(`/sessions/${sessionId}/transcript`).then(({ data }) => setTranscript(data.data || [])).catch(() => {});
+    // Moments the learner flagged mid-call, so they can write them up now.
+    apiClient.get(`/notes?context_type=session&context_id=${sessionId}`)
+      .then(({ data }) => setMarkers((data.data || []).filter((n: { at_sec: number | null }) => n.at_sec != null)))
+      .catch(() => {});
   }, [sessionId]);
 
   async function downloadPdf() {
@@ -215,6 +220,28 @@ function ReportView({ sessionId }: { sessionId: string }) {
         <div className="rounded-2xl border border-border/50 bg-card p-5">
           <h3 className="text-sm font-semibold mb-2">Coach&apos;s notes</h3>
           <p className="text-sm text-muted-foreground whitespace-pre-line">{report.narrative_feedback}</p>
+        </div>
+      )}
+
+      {/* Moments flagged during the call. Typing mid-call is impossible, so the
+          markers land here where the transcript is in front of them. */}
+      {markers.length > 0 && (
+        <div className="rounded-2xl border border-border/50 bg-card p-5">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-semibold">Moments you flagged</h3>
+            <button onClick={() => window.dispatchEvent(new CustomEvent('notes:open'))}
+              className="press text-xs font-medium text-primary underline">Open notes</button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {markers.map((m) => (
+              <button key={m.id} onClick={() => window.dispatchEvent(new CustomEvent('notes:open'))}
+                className="press inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted">
+                <Flag className="h-3 w-3 text-primary" />
+                <span className="tabular-nums">{Math.floor((m.at_sec ?? 0) / 60)}:{String((m.at_sec ?? 0) % 60).padStart(2, '0')}</span>
+                {m.body && <span className="max-w-[14rem] truncate text-muted-foreground">{m.body}</span>}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
