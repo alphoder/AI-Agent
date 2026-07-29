@@ -11,24 +11,45 @@ import { SessionDemo } from '@/components/landing/session-demo';
 import { warmBackend } from '@/lib/warm-backend';
 
 const FEATURES = [
-  { icon: Mic, title: 'Real insurance customers', body: 'Roleplay a live call with an AI prospect who objects, stalls and warms up just like a real customer on the phone.' },
-  { icon: Languages, title: 'Sell in their language', body: 'Practise in Hindi, Tamil, Telugu, Marathi, English and 70+ more — the customer stays in the language you pick.' },
-  { icon: BarChart3, title: 'Compliant, honest scoring', body: 'The rubric rewards needs-based selling and flags mis-selling or over-promising, with no vague praise.' },
-  { icon: Video, title: 'Body-language read (optional)', body: 'Turn the camera on to score posture, eye contact and presence. Off by default, and nothing is recorded.' },
-  { icon: FileText, title: 'A coached scorecard', body: 'Leave with talk-to-listen ratio, objection handling, a compliance flag, and the exact lines to fix next time.' },
-  { icon: Sparkles, title: 'Bixy builds the call', body: 'Just say “an angry renewal customer in Hindi.” Bixy designs the customer and starts the call in seconds.' },
+  { icon: FileText, title: 'You get the file first', body: 'Before you dial you read who they are: their family, their loan, what is pressing on them this week. What it never tells you is how to sell to them. That part is yours.' },
+  { icon: Mic, title: 'A customer who pushes back', body: 'They object, stall, mishear you and lose patience. Push too hard and they hang up, which is a lesson too.' },
+  { icon: Languages, title: 'In their language', body: 'Hindi, Tamil, Telugu, Marathi, English and 70+ more. Pick the language and the customer stays in it.' },
+  { icon: BarChart3, title: 'Scoring that is measured, not guessed', body: 'Talk-to-listen ratio, questions asked, filler words, and a flag if you over-promised. Anything we did not measure, we say so.' },
+  { icon: Video, title: 'Body language, if you want it', body: 'Turn the camera on to score posture and presence. Off by default, and no frame is ever stored.' },
+  { icon: Sparkles, title: 'Bixy finds the right call', body: 'Say “I keep losing them on price” and Bixy picks the call that fixes it, then hands it to you to start.' },
 ];
 
 const STEPS = [
-  { n: '01', title: 'Pick a call', body: 'A cold call, a price objection, a renewal, a claim. Choose a ready call or have Bixy build one.' },
-  { n: '02', title: 'Sell to the customer', body: 'Mic on, you simply talk. The AI prospect pushes back, asks questions and reacts like the real thing.' },
-  { n: '03', title: 'Get a coached scorecard', body: 'See where you built trust, fumbled the objection or risked mis-selling, with the fixes to try next.' },
+  { n: '01', title: 'Tell us where it breaks', body: 'A few questions about your work and the moment you dread. You get a plan of days built around that, not a generic course.' },
+  { n: '02', title: 'Read the client file', body: 'Who you are calling, how they live, what is on their mind. The same intel a good agent already has before dialling.' },
+  { n: '03', title: 'Take the call, get the read', body: 'Five minutes out loud. Then a scorecard with your talk-to-listen ratio, the objection you fumbled, and where you stand against everyone else practising.' },
 ];
 
-const CATEGORIES = ['Term life', 'Health', 'Motor', 'ULIP & savings', 'Renewals', 'Objection handling', 'Claims & service', 'Cold calls', 'Group / SME'];
+const CATEGORIES = [
+  'Cold calls', 'Price objections', 'Renewals & retention', 'Claims & service',
+  'Term life', 'Health', 'Motor', 'ULIP & savings', 'Group / SME',
+  'Neuro selling', 'Whitespace mapping', 'Meaningful conversations',
+];
 
 // High-stakes insurance calls an agent only gets one shot at.
-const MOMENTS = ['cold call', 'price objection', 'policy renewal', 'angry customer', 'ULIP pitch', 'claim call', 'family cover', 'tough close'];
+const MOMENTS = ['cold call', 'price objection', 'policy renewal', 'angry customer', 'ULIP pitch', 'claim call', 'quarterly review', 'tough close'];
+
+// A real extract from the file that ships with "Term Life — Cold Call". Not a mockup.
+const FILE = {
+  name: 'Suresh Nair, 38',
+  headline: 'IT Team Lead, Pune',
+  facts: [
+    { label: 'Employer', value: 'Global Tech Solutions' },
+    { label: 'Home', value: '3BHK in Hinjewadi' },
+    { label: 'Family', value: 'Wife Meena, two kids (8, 5)' },
+    { label: 'Debt', value: 'Home loan, 3 years in' },
+  ],
+  life: 'Suresh wakes at 6:00 AM to help get the kids ready for school. He commutes 45 minutes to the IT park, spends his day managing a team of twelve, and usually returns home by 7:30 PM.',
+  unknowns: [
+    'The specific coverage amount of his existing endowment policy.',
+    'His actual level of concern regarding his long-term debt obligations.',
+  ],
+};
 
 export default function Landing() {
   const [dest, setDest] = useState('/login');
@@ -71,7 +92,9 @@ export default function Landing() {
         <img src="/landing/hero-full.png" alt="Bixy, your AI speaking coach, listening in 70+ languages"
           className="absolute inset-0 -z-20 h-full w-full object-cover" />
         {/* Legibility scrim: bright on the left for the text, clear over Bixy on the right */}
-        <div aria-hidden className="absolute inset-0 -z-10 bg-[linear-gradient(100deg,white,white_26%,rgba(255,255,255,0.5)_50%,transparent_66%)]" />
+        {/* Legibility scrim. It has to clear the LONGEST rotating word, not the
+            shortest, or "price objection" lands on the busy artwork. */}
+        <div aria-hidden className="absolute inset-0 -z-10 bg-[linear-gradient(100deg,white,white_32%,rgba(255,255,255,0.78)_56%,rgba(255,255,255,0.25)_72%,transparent_84%)]" />
         <div aria-hidden className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-t from-white to-transparent" />
 
         <div className="mx-auto w-full max-w-6xl px-6">
@@ -86,7 +109,7 @@ export default function Landing() {
             </Reveal>
             <Reveal delay={140}>
               <p className="mt-6 max-w-lg text-lg text-zinc-600 leading-relaxed">
-                Your agents get one shot at every customer. Let them rehearse the real insurance call here — a live AI customer who objects and stalls, in 70+ languages, until they close with confidence.
+                You get one shot at a real customer. Here you get as many as you need. Read the client&apos;s file, call them, and find out where it falls apart, while it still costs nothing.
               </p>
             </Reveal>
             <Reveal delay={220}>
@@ -101,8 +124,9 @@ export default function Landing() {
             </Reveal>
             <Reveal delay={300}>
               <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-2 text-sm text-zinc-500">
-                <span>Free to start</span>
+                <span>Free while in beta</span>
                 <span>Built for BFSI teams in India</span>
+                <span>Five minutes a call</span>
                 <span>Hindi, Tamil, Telugu &amp; 70+ more</span>
               </div>
             </Reveal>
@@ -114,13 +138,59 @@ export default function Landing() {
       <section className="relative mx-auto max-w-6xl px-6 pb-20">
         <Reveal>
           <h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">This is what a practice call looks like.</h2>
-          <p className="mx-auto mt-4 max-w-xl text-center text-zinc-500 leading-relaxed">A real insurance sales call with an AI customer, scored as you talk. No slides, no role-play with a manager.</p>
+          <p className="mx-auto mt-4 max-w-xl text-center text-zinc-500 leading-relaxed">Five minutes with a customer who has somewhere else to be. No slides, no role-play with your manager.</p>
         </Reveal>
         <Reveal delay={120}>
           <div className="mt-12">
             <SessionDemo />
           </div>
         </Reveal>
+      </section>
+
+      {/* The client file — the thing nobody else gives you */}
+      <section className="relative mx-auto max-w-6xl px-6 pb-24">
+        <div className="grid items-center gap-14 lg:grid-cols-2">
+          <Reveal>
+            <div>
+              <h2 className="font-display text-4xl sm:text-5xl tracking-tight leading-tight">You never call a stranger.</h2>
+              <p className="mt-5 text-zinc-500 leading-relaxed">
+                Every scenario opens with the file a good agent would already have: who they are, how they live,
+                what is pressing on them this month.
+              </p>
+              <p className="mt-4 text-zinc-500 leading-relaxed">
+                What the file will never do is tell you how to sell to them. No opener, no line to use, no technique.
+                Two people can read the same file and run completely different calls, which is the entire point.
+              </p>
+            </div>
+          </Reveal>
+
+          <Reveal delay={120}>
+            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-[0_30px_80px_-40px_rgba(24,24,27,0.35)]">
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-400">Client file</p>
+              <p className="mt-2 font-display text-2xl tracking-tight">{FILE.name}</p>
+              <p className="text-sm text-zinc-500">{FILE.headline}</p>
+
+              <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 rounded-2xl bg-zinc-50 p-4">
+                {FILE.facts.map((f) => (
+                  <div key={f.label}>
+                    <dt className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">{f.label}</dt>
+                    <dd className="mt-0.5 text-sm text-zinc-700">{f.value}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <p className="mt-5 text-sm leading-relaxed text-zinc-600">{FILE.life}</p>
+
+              <div className="mt-5 rounded-2xl border border-dashed border-zinc-300 p-4">
+                <p className="text-sm font-semibold text-zinc-700">Not on file</p>
+                <ul className="mt-2 space-y-1 text-sm text-zinc-500">
+                  {FILE.unknowns.map((u) => <li key={u}>{u}</li>)}
+                </ul>
+                <p className="mt-3 text-xs text-zinc-400">You only find this out by asking well on the call.</p>
+              </div>
+            </div>
+          </Reveal>
+        </div>
       </section>
 
       {/* How it works */}
@@ -184,7 +254,7 @@ export default function Landing() {
         <Reveal><h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">Real calls, rehearsed first.</h2></Reveal>
         <div className="mt-16 grid md:grid-cols-2 gap-6">
           {[
-            { src: '/landing/Interview_Rehersal.png', title: 'Every call, scored live', body: 'Talk through the pitch and see tone, flow and confidence read back in real time.' },
+            { src: '/landing/Interview_Rehersal.png', title: 'A plan, not a playlist', body: 'Answer a few questions once and get a day-by-day path built around the moment you actually dread. It rebuilds when you do.' },
             { src: '/landing/Sales_Cold_Call_Practice.png', title: 'Objections, handled', body: 'Face price pushback and “I already have a policy” in any language, and watch your score climb call after call.' },
           ].map((m, i) => (
             <Reveal key={m.title} delay={i * 100}>
@@ -207,8 +277,8 @@ export default function Landing() {
         <div className="mx-auto max-w-6xl px-6 py-24 grid lg:grid-cols-2 gap-14 items-center">
           <Reveal>
             <div>
-              <h2 className="font-display text-4xl sm:text-5xl tracking-tight leading-tight">A call for every product you sell.</h2>
-              <p className="mt-5 text-zinc-500 leading-relaxed">From a term-life cold call to a tricky renewal or a claim-worried customer, start from a ready-made scenario, or ask Bixy to build one for your exact product in seconds.</p>
+              <h2 className="font-display text-4xl sm:text-5xl tracking-tight leading-tight">Thirty-six people to call.</h2>
+              <p className="mt-5 text-zinc-500 leading-relaxed">A term-life cold call, a copay dispute, a CFO who has heard it all before. Every one is a named person with a file, sorted by what you are trying to fix. Browse them, or let the dice pick.</p>
               <div className="mt-7 flex flex-wrap gap-2">
                 {CATEGORIES.map((c) => (
                   <span key={c} className="rounded-full border border-zinc-300 bg-white px-3.5 py-1.5 text-sm text-zinc-600">{c}</span>
@@ -236,7 +306,7 @@ export default function Landing() {
             </div>
             <div>
               <h2 className="font-display text-4xl tracking-tight">Meet Bixy.</h2>
-              <p className="mt-3 text-zinc-500 max-w-xl leading-relaxed">Tap the orb anywhere and simply talk: “show my scenarios”, “start a health-insurance call in Tamil”, “open my reports”. Bixy even builds a full practice call for your product and launches it in under a minute.</p>
+              <p className="mt-3 text-zinc-500 max-w-xl leading-relaxed">Tap the orb anywhere and simply talk: “show my scenarios”, “open my reports”, “I keep losing them on price”. Bixy finds the call that fixes it and hands it to you, ready to start.</p>
             </div>
           </div>
         </Reveal>
@@ -251,7 +321,7 @@ export default function Landing() {
         <div className="relative mx-auto max-w-6xl px-6 py-28 text-center">
           <Reveal>
             <h2 className="font-display text-5xl sm:text-6xl tracking-tight">Your next sales call, rehearsed.</h2>
-            <p className="mt-6 text-zinc-400 max-w-lg mx-auto">Built for insurance teams. Free, and ready in seconds.</p>
+            <p className="mt-6 text-zinc-400 max-w-lg mx-auto">Built for insurance teams in India. Free while we are in beta, and you are on a call within a minute.</p>
             <Link href={dest} className="mt-10 inline-flex items-center gap-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 text-lg font-medium transition-all hover:-translate-y-0.5">
               Start practicing <ArrowUpRight className="h-5 w-5" />
             </Link>
