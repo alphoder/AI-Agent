@@ -7,7 +7,7 @@ import structlog
 
 from src.config import settings
 from src.metrics import metrics_endpoint
-from src.routes import scoring, session, prompt, assistant, drill, plan, notes, brief
+from src.routes import scoring, session, prompt, assistant, drill, plan, notes, brief, scenario
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +81,7 @@ app.include_router(drill.router, prefix="/drill", tags=["drill"], dependencies=[
 app.include_router(plan.router, prefix="/plan", tags=["plan"], dependencies=[Depends(require_internal_key)])
 app.include_router(notes.router, prefix="/notes", tags=["notes"], dependencies=[Depends(require_internal_key)])
 app.include_router(brief.router, prefix="/brief", tags=["brief"], dependencies=[Depends(require_internal_key)])
+app.include_router(scenario.router, prefix="/scenario", tags=["scenario"], dependencies=[Depends(require_internal_key)])
 # Live WebSockets — browser connects directly with a signed ticket (no internal key).
 app.include_router(session.router, tags=["session"])
 app.include_router(assistant.router, tags=["assistant"])

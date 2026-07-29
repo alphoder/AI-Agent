@@ -3,6 +3,14 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { wrap } from '../utils/wrap';
 import { rateLimit } from '../middleware/rate-limit';
 import { db } from '../config/database';
+import { categoryByKey, MALE_VOICES, FEMALE_VOICES } from '@avatar-platform/shared';
+
+/** What ai-service/src/routes/scenario.py returns. All of it is untrusted. */
+interface GeneratedScenario {
+  title: string; description: string; objective: string; character: string; opening: string;
+  category: string; tags: string[]; voice_gender: string; difficulty: string; language: string;
+  rubric: { name: string; description: string; weight: number }[];
+}
 import { logger } from '../config/logger';
 import { validateUuidParam } from '../middleware/validate-uuid';
 import { callAIService } from '../utils/ai-service-client';
@@ -163,6 +171,98 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   );
   logger.info({ scenarioId: result.rows[0].id, userId: me }, 'Scenario created');
   res.status(201).json({ success: true, data: result.rows[0] });
+}));
+
+
+/**
+ * POST /api/scenarios/generate — Bixy's path: the model writes the WHOLE scenario.
+ *
+ * Bixy used to assemble this itself and send a blank rubric and a "custom" tag,
+ * so every generated call was scored on the insurance default and filed under
+ * Sales. Now the AI service fills every field, we validate it, save it, and give
+ * it a client file like the seeded ones have.
+ */
+router.post('/generate', rateLimit(10), wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  if (!(await isAdmin(me))) {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can create scenarios.' } });
+  }
+  const brief = String(req.body?.brief ?? '').trim().slice(0, 2000);
+  if (!brief) {
+    return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'Tell me what the situation is.' } });
+  }
+
+  let spec: GeneratedScenario;
+  try {
+    const aiRes = await callAIService({
+      path: '/scenario/generate',
+      timeoutMs: 90_000,
+      body: {
+        brief,
+        who: String(req.body?.who ?? '').slice(0, 500),
+        goal: String(req.body?.goal ?? '').slice(0, 500),
+        difficulty_hint: String(req.body?.difficulty_hint ?? '').slice(0, 200),
+        language: String(req.body?.language ?? 'en').slice(0, 12),
+      },
+    });
+    spec = (await aiRes.json()) as GeneratedScenario;
+  } catch (err) {
+    logger.error({ err, userId: me }, 'scenario generation failed');
+    return res.status(502).json({ success: false, error: { code: 'GENERATE_FAILED', message: 'Could not write that scenario. Try describing it again.' } });
+  }
+
+  // Everything the model returned is untrusted: re-check it against our own enums.
+  const difficulty = DIFFICULTIES.has(spec.difficulty) ? spec.difficulty : 'intermediate';
+  const category = categoryByKey(spec.category) ? spec.category : 'sales';
+  const tags = [...new Set([category, ...(spec.tags ?? [])])]
+    .map((t) => String(t).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24))
+    .filter(Boolean)
+    .slice(0, 8);
+  const rubric = (spec.rubric ?? [])
+    .filter((c) => c?.name)
+    .map((c) => ({ name: String(c.name).slice(0, 60), description: String(c.description ?? '').slice(0, 300), weight: Number(c.weight) || 1 }));
+  if (!spec.character?.trim() || rubric.length === 0) {
+    return res.status(502).json({ success: false, error: { code: 'GENERATE_INCOMPLETE', message: 'That came back incomplete. Try again.' } });
+  }
+  // Voice must match the character's gender, or a "Priya" answers in a man's voice.
+  const pool = spec.voice_gender === 'male' ? MALE_VOICES : FEMALE_VOICES;
+  const voice = pool[Math.floor(Math.random() * pool.length)]?.id ?? 'Aoede';
+
+  const result = await db.query(
+    `INSERT INTO scenarios (
+       title, description, objective, system_prompt, opening_message, language, voice,
+       scoring_rubric, status, visibility, max_duration_sec, max_turns, difficulty_level, tags, created_by
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'active','private',600,40,$9,$10,$11)
+     RETURNING ${SELECT_COLS}`,
+    [
+      (spec.title || 'Practice call').slice(0, 120), spec.description || null, spec.objective || 'Practise this call',
+      spec.character.trim(), spec.opening || null, spec.language || 'en', voice,
+      JSON.stringify(rubric), difficulty, tags, me,
+    ],
+  );
+  const scenario = result.rows[0];
+  logger.info({ scenarioId: scenario.id, userId: me, category, criteria: rubric.length }, 'Scenario generated');
+
+  // Give it a client file too, so it opens like a seeded scenario rather than a
+  // bare description. Best-effort: a missing brief degrades, it does not fail.
+  try {
+    const briefRes = await callAIService({
+      path: '/brief/generate',
+      timeoutMs: 60_000,
+      body: {
+        title: scenario.title, description: scenario.description ?? '', objective: scenario.objective ?? '',
+        persona: scenario.system_prompt, difficulty: difficulty, language: scenario.language,
+      },
+    });
+    const b = (await briefRes.json()) as { brief: unknown; quiz: unknown; exchange: unknown };
+    await db.query('UPDATE scenarios SET client_brief = $2::jsonb WHERE id = $1',
+      [scenario.id, JSON.stringify({ brief: b.brief, quiz: b.quiz, exchange: b.exchange })]);
+    scenario.client_brief = { brief: b.brief, quiz: b.quiz, exchange: b.exchange };
+  } catch (err) {
+    logger.warn({ err, scenarioId: scenario.id }, 'client file generation failed; scenario kept without one');
+  }
+
+  res.status(201).json({ success: true, data: scenario });
 }));
 
 /**

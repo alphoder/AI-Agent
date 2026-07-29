@@ -29,8 +29,13 @@ class Settings(BaseSettings):
     # REVERTED to flash-live: native-audio threw "stream error" mid-call under real
     # audio streaming. Re-test native-audio properly before switching back.
     gemini_live_model: str = "models/gemini-3.1-flash-live-preview"  # conversation (Live API)
-    gemini_flash_model: str = "gemini-3.1-flash-lite"      # reports + scoring + vision (key 1)
-    gemini_prompt_model: str = "gemini-3.1-flash-lite"     # prompt redesign (key 2)
+    gemini_flash_model: str = "gemini-3.5-flash-lite"      # reports + scoring + vision (key 1)
+    gemini_prompt_model: str = "gemini-3.5-flash-lite"     # prompt redesign (key 2)
+    # Scenario authoring runs on a stronger model: it writes a persona, an
+    # opening line and a whole rubric in one pass. It THINKS before answering
+    # (hundreds of thought tokens), so give it a generous output budget or it
+    # returns an empty candidate.
+    gemini_scenario_model: str = "gemini-3.6-flash"        # scenario authoring
     gemini_assistant_model: str = "models/gemini-3.1-flash-live-preview"  # site assistant (Live API, key 2)
 
     # API gateway (for internal transcript/score/body-language persistence)

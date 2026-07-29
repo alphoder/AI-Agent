@@ -63,7 +63,7 @@ export const CATEGORIES: CatalogCategory[] = [
     image: '/categories/interview.webp',
     match: ['interview'],
     tracks: [
-      { key: 'screening', label: 'The Screen', blurb: 'Recruiter and HR first rounds.', match: ['screening'] },
+      { key: 'screening', label: 'The Screen', blurb: 'Recruiter, HR and technical first rounds.', match: ['screening', 'technical-screen', 'technical'] },
       { key: 'hiring-manager', label: 'Hiring Manager', blurb: 'The person you would report to.', match: ['hiring-manager'] },
       { key: 'behavioural', label: 'Behavioural', blurb: 'Tell me about a time when.', match: ['behavioural'] },
       { key: 'salary', label: 'Salary', blurb: 'Ask for the number.', match: ['salary'] },

@@ -68,16 +68,15 @@ const TOOLS = [
         parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'optional search text' } } } },
       { name: 'start_practice', description: 'Start a practice session for a scenario the user names, optionally in a chosen language.',
         parameters: { type: 'OBJECT', properties: { scenario: { type: 'STRING', description: 'name or topic' }, language: { type: 'STRING', description: 'ISO code e.g. en, hi, es' } }, required: ['scenario'] } },
-      { name: 'create_scenario', description: 'Design a custom practice scenario and show it to the user as a card. Does NOT start the call — the user starts it. Call this only after the five questions are answered (or the user asks you to just build it).',
+      { name: 'create_scenario', description: 'Write a custom practice scenario and show it to the user as a card. A separate model writes the character, the opening line and the scoring rubric, so pass on what the user SAID rather than inventing the persona yourself. Does NOT start the call.',
         parameters: { type: 'OBJECT', properties: {
-          title: { type: 'STRING', description: 'short title, e.g. "Angry motor-renewal customer"' },
-          description: { type: 'STRING', description: 'one line describing the situation' },
-          objective: { type: 'STRING', description: 'what a win looks like for the trainee on this call (from question 4)' },
-          character_prompt: { type: 'STRING', description: 'The person, written as a REAL HUMAN: name, age, job and life/business situation; personality and how they talk; their real concern in their own words; the relationship (cold stranger / existing customer / senior client); and a HIDDEN need or fear they will NOT volunteer until it is earned. Do NOT script outcomes ("if the agent says X they agree") — the app judges the trainee itself.' },
+          situation: { type: 'STRING', description: "The situation in the user's own words, as fully as they described it: what the call is, the setting, what makes it hard." },
+          who: { type: 'STRING', description: 'Who they will be speaking to, if they said: role, seniority, temperament, the relationship.' },
+          goal: { type: 'STRING', description: 'What a win looks like for the trainee on this call.' },
+          difficulty: { type: 'STRING', description: 'What they said about how hard it should be, in their words.' },
           language: { type: 'STRING', description: 'e.g. en, hi, ta, mr, te' },
-          difficulty: { type: 'STRING', enum: ['beginner', 'intermediate', 'advanced'], description: 'from question 5 — drives how strictly the character judges the trainee' },
-          voice: { type: 'STRING', enum: VOICE_IDS, description: `customer voice — male: ${MALE_VOICES.slice(0, 6).map((v) => v.id).join('/')}…; female: ${FEMALE_VOICES.slice(0, 6).map((v) => v.id).join('/')}…` },
-        }, required: ['title', 'character_prompt'] } },
+          title: { type: 'STRING', description: 'optional short working title' },
+        }, required: ['situation'] } },
       { name: 'view_history', description: "Open the user's past practice sessions and scores.", parameters: { type: 'OBJECT', properties: {} } },
     ],
   },
@@ -242,22 +241,25 @@ export function AssistantWidget() {
           return { error: 'Only admins can create scenarios. Use list_scenarios to find and suggest the closest existing one instead.' };
         }
         const lang = resolveLang(args.language as string) || 'en';
-        const voice = VOICE_IDS.includes(String(args.voice)) ? String(args.voice) : 'Charon';
-        const payload = {
-          title: String(args.title), description: args.description ? String(args.description) : '',
-          objective: args.objective ? String(args.objective) : `Practise: ${args.title}`,
-          system_prompt: String(args.character_prompt), opening_message: '',
-          language: lang, voice,
-          difficulty_level: ['beginner', 'intermediate', 'advanced'].includes(String(args.difficulty)) ? String(args.difficulty) : 'intermediate',
-          // Empty rubric → the AI service scores against its insurance BEGINNER/
-          // INTERMEDIATE/ADVANCED default for the chosen difficulty.
-          visibility: 'private', tags: ['custom'], scoring_rubric: [],
+        // Bixy no longer assembles the scenario. It passes on what the user said, and
+        // the scenario model writes every field: persona, opening line, category, tags
+        // and a rubric that fits THIS conversation. Bixy sending an empty rubric was
+        // why a Java interview got scored on objection handling.
+        const { data } = await apiClient.post('/scenarios/generate', {
+          brief: String(args.situation ?? args.title ?? ''),
+          who: String(args.who ?? ''),
+          goal: String(args.goal ?? ''),
+          difficulty_hint: String(args.difficulty ?? ''),
+          language: lang,
+        });
+        const sc = data.data;
+        // Built, then SHOWN — the user decides when to start the call.
+        setBuilt({ id: sc.id, title: sc.title, description: sc.description ?? '',
+          objective: sc.objective ?? '', difficulty: sc.difficulty_level, language: sc.language, voice: sc.voice });
+        return {
+          ok: true, created: sc.title, criteria: (sc.scoring_rubric ?? []).length,
+          note: 'Scenario card is now on screen. Tell the user it is ready and that it has its own scoring rubric. They can start it whenever they like. Do NOT start it yourself.',
         };
-        const { data } = await apiClient.post('/scenarios', payload);
-        // Build it, then SHOW it — the user decides when to start the call.
-        setBuilt({ id: data.data.id, title: payload.title, description: payload.description,
-          objective: payload.objective, difficulty: payload.difficulty_level, language: lang, voice });
-        return { ok: true, created: payload.title, note: 'Scenario card is now on screen. Tell the user it is ready and that they can start it whenever they like. Do NOT start it yourself.' };
       }
       if (name === 'view_history') {
         router.push('/reports');
