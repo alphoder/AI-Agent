@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import {
-  JOURNEY, JOURNEY_MINUTES, languageName, categoryFor, categoryByKey, briefMinutes,
+  JOURNEY, languageName, categoryFor, categoryByKey, briefMinutes,
   type Mastery, type ScenarioBrief,
 } from '@avatar-platform/shared';
 import { Md, WatchPlayer } from '@/components/learn/watch-player';
@@ -81,7 +81,7 @@ export default function ScenarioModulePage() {
     const full = [
       { key: 'learn' as Beat, label: 'Learn', icon: BookOpen, min: dossier ? briefMinutes(dossier.brief) : 2 },
       { key: 'watch' as Beat, label: 'Watch', icon: Headphones, min: 3 },
-      { key: 'practice' as Beat, label: 'Practice', icon: Pencil, min: 3 },
+      { key: 'practice' as Beat, label: 'Practice', icon: Pencil, min: 5 }, // the call cap
       { key: 'apply' as Beat, label: 'Apply', icon: Flag, min: 2 },
     ];
     return full.filter((b) => {
@@ -90,6 +90,10 @@ export default function ScenarioModulePage() {
       return true;
     });
   }, [staticUnit, dossier]);
+
+  // Add up the steps actually shown. A hardcoded total drifts the moment a step
+  // changes length, and the header then contradicts the stepper beside it.
+  const totalMinutes = useMemo(() => beats.reduce((n, b) => n + b.min, 0), [beats]);
 
   const beatIndex = beats.findIndex((b) => b.key === beat);
   const attempts = lesson?.attempts ?? 0;
@@ -145,7 +149,7 @@ export default function ScenarioModulePage() {
             {staticUnit && <p className="mt-1 text-sm opacity-80">{staticUnit.do[0]}</p>}
           </div>
           <div className="flex gap-5 text-sm">
-            <Stat icon={Clock} value={`${staticUnit ? JOURNEY_MINUTES : beats.reduce((n, b) => n + b.min, 0)}:00`} label="Total time" />
+            <Stat icon={Clock} value={`${totalMinutes} min`} label="Whole module" />
             <Stat icon={Target} value={attempts > 0 ? `${attempts} ${attempts === 1 ? 'call' : 'calls'}` : 'Not yet'} label={best != null ? `Best ${Math.round(best)}` : 'Your progress'} />
             <Stat icon={Award} value={xp.toLocaleString()} label="Points" />
           </div>
@@ -256,7 +260,7 @@ export default function ScenarioModulePage() {
           {beat === 'practice' && (
             <div className="space-y-4">
               <Tag>Practice</Tag>
-              <p className="text-sm text-muted-foreground">The live call. Talk to the customer out loud; a coach scores the whole conversation afterwards.</p>
+              <p className="text-sm text-muted-foreground">The live call, up to five minutes. Talk to the customer out loud; a coach scores the whole conversation afterwards.</p>
               <div className="rounded-xl border border-border bg-muted/30 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">The customer</p>
                 <p className="mt-1 text-sm leading-relaxed">{scenario.description || scenario.title}</p>
