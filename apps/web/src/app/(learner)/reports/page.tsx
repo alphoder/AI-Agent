@@ -3,7 +3,8 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, ArrowLeft, Trophy, PersonStanding, Download, Flag } from 'lucide-react';
+import { Loader2, ArrowLeft, PersonStanding, Download, Flag } from 'lucide-react';
+import { ScoreRing, SplitBar } from '@/components/charts/charts';
 import apiClient from '@/lib/api-client';
 import type { ReportData } from '@/components/report-pdf';
 
@@ -154,24 +155,36 @@ function ReportView({ sessionId }: { sessionId: string }) {
         </button>
       </div>
 
-      {/* Scores */}
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="rounded-2xl border border-border/50 bg-card p-6 flex items-center gap-5">
-          <Trophy className="h-8 w-8 text-foreground" />
+      {/* The score is the headline: one dial, then the detail. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="flex items-center gap-5 rounded-2xl border border-border/50 bg-card p-6">
+          <ScoreRing score={report.overall_score} size={96} stroke={8} />
           <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Overall</p>
-            <p className={`text-4xl font-bold ${scoreColor(report.overall_score)}`}>{Math.round(report.overall_score)}<span className="text-lg text-muted-foreground">/100</span></p>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Overall</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {report.overall_score >= 85 ? 'Excellent call.'
+                : report.overall_score >= 70 ? 'Strong call.'
+                : report.overall_score >= 50 ? 'Solid, with room to push.'
+                : 'Worth another run.'}
+            </p>
+            {meta?.duration_sec != null && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {Math.floor(meta.duration_sec / 60)}m {meta.duration_sec % 60}s spoken
+              </p>
+            )}
           </div>
         </div>
-        <div className="rounded-2xl border border-border/50 bg-card p-6 flex items-center gap-5">
-          <PersonStanding className="h-8 w-8 text-foreground" />
+        <div className="flex items-center gap-5 rounded-2xl border border-border/50 bg-card p-6">
+          {report.body_language_score != null ? (
+            <ScoreRing score={report.body_language_score} size={96} stroke={8} />
+          ) : (
+            <PersonStanding className="h-12 w-12 shrink-0 text-muted-foreground" />
+          )}
           <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Body language</p>
-            {report.body_language_score != null ? (
-              <p className={`text-4xl font-bold ${scoreColor(report.body_language_score)}`}>{Math.round(report.body_language_score)}<span className="text-lg text-muted-foreground">/100</span></p>
-            ) : (
-              <p className="text-sm text-muted-foreground mt-2">Camera was off — no body-language read.</p>
-            )}
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Body language</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {report.body_language_score != null ? 'Posture, presence and eye contact.' : 'Camera was off, so nothing was read.'}
+            </p>
           </div>
         </div>
       </div>
@@ -199,27 +212,56 @@ function ReportView({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      {/* Rubric */}
+      {/* Rubric. Hidden entirely when the scorer returned no criteria: a lone
+          heading over nothing reads as a broken page. */}
+      {report.criteria_scores.length > 0 && (
       <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
         <h3 className="text-sm font-semibold">Rubric breakdown</h3>
         {report.criteria_scores.map((c, i) => (
           <div key={i}>
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-baseline justify-between gap-3 text-sm">
               <span className="font-medium">{c.criterion_name}</span>
-              <span className="text-muted-foreground">{c.score}/5 · weight {c.weight}%</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                <span className="font-semibold text-foreground">{Math.round((c.score / 5) * 100)}</span>
+                <span className="ml-1.5 text-xs">weight {c.weight}%</span>
+              </span>
             </div>
-            <div className="h-1.5 rounded-full bg-muted mt-1.5 overflow-hidden">
-              <div className="h-full bg-primary" style={{ width: `${(c.score / 5) * 100}%` }} />
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out" style={{ width: `${Math.max(2, (c.score / 5) * 100)}%` }} />
             </div>
             <p className="text-xs text-muted-foreground mt-1.5">{c.justification}</p>
           </div>
         ))}
       </div>
+      )}
 
-      {report.narrative_feedback && (
+      {/* This call's own conversational numbers, pulled out of the narrative so
+          the learner sees figures rather than raw markdown. */}
+      {(() => {
+        const c = callStats(report.narrative_feedback);
+        if (c.talkRatio == null && c.questions == null && c.fillers == null) return null;
+        return (
+          <div className="rounded-2xl border border-border/50 bg-card p-5">
+            <h3 className="mb-3 text-sm font-semibold">How you talked</h3>
+            <div className="grid gap-5 sm:grid-cols-[2fr_1fr_1fr]">
+              {c.talkRatio != null ? <SplitBar mine={c.talkRatio} ideal={[35, 45]} /> : <span />}
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Questions</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums leading-none">{c.questions ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Filler words</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums leading-none">{c.fillers ?? '—'}</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {report.narrative_feedback && narrativeProse(report.narrative_feedback) && (
         <div className="rounded-2xl border border-border/50 bg-card p-5">
           <h3 className="text-sm font-semibold mb-2">Coach&apos;s notes</h3>
-          <p className="text-sm text-muted-foreground whitespace-pre-line">{report.narrative_feedback}</p>
+          <p className="text-sm text-muted-foreground whitespace-pre-line">{narrativeProse(report.narrative_feedback)}</p>
         </div>
       )}
 
@@ -267,6 +309,29 @@ function ReportView({ sessionId }: { sessionId: string }) {
       )}
     </div>
   );
+}
+
+/**
+ * The scorer prepends a small markdown analytics block to narrative_feedback.
+ * These two helpers split it: the numbers get rendered as figures, and only the
+ * human prose stays in "Coach's notes" (raw ** and ### were showing through).
+ */
+function callStats(text: string | null) {
+  const num = (re: RegExp) => { const m = text?.match(re); const n = m ? Number(m[1]) : NaN; return Number.isFinite(n) ? n : null; };
+  const talk = num(/talk[- ]to[- ]listen[^:]*:\s*\**\s*(\d{1,3})\s*%/i);
+  return {
+    talkRatio: talk != null && talk >= 0 && talk <= 100 ? talk : null,
+    questions: num(/question frequency[^:]*:\s*\**\s*(\d{1,3})/i),
+    fillers: num(/filler word[^:]*:\s*\**\s*(\d{1,3})/i),
+  };
+}
+
+/** Everything after the analytics block, with stray markdown markers removed. */
+function narrativeProse(text: string | null): string {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const lastMeta = lines.reduce((idx, l, i) => (/^\s*(###|- \*\*|\*\*)/.test(l) ? i : idx), -1);
+  return lines.slice(lastMeta + 1).join('\n').replace(/\*\*/g, '').trim();
 }
 
 function TrendLine({ points }: { points: number[] }) {

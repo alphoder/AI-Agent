@@ -1,327 +1,155 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { BarChart3, Clock, TrendingUp, Trophy, Mic, HelpCircle, Eye, AlertCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { BarChart3 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
-import { Card } from '@/components/ui/card';
-import { ProgressRing } from '@/components/ui/progress-ring';
-import { Accent } from '@/components/ui/accent';
+import { Stat, AreaChart, BarList, SplitBar, Tile } from '@/components/charts/charts';
 
-interface SessionRow {
-  status: string;
-  overall_score: number | null;
-  body_language_score: number | null;
-  duration_sec: number | null;
-  ended_at: string | null;
-  scenario_title: string;
+const RANGES = [
+  { key: '7d', label: '7 days' },
+  { key: '30d', label: '30 days' },
+  { key: 'all', label: 'All time' },
+] as const;
+type RangeKey = (typeof RANGES)[number]['key'];
+
+interface Analytics {
+  range: string;
+  totals: { calls: number; minutes: number; avgScore: number | null; bestScore: number | null };
+  perDay: { day: string; minutes: number; calls: number }[];
+  trend: { at: string; score: number; title: string }[];
+  criteria: { name: string; score: number }[];
+  conversation: { talkRatio: number | null; questions: number | null; fillers: number | null; sampled: number };
 }
 
+const dayLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+/**
+ * Every number here is measured. The previous version derived words-per-minute,
+ * filler counts and talk ratio from the overall score with an invented formula;
+ * anything we have not actually measured now says so.
+ */
 export default function AnalyticsPage() {
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<RangeKey>('30d');
+  const [data, setData] = useState<Analytics | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    apiClient
-      .get('/sessions')
-      .then(({ data }) => setSessions(data.data || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { load(range); }, [range]);
+  async function load(r: RangeKey) {
+    setData(null);
+    setFailed(false);
+    try {
+      const res = await apiClient.get(`/analytics/me?range=${r}`);
+      setData(res.data.data);
+    } catch {
+      setFailed(true);
+    }
+  }
 
-  const metrics = useMemo(() => {
-    const completed = sessions.filter((s) => s.status === 'completed');
-    
-    // Overall Stats
-    const totalCount = completed.length;
-    const totalSeconds = completed.reduce((acc, s) => acc + (s.duration_sec || 0), 0);
-    const totalMin = Math.round(totalSeconds / 60);
-
-    const scores = completed.filter((s) => s.overall_score != null).map((s) => s.overall_score as number);
-    const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
-    const bestScore = scores.length ? Math.max(...scores) : null;
-
-    const bodyScores = completed.filter((s) => s.body_language_score != null).map((s) => s.body_language_score as number);
-    const avgBodyScore = bodyScores.length ? Math.round(bodyScores.reduce((a, b) => a + b, 0) / bodyScores.length) : null;
-
-    // Trend points (up to 12 sessions in chronological order)
-    const trendData = completed
-      .slice(0, 12)
-      .map((s) => ({
-        title: s.scenario_title,
-        score: s.overall_score || 0,
-        bodyScore: s.body_language_score,
-        date: s.ended_at ? new Date(s.ended_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
-      }))
-      .reverse();
-
-    // Derived/Simulated Speach Habit indicators based on scores
-    // Pacing gets better (closer to 135 WPM) as average score increases
-    const avgWPM = avgScore ? Math.round(105 + (avgScore / 100) * 35) : 0; 
-    
-    // Filler words reduce as average score increases
-    const avgFillers = avgScore ? Math.max(0.5, (10 - (avgScore / 100) * 8.5)).toFixed(1) : '—';
-    
-    // Talk time percentage
-    const talkRatio = avgScore ? Math.round(38 + (avgScore / 100) * 12) : 0;
-
-    return {
-      totalCount,
-      totalMin,
-      avgScore,
-      bestScore,
-      avgBodyScore,
-      trendData,
-      avgWPM,
-      avgFillers,
-      talkRatio,
-    };
-  }, [sessions]);
-
-  // Render a responsive SVG line chart
-  const lineChart = useMemo(() => {
-    const data = metrics.trendData;
-    if (data.length < 2) return null;
-
-    const w = 500;
-    const h = 180;
-    const padding = 25;
-    const chartW = w - padding * 2;
-    const chartH = h - padding * 2;
-
-    const getX = (index: number) => padding + (index / (data.length - 1)) * chartW;
-    const getY = (val: number) => padding + chartH - (val / 100) * chartH;
-
-    // Overall score path
-    const scorePoints = data.map((d, i) => `${getX(i)},${getY(d.score)}`);
-    const scorePath = `M ${scorePoints.join(' L ')}`;
-
-    // Body language path (if present)
-    const bodyPoints = data
-      .map((d, i) => (d.bodyScore != null ? `${getX(i)},${getY(d.bodyScore)}` : null))
-      .filter(Boolean);
-    const bodyPath = bodyPoints.length >= 2 ? `M ${bodyPoints.join(' L ')}` : null;
-
-    return (
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full" aria-hidden>
-        {/* Grid lines */}
-        {[0, 25, 50, 75, 100].map((gridVal) => (
-          <line
-            key={gridVal}
-            x1={padding}
-            y1={getY(gridVal)}
-            x2={w - padding}
-            y2={getY(gridVal)}
-            stroke="rgba(148,163,184,0.08)"
-            strokeWidth={1}
-          />
-        ))}
-
-        {/* X Axis Labels */}
-        {data.map((d, i) => (
-          <text
-            key={i}
-            x={getX(i)}
-            y={h - 5}
-            textAnchor="middle"
-            fill="currentColor"
-            className="text-[9px] text-muted-foreground/60 font-medium"
-          >
-            {d.date}
-          </text>
-        ))}
-
-        {/* Lines */}
-        {bodyPath && (
-          <path
-            d={bodyPath}
-            fill="none"
-            stroke="rgba(148,163,184,0.4)"
-            strokeWidth={1.5}
-            strokeDasharray="4,4"
-          />
-        )}
-        <path
-          d={scorePath}
-          fill="none"
-          stroke="hsl(var(--primary))"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* Dots */}
-        {data.map((d, i) => (
-          <g key={i} className="group">
-            <circle
-              cx={getX(i)}
-              cy={getY(d.score)}
-              r={4}
-              fill="hsl(var(--card))"
-              stroke="hsl(var(--primary))"
-              strokeWidth={2}
-            />
-            {d.bodyScore != null && (
-              <circle
-                cx={getX(i)}
-                cy={getY(d.bodyScore)}
-                r={3}
-                fill="hsl(var(--card))"
-                stroke="rgba(148,163,184,0.7)"
-                strokeWidth={1.5}
-              />
-            )}
-          </g>
-        ))}
-      </svg>
-    );
-  }, [metrics]);
+  const empty = data && data.totals.calls === 0;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
-            <BarChart3 className="h-5 w-5" />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
-            <p className="mt-0.5 max-w-xl text-sm text-muted-foreground">
-              Deep trends across every session — see exactly how, and how fast, you&apos;re improving.
-            </p>
-          </div>
+    <div className="max-w-5xl space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
+          <p className="mt-1 text-sm text-muted-foreground">What your practice actually looks like over time.</p>
+        </div>
+        <div className="flex items-center gap-1 rounded-full border border-border bg-card p-1">
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              aria-pressed={range === r.key}
+              className={`press rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                range === r.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {loading ? (
-        <div className="grid gap-4 sm:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-24 rounded-2xl border border-border bg-card animate-pulse" />
-          ))}
+      {failed && (
+        <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm">
+          <span className="text-muted-foreground">We could not load your analytics.</span>
+          <button onClick={() => load(range)} className="press rounded-full border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted">Try again</button>
         </div>
-      ) : sessions.length === 0 ? (
-        <Card className="p-12 text-center border-dashed border-2">
-          <p className="font-semibold text-lg">No session data available yet</p>
-          <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-            Complete a speaking scenario in the Practice room to generate metrics and unlock this dashboard.
-          </p>
-        </Card>
-      ) : (
+      )}
+
+      {!data && !failed ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-52 animate-pulse rounded-2xl border border-border bg-card" />)}
+        </div>
+      ) : empty ? (
+        <div className="rounded-2xl border border-border bg-card p-12 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+            <BarChart3 className="h-7 w-7 text-muted-foreground" />
+          </div>
+          <p className="font-semibold">Nothing to measure yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">Finish a call and your numbers start here.</p>
+          <Link href="/journey" className="press mt-4 inline-block rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+            Go to my journey
+          </Link>
+        </div>
+      ) : data ? (
         <>
-          {/* Stat Cards */}
-          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-            <Card className="p-5 relative overflow-hidden">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Practice Time</p>
-              <p className="text-3xl font-bold tracking-tight mt-1.5 tabular-nums flex items-baseline gap-1">
-                {metrics.totalMin} <span className="text-xs font-normal text-muted-foreground">mins</span>
-              </p>
-              <div className="absolute right-4 bottom-4 text-muted-foreground/30"><Clock className="h-6 w-6" /></div>
-            </Card>
-
-            <Card className="p-5 relative overflow-hidden">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg Score</p>
-              <p className="text-3xl font-bold tracking-tight mt-1.5 tabular-nums text-primary">
-                {metrics.avgScore != null ? `${metrics.avgScore}` : '—'}
-                <span className="text-xs font-normal text-muted-foreground ml-1">/100</span>
-              </p>
-              <div className="absolute right-4 bottom-4 text-muted-foreground/30"><TrendingUp className="h-6 w-6" /></div>
-            </Card>
-
-            <Card className="p-5 relative overflow-hidden">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Best Score</p>
-              <p className="text-3xl font-bold tracking-tight mt-1.5 tabular-nums">
-                {metrics.bestScore != null ? `${metrics.bestScore}` : '—'}
-                <span className="text-xs font-normal text-muted-foreground ml-1">/100</span>
-              </p>
-              <div className="absolute right-4 bottom-4 text-muted-foreground/30"><Trophy className="h-6 w-6" /></div>
-            </Card>
-
-            <Card className="p-5 relative overflow-hidden">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Body Language Avg</p>
-              <p className="text-3xl font-bold tracking-tight mt-1.5 tabular-nums">
-                {metrics.avgBodyScore != null ? `${metrics.avgBodyScore}` : '—'}
-                <span className="text-xs font-normal text-muted-foreground ml-1">/100</span>
-              </p>
-              <div className="absolute right-4 bottom-4 text-muted-foreground/30"><Eye className="h-6 w-6" /></div>
-            </Card>
+          <div className="grid gap-4 rounded-2xl border border-border bg-card p-5 sm:grid-cols-4">
+            <Stat label="Calls" value={data.totals.calls} />
+            <Stat label="Practised" value={data.totals.minutes} suffix="min" />
+            <Stat label="Average" value={data.totals.avgScore ?? '—'} hint={data.totals.avgScore == null ? 'No scored calls yet' : undefined} />
+            <Stat label="Best" value={data.totals.bestScore ?? '—'} />
           </div>
 
-          <div className="grid gap-6 md:grid-cols-3">
-            {/* Score Line Chart */}
-            <Card className="p-6 md:col-span-2 space-y-4">
-              <div>
-                <h3 className="font-semibold text-sm">Score Progression</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Overall practice score (solid blue) compared with body language score (dashed grey).
-                </p>
-              </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Tile
+              title="Minutes practised"
+              hint={range === 'all' ? 'per active day' : 'per day'}
+              empty={data.perDay.every((d) => d.minutes === 0) ? 'No practice in this window.' : undefined}
+            >
+              <AreaChart points={data.perDay.map((d) => ({ label: dayLabel(d.day), value: d.minutes }))} unit=" min" />
+            </Tile>
 
-              <div className="h-52 w-full pt-4">
-                {lineChart ? (
-                  lineChart
-                ) : (
-                  <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                    Complete at least two sessions to plot a progression line.
+            <Tile
+              title="Score trend"
+              hint={data.trend.length > 0 ? `${data.trend.length} scored ${data.trend.length === 1 ? 'call' : 'calls'}` : undefined}
+              empty={data.trend.length < 2 ? 'Two scored calls draw a trend.' : undefined}
+            >
+              <AreaChart points={data.trend.map((t) => ({ label: dayLabel(t.at), value: t.score }))} maxHint={100} />
+            </Tile>
+
+            <Tile
+              title="Skills"
+              hint="average, out of 100"
+              empty={data.criteria.length === 0 ? 'Skill averages appear once a call is scored.' : undefined}
+            >
+              <BarList items={data.criteria} />
+            </Tile>
+
+            <Tile
+              title="How you talk"
+              hint={data.conversation.sampled > 0 ? `from ${data.conversation.sampled} ${data.conversation.sampled === 1 ? 'call' : 'calls'}` : undefined}
+              empty={data.conversation.sampled === 0 ? 'Measured on your next scored call.' : undefined}
+            >
+              <div className="space-y-5">
+                {data.conversation.talkRatio != null && (
+                  <div>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Talk to listen <span className="text-muted-foreground/70">(35 to 45% is the discovery sweet spot)</span>
+                    </p>
+                    <SplitBar mine={data.conversation.talkRatio} ideal={[35, 45]} />
                   </div>
                 )}
-              </div>
-            </Card>
-
-            {/* Speaking Habits */}
-            <Card className="p-6 md:col-span-1 space-y-6">
-              <h3 className="font-semibold text-sm">Speaking Habits</h3>
-
-              <div className="space-y-4">
-                {/* WPM Progress */}
-                <div className="flex items-center gap-4">
-                  <ProgressRing
-                    value={Math.round((metrics.avgWPM / 150) * 100)}
-                    size={56}
-                    stroke={4}
-                    color="hsl(var(--primary))"
-                    label={<span className="text-xs font-bold">{metrics.avgWPM}</span>}
-                  />
-                  <div>
-                    <h4 className="text-xs font-semibold">Speaking Pace</h4>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-normal">
-                      Averages {metrics.avgWPM} Words Per Minute. Professional speech targets 130–150 WPM.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Filler Words */}
-                <div className="flex items-center gap-4">
-                  <div className="h-14 w-14 rounded-full bg-secondary flex items-center justify-center shrink-0">
-                    <span className="text-sm font-bold text-foreground">{metrics.avgFillers}</span>
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold">Filler Frequencies</h4>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-normal">
-                      Average filler words (*uh, um, like*) caught per minute of conversation.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Talk Ratio */}
-                <div className="flex items-center gap-4">
-                  <ProgressRing
-                    value={metrics.talkRatio}
-                    size={56}
-                    stroke={4}
-                    color="hsl(var(--primary))"
-                    label={<span className="text-xs font-bold">{metrics.talkRatio}%</span>}
-                  />
-                  <div>
-                    <h4 className="text-xs font-semibold">Talk-time Share</h4>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-normal">
-                      Percentage of the session spent with you speaking vs the AI coach.
-                    </p>
-                  </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Stat label="Questions asked" value={data.conversation.questions ?? '—'} hint="per call" />
+                  <Stat label="Filler words" value={data.conversation.fillers ?? '—'} hint="per call" />
                 </div>
               </div>
-            </Card>
+            </Tile>
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }
