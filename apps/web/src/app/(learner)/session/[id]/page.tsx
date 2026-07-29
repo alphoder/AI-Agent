@@ -56,6 +56,7 @@ function SessionInner() {
   const [elapsed, setElapsed] = useState(0);
   const [config, setConfig] = useState<SessionConfig | null>(null);
   const [callStarted, setCallStarted] = useState(false); // customer has spoken
+  const [openerDone, setOpenerDone] = useState(false);   // ...and finished their opening line
   const [hangUp, setHangUp] = useState<string | null>(null); // customer ended the call
 
   const sessionIdRef = useRef<string | null>(null);
@@ -68,6 +69,9 @@ function SessionInner() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const micOnRef = useRef(true);
+  // The customer has finished their opening line. Until then we capture nothing:
+  // a real call does not transmit before the other person has spoken.
+  const openerDoneRef = useRef(false);
   const micLevelRef = useRef(0);
   const runningRef = useRef(false);
   const endedRef = useRef(false);
@@ -283,7 +287,7 @@ function SessionInner() {
             const ch = e.inputBuffer.getChannelData(0);
             let s = 0; for (let i = 0; i < ch.length; i++) s += ch[i] * ch[i];
             micLevelRef.current = micLevelRef.current * 0.8 + Math.sqrt(s / ch.length) * 0.2; // for the sphere
-            if (!micOnRef.current || ws.readyState !== WebSocket.OPEN) return;
+            if (!openerDoneRef.current || !micOnRef.current || ws.readyState !== WebSocket.OPEN) return;
             ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(floatTo16BitPCM(ch)) }));
           };
           if (gradeBodyActiveRef.current) {
@@ -349,6 +353,11 @@ function SessionInner() {
                 if (!startedRef.current) { startedRef.current = true; setCallStarted(true); }
                 playAudioChunk(msg.data);
                 break;
+              case 'opener_done':
+                // They have said their piece. Your mic opens now.
+                openerDoneRef.current = true;
+                setOpenerDone(true);
+                break;
               case 'call_ended':
                 // The customer hung up. Show it, then end & score (always scored).
                 noRetryRef.current = true;
@@ -384,6 +393,15 @@ function SessionInner() {
     return () => { disposed = true; cleanup(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarioId]);
+
+  // Failsafe: if the opener never reports finishing (interrupted turn, dropped
+  // frame), open the mic anyway a few seconds after they start speaking. A call
+  // where the learner can never be heard is worse than one that opens early.
+  useEffect(() => {
+    if (!callStarted || openerDone) return;
+    const t = setTimeout(() => { openerDoneRef.current = true; setOpenerDone(true); }, 12000);
+    return () => clearTimeout(t);
+  }, [callStarted, openerDone]);
 
   // Elapsed timer + auto-end at max duration. The clock only runs once the
   // customer has actually spoken — connecting time is not the learner's call.
@@ -468,12 +486,26 @@ function SessionInner() {
         </div>
       )}
 
+      {/* Why the mic is shut. Stated plainly, not left as a dead button. */}
+      {phase === 'live' && !openerDone && (
+        <p className="absolute inset-x-0 bottom-24 z-10 text-center text-xs text-white/45">
+          {callStarted ? 'Let them finish. Your mic opens in a moment.' : 'Wait for them to pick up.'}
+        </p>
+      )}
+
       {/* Controls */}
       <div className="absolute bottom-8 inset-x-0 z-10 flex items-center justify-center gap-3">
         {phase === 'live' && (
-          <button onClick={toggleMic} title="Toggle mic"
-            className={`rounded-full p-4 transition-all active:scale-95 ${micOn ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-white text-black'}`}>
-            {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+          <button
+            onClick={toggleMic}
+            disabled={!openerDone}
+            title={openerDone ? 'Toggle mic' : 'Your mic opens when they finish speaking'}
+            className={`rounded-full p-4 transition-all active:scale-95 ${
+              !openerDone ? 'cursor-not-allowed bg-white/5 text-white/30'
+                : micOn ? 'bg-white/10 text-white hover:bg-white/20'
+                : 'bg-white text-black'
+            }`}>
+            {openerDone && micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
           </button>
         )}
         {(phase === 'live' || error) && (

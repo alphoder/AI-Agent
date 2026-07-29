@@ -87,7 +87,12 @@ def _bcp47(lang: str) -> str | None:
     return _BCP47.get(lang)
 _MAX_MESSAGE_BYTES = 2_000_000         # ~2 MB cap per inbound message
 _MAX_MESSAGES_PER_SEC = 60             # flood guard
-_MAX_SESSION_SECONDS = 1800            # hard 30-min cap
+_MAX_SESSION_SECONDS = 1800            # hard cap on the socket, ringing included
+# The call itself is capped at 5 minutes, measured from the customer's FIRST WORD.
+# The browser enforces it (it owns the visible clock); this is the backstop for a
+# client that stops counting, hence the grace period.
+_MAX_CALL_SECONDS = 300
+_CALL_CAP_GRACE = 20
 
 # One live socket per session id (hijack / double-connect guard).
 _ACTIVE_SESSIONS: set[str] = set()
@@ -137,6 +142,8 @@ async def session_ws(websocket: WebSocket):
 
     rate = {"window": 0.0, "count": 0}
     state = {
+        "opener_done": False,      # the customer has finished their first turn
+        "first_audio_at": None,    # monotonic time of their first word
         "system_prompt": "You are a friendly conversation partner. Keep replies to 1-2 sentences.",
         "voice": _DEFAULT_VOICE,
         "user_transcript": "",
@@ -186,6 +193,15 @@ async def session_ws(websocket: WebSocket):
                 # must check for presence, not truthiness.
                 if "setupComplete" in data:
                     await websocket.send_json({"type": "listening"})
+                    # Hand the customer the turn so THEY speak first. Without this
+                    # the model waits for audio, and since the learner's mic stays
+                    # shut until the opener finishes, nobody would ever speak.
+                    await gemini_ws.send(json.dumps({
+                        "client_content": {
+                            "turns": [{"role": "user", "parts": [{"text": "[The call connects.]"}]}],
+                            "turn_complete": True,
+                        }
+                    }))
                     continue
                 # The customer decided to hang up → log it as a scored signal and end.
                 tool_call = data.get("toolCall")
@@ -232,8 +248,15 @@ async def session_ws(websocket: WebSocket):
                     for part in model_turn.get("parts", []):
                         inline = part.get("inlineData") or part.get("inline_data")
                         if inline and inline.get("data"):
+                            # Their first word starts the call clock.
+                            if state["first_audio_at"] is None:
+                                state["first_audio_at"] = time.monotonic()
                             await websocket.send_json({"type": "audio_out", "data": inline["data"]})
                 if sc.get("turnComplete"):
+                    # The opening line is done: the learner's mic opens from here.
+                    if not state["opener_done"]:
+                        state["opener_done"] = True
+                        await websocket.send_json({"type": "opener_done"})
                     learner = state["user_transcript"].strip()
                     coach = state["assistant_transcript"].strip()
                     if coach:
@@ -301,6 +324,14 @@ async def session_ws(websocket: WebSocket):
                 await websocket.send_json({"type": "error", "message": "session time limit reached"})
                 break
 
+            # The call clock runs from the customer's first word. The browser owns
+            # the visible timer and normally ends the call itself; this only catches
+            # a client that stopped counting, hence the grace.
+            spoke_at = state["first_audio_at"]
+            if spoke_at is not None and time.monotonic() - spoke_at > _MAX_CALL_SECONDS + _CALL_CAP_GRACE:
+                await websocket.send_json({"type": "error", "message": "call time limit reached"})
+                break
+
             raw = await websocket.receive_text()
             if len(raw.encode("utf-8", "ignore")) > _MAX_MESSAGE_BYTES:
                 continue  # drop oversized frames
@@ -323,6 +354,12 @@ async def session_ws(websocket: WebSocket):
             mtype = msg.get("type")
 
             if mtype == "audio":
+                # Nothing the learner's room makes is heard until the customer has
+                # actually said their piece. A real call does not transmit before
+                # the other person has spoken, and stray noise during the opener
+                # used to interrupt it.
+                if not state["opener_done"]:
+                    continue
                 if mic_active and gemini_ws and gemini_ws.state.name == "OPEN":
                     data = msg.get("data")
                     if isinstance(data, str) and data:

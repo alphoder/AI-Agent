@@ -15,6 +15,9 @@ import { getStreak } from '../services/game-service';
 // Scoring thresholds. If the CUSTOMER hangs up the call is always scored (being
 // hung up on is the lesson). If the LEARNER ends it, require a real attempt.
 const USER_END_MIN_SEC = 60;
+/** A call runs at most 5 minutes, counted from the customer's first word.
+ *  Ring time is excluded because the clock only starts when they speak. */
+const MAX_CALL_SEC = 300;
 
 
 const router: Router = Router();
@@ -97,7 +100,8 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
   }
   // Mid-call enforcement for free: the client already auto-ends at maxDurationSec,
   // so capping it by the remaining balance IS the meter.
-  const maxDuration = walletEnforced() ? Math.max(60, Math.min(sc.max_duration_sec, balance)) : sc.max_duration_sec;
+  const scenarioCap = Math.min(sc.max_duration_sec, MAX_CALL_SEC);
+  const maxDuration = walletEnforced() ? Math.max(60, Math.min(scenarioCap, balance)) : scenarioCap;
 
   const sessionResult = await db.query(
     `INSERT INTO sessions (user_id, scenario_id, language, status, started_at)
