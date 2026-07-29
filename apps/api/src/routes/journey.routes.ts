@@ -189,13 +189,19 @@ router.post('/intake', wrap(async (req: AuthenticatedRequest, res: Response) => 
     return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can rebuild your plan ${PLAN_LIMIT_PER_DAY} times a day. Try again tomorrow.` } });
   }
 
+  // org/city/state also land in metadata.profile: that is what the competition
+  // boards scope on, and what My Profile edits. The intake is the answer sheet;
+  // the profile is the live value.
+  const profile = { org: intake.org, city: intake.city, state: intake.state };
   const user = await db.query(
     `UPDATE users
-        SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('intake', $2::jsonb),
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('intake', $2::jsonb)
+              || jsonb_build_object('profile', COALESCE(metadata->'profile', '{}'::jsonb) || $3::jsonb),
             updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
       RETURNING name`,
-    [me, JSON.stringify(intake)],
+    [me, JSON.stringify(intake), JSON.stringify(profile)],
   );
   if (user.rows.length === 0) {
     return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } });

@@ -123,6 +123,20 @@ export default function TeamsPage() {
                 <p className="font-semibold">{detail.workspace.name}</p>
                 <p className="text-xs text-muted-foreground">{detail.members.length} member{detail.members.length === 1 ? '' : 's'} · you are the {detail.workspace.my_role}</p>
               </div>
+              {/* Who is in here, at a glance. */}
+              <div className="ml-1 flex -space-x-2">
+                {detail.members.slice(0, 5).map((m) => (
+                  <span key={m.id} title={m.name || m.email}
+                    className="grid h-7 w-7 place-items-center rounded-full border-2 border-card bg-secondary text-[11px] font-semibold uppercase">
+                    {(m.name || m.email || '?').charAt(0)}
+                  </span>
+                ))}
+                {detail.members.length > 5 && (
+                  <span className="grid h-7 w-7 place-items-center rounded-full border-2 border-card bg-muted text-[10px] font-semibold text-muted-foreground">
+                    +{detail.members.length - 5}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               {isLeader && (
@@ -141,7 +155,10 @@ export default function TeamsPage() {
           <div className="grid gap-4 lg:grid-cols-5">
             {/* Contest leaderboard */}
             <div className="rounded-2xl border border-border bg-card p-4 lg:col-span-3">
-              <div className="flex items-center gap-2 text-sm font-medium"><Trophy className="h-4 w-4 text-amber-400" /> Contest leaderboard</div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-sm font-medium"><Trophy className="h-4 w-4 text-amber-400" /> Contest leaderboard</span>
+                <a href="/competition" className="press text-xs font-medium text-primary underline">Full board</a>
+              </div>
               <div className="mt-3 divide-y divide-border">
                 {detail.members.map((m, i) => (
                   <div key={m.id} className="flex items-center gap-3 py-2.5">

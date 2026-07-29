@@ -140,11 +140,13 @@ export default function TeamDashboard() {
                   </p>
                 </td>
                 <td className="px-2 py-2.5 text-center">
-                  <span className={`inline-block min-w-[2.5rem] rounded-md px-1.5 py-1 text-xs font-bold ${cellStyle(m.readiness)}`}>{m.readiness}</span>
+                  <span title={`Readiness ${m.readiness} of 100`}
+                    className={`inline-block min-w-[2.75rem] rounded-lg px-2 py-1 text-xs font-bold ${cellStyle(m.readiness)}`}>{m.readiness}</span>
                 </td>
                 {dash.criteria.map((c) => (
                   <td key={c} className="px-2 py-2.5 text-center">
-                    <span className={`inline-block min-w-[2.5rem] rounded-md px-1.5 py-1 text-xs font-semibold ${cellStyle(m.skills[c])}`}>{m.skills[c] ?? '—'}</span>
+                    <span title={m.skills[c] != null ? `${c}: ${m.skills[c]} of 100` : `${c}: not scored yet`}
+                      className={`inline-block min-w-[2.75rem] rounded-lg px-2 py-1 text-xs font-semibold ${cellStyle(m.skills[c])}`}>{m.skills[c] ?? '—'}</span>
                   </td>
                 ))}
                 <td className="px-2 py-2.5 text-center">
