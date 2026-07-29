@@ -45,7 +45,7 @@ function validateRubric(rubric: any[]): string | null {
 
 const SELECT_COLS = `id, title, description, objective, system_prompt, opening_message,
   language, voice, scoring_rubric, status, visibility, max_duration_sec, max_turns,
-  difficulty_level, tags, created_by, created_at, updated_at`;
+  difficulty_level, tags, created_by, created_at, updated_at, client_brief`;
 
 /**
  * GET /api/scenarios — public library + the caller's own scenarios.

@@ -3,6 +3,8 @@ export * from './languages';
 export * from './onboarding';
 export * from './intake';
 export * from './catalog';
+export * from './brief';
+export * from './briefs';
 export * from './voices';
 export * from './accents';
 export * from './journey';

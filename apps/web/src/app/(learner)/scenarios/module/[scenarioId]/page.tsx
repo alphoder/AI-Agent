@@ -8,8 +8,12 @@ import {
   ChevronLeft, ChevronRight, Crown, Mic, Languages,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
-import { JOURNEY, JOURNEY_MINUTES, languageName, categoryFor, categoryByKey, type Mastery } from '@avatar-platform/shared';
+import {
+  JOURNEY, JOURNEY_MINUTES, languageName, categoryFor, categoryByKey, briefMinutes,
+  type Mastery, type ScenarioBrief,
+} from '@avatar-platform/shared';
 import { Md, WatchPlayer } from '@/components/learn/watch-player';
+import { ClientFile, ExchangeReader, BriefCheck } from '@/components/learn/client-file';
 import { Quiz } from '@/components/learn/quiz';
 import { CallPicker, newPicker, type PickerState } from '@/components/scenarios/call-picker';
 import type { Scenario } from '@/components/scenarios/scenario-card';
@@ -68,16 +72,24 @@ export default function ScenarioModulePage() {
   const lesson = useMemo(() => unit?.lessons.find((l) => l.title === scenario?.title), [unit, scenario]);
   const moduleIndex = useMemo(() => (unit ? JOURNEY.findIndex((u) => u.key === unit.key) + 1 : 0), [unit]);
 
-  // The degraded module has no Watch (no unit audio, no quiz) and no Apply recap source.
+  /** The generated client file: the dossier, its check, and a model exchange. */
+  const dossier = (scenario as (Scenario & { client_brief?: ScenarioBrief | null }) | null)?.client_brief ?? null;
+
+  // Watch exists when there is either unit audio or a model exchange to read.
   const beats = useMemo(() => {
+    const hasWatch = !!staticUnit || (dossier?.exchange?.length ?? 0) > 0;
     const full = [
-      { key: 'learn' as Beat, label: 'Learn', icon: BookOpen, min: 2 },
+      { key: 'learn' as Beat, label: 'Learn', icon: BookOpen, min: dossier ? briefMinutes(dossier.brief) : 2 },
       { key: 'watch' as Beat, label: 'Watch', icon: Headphones, min: 3 },
       { key: 'practice' as Beat, label: 'Practice', icon: Pencil, min: 3 },
       { key: 'apply' as Beat, label: 'Apply', icon: Flag, min: 2 },
     ];
-    return staticUnit ? full : full.filter((b) => b.key === 'learn' || b.key === 'practice');
-  }, [staticUnit]);
+    return full.filter((b) => {
+      if (b.key === 'watch') return hasWatch;
+      if (b.key === 'apply') return !!staticUnit;
+      return true;
+    });
+  }, [staticUnit, dossier]);
 
   const beatIndex = beats.findIndex((b) => b.key === beat);
   const attempts = lesson?.attempts ?? 0;
@@ -164,10 +176,21 @@ export default function ScenarioModulePage() {
         {/* Beat content */}
         <div className="rounded-2xl border border-border bg-card p-5">
           {beat === 'learn' && (
-            <div className="space-y-4">
-              <Tag>Learn</Tag>
+            <div className="space-y-6">
+              <div>
+                <Tag>Learn</Tag>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {dossier ? 'What you already know about the person you are calling. How you open is your call.' : null}
+                </p>
+              </div>
+
+              {/* The client file comes first: know who you are speaking to before
+                  you think about technique. */}
+              {dossier && <ClientFile brief={dossier.brief} />}
+
               {staticUnit ? (
-                <>
+                <div className="space-y-4 border-t border-border pt-6">
+                  <h4 className="text-sm font-semibold">The technique for this module</h4>
                   <Md text={staticUnit.learn} />
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-success/30 bg-success/5 p-3">
@@ -179,8 +202,8 @@ export default function ScenarioModulePage() {
                       <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">{staticUnit.dont.map((d, i) => <li key={i}>{d}</li>)}</ul>
                     </div>
                   </div>
-                </>
-              ) : (
+                </div>
+              ) : !dossier ? (
                 <>
                   <p className="text-sm leading-relaxed text-muted-foreground">{scenario.description || 'A live practice call.'}</p>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -190,19 +213,42 @@ export default function ScenarioModulePage() {
                     </span>
                   </div>
                 </>
+              ) : null}
+
+              {/* Did they read the file? Asked here, beside the file itself. */}
+              {dossier && (
+                <div className="border-t border-border pt-6">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">Check you read it</p>
+                  <BriefCheck quiz={dossier.quiz} />
+                </div>
               )}
             </div>
           )}
 
-          {beat === 'watch' && staticUnit && (
+          {beat === 'watch' && (
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-3">
                 <Tag>Watch</Tag>
-                <p className="text-sm text-muted-foreground">Hear a top performer use this technique in a real call.</p>
-                <WatchPlayer unitKey={staticUnit.key} spot={staticUnit.spot} spotNote={staticUnit.spotNote} />
+                {staticUnit ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">Hear a top performer use this technique in a real call.</p>
+                    <WatchPlayer unitKey={staticUnit.key} spot={staticUnit.spot} spotNote={staticUnit.spotNote} />
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground">How this person actually talks. Read it, then do it your own way.</p>
+                    {dossier && <ExchangeReader exchange={dossier.exchange} />}
+                  </>
+                )}
               </div>
               <div className="border-t border-border pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
-                <Quiz quiz={staticUnit.quiz} onAnswered={() => setQuizDone(true)} />
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">Your turn</p>
+                {/* Technique quiz here; the file check lives on Learn beside the file. */}
+                {staticUnit ? (
+                  <Quiz quiz={staticUnit.quiz} onAnswered={() => setQuizDone(true)} />
+                ) : dossier ? (
+                  <BriefCheck quiz={dossier.quiz} onDone={() => setQuizDone(true)} />
+                ) : null}
               </div>
             </div>
           )}
