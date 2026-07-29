@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Settings, User, Volume2, Globe, Shield, Check, Loader2, Square } from 'lucide-react';
+import { Settings, User, Volume2, Globe, Shield, Check, Loader2, Square, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import apiClient from '@/lib/api-client';
+import { clearAccessToken } from '@/lib/auth';
 import { LANGUAGES, voiceSampleUrl } from '@avatar-platform/shared';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -18,6 +19,20 @@ interface UserSettings {
 }
 
 export default function SettingsPage() {
+  const [signingOut, setSigningOut] = useState(false);
+
+  /** Revokes every refresh token, not just this browser's. */
+  async function signOutEverywhere() {
+    setSigningOut(true);
+    try {
+      await apiClient.post('/auth/logout');
+      clearAccessToken();
+      window.location.href = '/login';
+    } catch {
+      setSigningOut(false);
+    }
+  }
+
   const { user, setUser } = useAuth();
   
   const [voice, setVoice] = useState('Aoede');
@@ -91,36 +106,54 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        {/* Profile Card */}
-        <div className="md:col-span-1">
+        {/* Identity lives on My Profile now; this is just the way there. */}
+        <div className="md:col-span-1 space-y-6">
           <Card className="p-6 space-y-4">
-            <h2 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground">
-              <User className="h-4 w-4" /> Profile Info
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <User className="h-4 w-4" /> Account
             </h2>
-            <div className="flex flex-col items-center text-center py-4">
+            <div className="flex flex-col items-center py-2 text-center">
               {user?.picture ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.picture}
-                  alt={user.name || 'Avatar'}
-                  className="w-20 h-20 rounded-full border border-border shadow-sm object-cover"
-                />
+                <img src={user.picture} alt="" className="h-20 w-20 rounded-full border border-border object-cover shadow-sm" />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center text-2xl font-bold">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-secondary text-2xl font-bold">
                   {(user?.name || user?.email || '?').charAt(0).toUpperCase()}
                 </div>
               )}
-              <h3 className="mt-3 font-semibold text-lg">{user?.name || 'Practitioner'}</h3>
+              <h3 className="mt-3 text-lg font-semibold">{user?.name || 'Practitioner'}</h3>
               <p className="text-xs text-muted-foreground">{user?.email}</p>
+              <a href="/profile" className="press mt-3 rounded-full border border-border px-3.5 py-1.5 text-xs font-medium hover:bg-muted">
+                Edit my profile
+              </a>
             </div>
-            <div className="border-t border-border pt-4 text-xs text-muted-foreground space-y-2">
-              <p>Joined SpeakCoach: <span className="text-foreground font-medium">{user?.created_at && !isNaN(Date.parse(user.created_at)) ? new Date(user.created_at).toLocaleDateString() : '—'}</span></p>
-              <p>Account Status: <span className="text-primary font-medium">Active</span></p>
-            </div>
+          </Card>
+
+          <Card className="space-y-3 p-6">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Shield className="h-4 w-4" /> Privacy
+            </h2>
+            <p className="text-sm text-muted-foreground">We store your call transcripts, scores and notes so your progress works. Camera frames are read for a body-language note and then discarded, never saved.</p>
+            <p className="text-sm text-muted-foreground">Other learners only ever see your display name and your score.</p>
+            <a href="mailto:support@speakcoach.in?subject=Delete%20my%20SpeakCoach%20data"
+              className="press inline-block rounded-full border border-border px-3.5 py-1.5 text-xs font-medium hover:bg-muted">
+              Request my data be deleted
+            </a>
+          </Card>
+
+          <Card className="space-y-3 p-6">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <LogOut className="h-4 w-4" /> Session
+            </h2>
+            <p className="text-sm text-muted-foreground">Signs you out on every device, including ones you no longer have.</p>
+            <button onClick={signOutEverywhere} disabled={signingOut}
+              className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60">
+              {signingOut && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Sign out everywhere
+            </button>
           </Card>
         </div>
 
-        {/* Configurations */}
+        {/* Practice configuration */}
         <div className="md:col-span-2 space-y-6">
           {/* Voice Settings */}
           <Card className="p-6 space-y-6">

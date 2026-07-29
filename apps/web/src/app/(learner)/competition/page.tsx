@@ -63,7 +63,7 @@ export default function CompetitionPage() {
     if (!draft.trim() || saving) return;
     setSaving(true);
     try {
-      await apiClient.patch('/competition/profile', { [field]: draft.trim() });
+      await apiClient.patch('/profile', { [field]: draft.trim() });
       await load();
     } catch {
       setFailed(true);

@@ -14,6 +14,7 @@ import { sessionRoutes } from './routes/session.routes';
 import { assistantRoutes } from './routes/assistant.routes';
 import { workspaceRoutes } from './routes/workspace.routes';
 import { journeyRoutes } from './routes/journey.routes';
+import { profileRoutes } from './routes/profile.routes';
 import { competitionRoutes } from './routes/competition.routes';
 import { analyticsRoutes } from './routes/analytics.routes';
 import { notesRoutes } from './routes/notes.routes';
@@ -95,6 +96,7 @@ export function createApp(): express.Express {
   app.use('/api/notes', notesRoutes);
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/competition', competitionRoutes);
+  app.use('/api/profile', profileRoutes);
   app.use('/api/internal', internalRoutes);
 
   // 404 catch-all
