@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { floatTo16BitPCM, arrayBufferToBase64 } from '@/lib/audio';
 import { LANGUAGES, languageName, VOICE_IDS, MALE_VOICES, FEMALE_VOICES } from '@avatar-platform/shared';
@@ -44,7 +45,14 @@ Then CALL create_scenario. Write character_prompt as a REAL PERSON, never a list
   - their real concern in their own words, plus the relationship (cold stranger / existing customer / senior client)
   - a HIDDEN need, fear or motive they will NOT volunteer until the trainee earns it
   - do NOT script outcomes like "if the agent says X, they agree" — the app judges the trainee's reasoning itself
-Match difficulty to their answer to Q5. create_scenario SHOWS the finished scenario as a card on screen — it does NOT start the call. Once it is built, tell them it is ready and that they can hit Start when they want. NEVER claim the call is starting, and never start it yourself.`;
+Match difficulty to their answer to Q5.
+
+WRITING TAKES ABOUT A MINUTE, AND YOU MUST NOT GO QUIET.
+- Say you are starting BEFORE you call create_scenario: something like "Right, I am putting my writers on it now, give me about a minute."
+- The tool answers straight away with status "writing". That does NOT mean it is done.
+- While it is being written, KEEP TALKING. Ask about the last call like this that went badly, what they usually open with, what they dread about it. One question at a time, like a person filling a wait, never a monologue.
+- Do NOT call create_scenario again while one is being written.
+- Only when you are told it is ready do you say it is ready. Never claim the call is starting, and never start it yourself.`;
 
   const recommend = `
 
@@ -115,6 +123,11 @@ export function AssistantWidget() {
   // A scenario Bixy just built — shown as a card; the user starts it.
   const [built, setBuilt] = useState<{ id: string; title: string; description: string; objective: string; difficulty: string; language: string; voice: string } | null>(null);
 
+  // Writing a scenario takes ~30-60s (a thinking model, then the client file).
+  // Awaiting it inside the tool call left Bixy mute for a minute, so the work is
+  // kicked off and reported back later instead.
+  const [writing, setWriting] = useState<string | null>(null);
+  const writingRef = useRef(false);
   const wsRef = useRef<WebSocket | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -216,6 +229,13 @@ export function AssistantWidget() {
     idleTimerRef.current = setTimeout(() => goToSleep(), IDLE_MS);
   }, [goToSleep]);
 
+  /** Say something to Bixy as if the app said it, so she reacts in her own words. */
+  const nudge = useCallback((text: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'text', text }));
+    else pendingRef.current.push(text);
+  }, []);
+
   const executeTool = useCallback(async (name: string, args: Record<string, unknown>) => {
     try {
       if (name === 'navigate') {
@@ -241,24 +261,41 @@ export function AssistantWidget() {
           return { error: 'Only admins can create scenarios. Use list_scenarios to find and suggest the closest existing one instead.' };
         }
         const lang = resolveLang(args.language as string) || 'en';
-        // Bixy no longer assembles the scenario. It passes on what the user said, and
-        // the scenario model writes every field: persona, opening line, category, tags
-        // and a rubric that fits THIS conversation. Bixy sending an empty rubric was
-        // why a Java interview got scored on objection handling.
-        const { data } = await apiClient.post('/scenarios/generate', {
+        if (writingRef.current) {
+          return { error: 'You are already writing one. Tell them it is still being written.' };
+        }
+
+        // Bixy no longer assembles the scenario, and no longer WAITS for it. The
+        // model writes every field server-side, which takes the better part of a
+        // minute; awaiting it here left her silent for that whole time. Kick it
+        // off, answer the tool call at once so she keeps talking, and tell her
+        // when it lands.
+        const working = String(args.title ?? args.situation ?? 'your scenario').slice(0, 80);
+        writingRef.current = true;
+        setWriting(working);
+
+        apiClient.post('/scenarios/generate', {
           brief: String(args.situation ?? args.title ?? ''),
           who: String(args.who ?? ''),
           goal: String(args.goal ?? ''),
           difficulty_hint: String(args.difficulty ?? ''),
           language: lang,
+        }).then(({ data }) => {
+          const sc = data.data;
+          setBuilt({ id: sc.id, title: sc.title, description: sc.description ?? '',
+            objective: sc.objective ?? '', difficulty: sc.difficulty_level, language: sc.language, voice: sc.voice });
+          nudge(`(The scenario is written and the card is on screen: "${sc.title}", ${sc.difficulty_level}, scored on ${(sc.scoring_rubric ?? []).length} criteria. Tell them briefly that it is ready and they can start it whenever they like. Do not start it yourself.)`);
+        }).catch(() => {
+          nudge('(Writing that scenario failed. Apologise briefly and offer to try again or to find a similar call from the library.)');
+        }).finally(() => {
+          writingRef.current = false;
+          setWriting(null);
         });
-        const sc = data.data;
-        // Built, then SHOWN — the user decides when to start the call.
-        setBuilt({ id: sc.id, title: sc.title, description: sc.description ?? '',
-          objective: sc.objective ?? '', difficulty: sc.difficulty_level, language: sc.language, voice: sc.voice });
+
         return {
-          ok: true, created: sc.title, criteria: (sc.scoring_rubric ?? []).length,
-          note: 'Scenario card is now on screen. Tell the user it is ready and that it has its own scoring rubric. They can start it whenever they like. Do NOT start it yourself.',
+          ok: true,
+          status: 'writing',
+          note: 'Started. Tell them you have put your writers on it and it takes about a minute, then KEEP TALKING to them naturally while it is written: ask about the last call like this that went badly, or what they want to get out of it. Do NOT call create_scenario again, and do not announce it as ready until you are told it is.',
         };
       }
       if (name === 'view_history') {
@@ -444,6 +481,18 @@ export function AssistantWidget() {
 
   return (
     <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+      {/* Being written. Shown because a minute of nothing on screen reads as broken,
+          however chatty Bixy is being. */}
+      {writing && !built && (
+        <div className="animate-pop-in w-[300px] rounded-2xl border border-border bg-card p-4 text-left shadow-xl">
+          <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-primary">
+            <Loader2 className="h-3 w-3 animate-spin" /> Bixy is writing this
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold leading-snug">{writing}</p>
+          <WritingSteps />
+        </div>
+      )}
+
       {/* A scenario Bixy just built — the user decides when to start it. */}
       {built && (
         <div className="animate-pop-in w-[300px] rounded-2xl border border-border bg-card p-4 text-left shadow-xl">
@@ -489,5 +538,26 @@ export function AssistantWidget() {
         <AssistantOrb state={orbState} size={128} />
       </button>
     </div>
+  );
+}
+
+/** What is actually happening during the wait, roughly paced to the real work. */
+function WritingSteps() {
+  const STEPS = ['Writing the character', 'Giving them something to hide', 'Setting how they will be scored', 'Building the client file'];
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (i >= STEPS.length - 1) return;
+    const t = setTimeout(() => setI((n) => n + 1), 9000);
+    return () => clearTimeout(t);
+  }, [i]);
+  return (
+    <ul className="mt-2.5 space-y-1">
+      {STEPS.slice(0, i + 1).map((s, n) => (
+        <li key={s} className={`flex items-center gap-1.5 text-xs ${n === i ? 'text-foreground' : 'text-muted-foreground'}`}>
+          <span aria-hidden className={`h-1 w-1 rounded-full ${n === i ? 'bg-primary' : 'bg-muted-foreground/50'}`} />
+          {s}
+        </li>
+      ))}
+    </ul>
   );
 }
