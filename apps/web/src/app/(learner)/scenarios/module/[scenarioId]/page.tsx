@@ -282,7 +282,7 @@ export default function ScenarioModulePage() {
               <Tag>Apply</Tag>
               {mastery !== 'none' ? (
                 <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-4">
-                  <Crown className={`h-8 w-8 shrink-0 ${mastery === 'gold' ? 'text-yellow-500' : mastery === 'silver' ? 'text-slate-400' : 'text-orange-600'}`} />
+                  <Crown className={`h-8 w-8 shrink-0 ${mastery === 'gold' ? 'text-yellow-500' : mastery === 'silver' ? 'text-slate-500 dark:text-slate-400' : 'text-orange-600'}`} />
                   <div>
                     <p className="font-semibold capitalize">{mastery} earned</p>
                     <p className="text-sm text-muted-foreground">Best score {best != null ? Math.round(best) : 0}. Gold needs 85.</p>

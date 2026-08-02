@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Settings, User, Volume2, Globe, Shield, Check, Loader2, Square, LogOut } from 'lucide-react';
+import { Settings, User, Volume2, Globe, Shield, Check, Loader2, Square, LogOut, Palette } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import apiClient from '@/lib/api-client';
 import { clearAccessToken } from '@/lib/auth';
@@ -9,6 +9,7 @@ import { LANGUAGES, voiceSampleUrl } from '@avatar-platform/shared';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Accent } from '@/components/ui/accent';
+import { ThemeToggle } from '@/components/theme';
 
 const VOICES = ['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Zephyr'];
 
@@ -131,6 +132,14 @@ export default function SettingsPage() {
 
           <Card className="space-y-3 p-6">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Palette className="h-4 w-4" /> Appearance
+            </h2>
+            <ThemeToggle labelled />
+            <p className="text-xs text-muted-foreground">System follows your device. Live calls stay dark either way.</p>
+          </Card>
+
+          <Card className="space-y-3 p-6">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
               <Shield className="h-4 w-4" /> Privacy
             </h2>
             <p className="text-sm text-muted-foreground">We store your call transcripts, scores and notes so your progress works. Camera frames are read for a body-language note and then discarded, never saved.</p>
@@ -170,25 +179,26 @@ export default function SettingsPage() {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* Two sibling buttons, not nested: a <button> inside a <button> is
+                    invalid HTML and React throws a hydration error on it. */}
                 {VOICES.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setVoice(v)}
-                    className={`press flex flex-col items-center justify-between p-3.5 rounded-xl border text-center transition-all ${
-                      voice === v
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-border bg-card hover:bg-muted/40'
-                    }`}
-                  >
-                    <span className="text-sm font-semibold">{v}</span>
+                  <div key={v} className="relative">
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        playVoicePreview(v);
-                      }}
-                      className="mt-2.5 p-1 rounded-full bg-secondary hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setVoice(v)}
+                      aria-pressed={voice === v}
+                      className={`press flex w-full flex-col items-center justify-between rounded-xl border p-3.5 pb-9 text-center transition-all ${
+                        voice === v
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-border bg-card hover:bg-muted/40'
+                      }`}
+                    >
+                      <span className="text-sm font-semibold">{v}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => playVoicePreview(v)}
+                      className="absolute bottom-2.5 left-1/2 -translate-x-1/2 rounded-full bg-secondary p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       title={previewing === v ? `Stop ${v}` : `Preview ${v}`}
                     >
                       {previewing === v ? (
@@ -197,7 +207,7 @@ export default function SettingsPage() {
                         <Volume2 className="h-3.5 w-3.5" />
                       )}
                     </button>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>

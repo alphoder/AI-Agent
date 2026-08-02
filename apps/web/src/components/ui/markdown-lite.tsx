@@ -134,7 +134,7 @@ function renderInline(text: string): React.ReactNode {
   const nodes: React.ReactNode[] = [];
   let cursor = 0;
   const patterns: Array<{ re: RegExp; render: (m: RegExpExecArray) => React.ReactNode }> = [
-    { re: /`([^`]+)`/g, render: (m) => <code className="rounded bg-black/10 px-1 font-mono text-[11px]">{m[1]}</code> },
+    { re: /`([^`]+)`/g, render: (m) => <code className="rounded bg-foreground/10 px-1 font-mono text-[11px]">{m[1]}</code> },
     { re: /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, render: (m) => <a href={m[2]} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-primary">{m[1]}</a> },
     { re: /\*\*([^*]+)\*\*/g, render: (m) => <strong className="font-semibold">{m[1]}</strong> },
     { re: /__([^_]+)__/g, render: (m) => <strong className="font-semibold">{m[1]}</strong> },

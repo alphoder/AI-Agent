@@ -23,7 +23,8 @@ interface Completed {
 
 const CROWN: Record<Exclude<Mastery, 'none'>, string> = {
   bronze: 'text-orange-600',
-  silver: 'text-slate-400',
+  // Silver darkens on a light canvas; slate-400 on white is under 3:1.
+  silver: 'text-slate-500 dark:text-slate-400',
   gold: 'text-yellow-500',
 };
 

@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import apiClient from '@/lib/api-client';
 import { clearAccessToken } from '@/lib/auth';
 import { cn } from '@/lib/utils';
+import { ThemeToggle } from '@/components/theme';
 import { NAV_GROUPS } from './nav-config';
 
 function NavLinks({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
@@ -69,15 +70,18 @@ export function AppSidebar() {
 
   const initial = (user?.name || user?.email || '?').charAt(0).toUpperCase();
   const Footer = (
-    <div className="flex shrink-0 items-center gap-2.5 border-t border-border px-3 py-3">
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-sm font-semibold">{initial}</span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{user?.name || 'You'}</p>
-        <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+    <div className="shrink-0 space-y-2 border-t border-border px-3 py-3">
+      <ThemeToggle className="w-full justify-between" />
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-sm font-semibold">{initial}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{user?.name || 'You'}</p>
+          <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+        </div>
+        <button onClick={onLogout} title="Sign out" className="press rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <LogOut className="h-4 w-4" />
+        </button>
       </div>
-      <button onClick={onLogout} title="Sign out" className="press rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
-        <LogOut className="h-4 w-4" />
-      </button>
     </div>
   );
 

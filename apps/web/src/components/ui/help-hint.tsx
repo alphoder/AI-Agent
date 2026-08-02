@@ -87,7 +87,7 @@ export function HelpHint({
           <button
             type="button"
             onClick={handleDismiss}
-            className={`shrink-0 rounded p-0.5 transition-colors hover:bg-black/5 ${styles.text}`}
+            className={`shrink-0 rounded p-0.5 transition-colors hover:bg-foreground/10 ${styles.text}`}
             aria-label="Dismiss hint"
           >
             <X className="h-3.5 w-3.5" />

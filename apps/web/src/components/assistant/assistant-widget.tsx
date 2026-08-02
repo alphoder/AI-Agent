@@ -524,7 +524,8 @@ export function AssistantWidget() {
       )}
       <div
         key={caption}
-        className="tooltip-bob animate-pop-in max-w-[260px] rounded-2xl rounded-br-sm bg-zinc-900 text-white text-xs font-medium px-3.5 py-2 shadow-lg text-right line-clamp-3"
+        // Inverted, not fixed dark: a zinc-900 bubble vanishes on the dark canvas.
+        className="tooltip-bob animate-pop-in max-w-[260px] rounded-2xl rounded-br-sm bg-foreground text-background text-xs font-medium px-3.5 py-2 shadow-lg text-right line-clamp-3"
       >
         {caption}
       </div>

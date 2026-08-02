@@ -29,7 +29,9 @@ interface Board {
   rows: Row[]; me: Row | null; total: number;
 }
 
-const MEDAL = ['text-yellow-500', 'text-slate-400', 'text-orange-600'];
+// Silver needs to darken on a light canvas: slate-400 on white is ~2.6:1, under the
+// 3:1 that a meaningful icon needs. Gold and bronze clear it in both themes.
+const MEDAL = ['text-yellow-500', 'text-slate-500 dark:text-slate-400', 'text-orange-600'];
 
 const PROMPT: Record<'org' | 'city' | 'state', { label: string; help: string }> = {
   org: { label: 'Where do you work or study?', help: 'Your company, school or college.' },

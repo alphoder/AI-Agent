@@ -13,12 +13,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // No first-run redirect: My Journey owns the questionnaire now, and shows it
   // in place when the user has no plan yet.
 
-  // The live session is its own full-bleed immersive (dark) view.
+  // The live session stays dark in both themes: it is a stage, not a document, and
+  // a white screen on a five-minute call is glare. `.dark` here re-declares the
+  // tokens for this subtree, so it works whatever the user picked.
   const immersive = pathname?.startsWith('/session/');
-  if (immersive) return <div className="dark"><WakeGuard />{children}<Suspense fallback={null}><NotesDock /></Suspense></div>;
+  if (immersive) return <div className="dark bg-background text-foreground"><WakeGuard />{children}<Suspense fallback={null}><NotesDock /></Suspense></div>;
 
   return (
-    <div className="dark min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <WakeGuard />
       <AppSidebar />
       <main className="lg:pl-64">

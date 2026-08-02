@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import './globals.css';
 import { Providers } from '@/components/providers';
+import { THEME_SCRIPT } from '@/components/theme';
 
 // Satoshi — one grotesk across the whole site (body + display). Self-hosted.
 const satoshi = localFont({
@@ -25,7 +26,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={satoshi.variable}>
+    // suppressHydrationWarning: THEME_SCRIPT edits <html> before React hydrates.
+    <html lang="en" className={satoshi.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="font-sans">
         <Providers>{children}</Providers>
       </body>
