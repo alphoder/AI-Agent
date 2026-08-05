@@ -3,7 +3,7 @@ import { logger } from '../config/logger';
 import { callAIService } from '../utils/ai-service-client';
 import {
   INTAKE_IDS, INTAKE_LIMITS, MINUTES_PER_DAY, DAYS_PER_WEEK, INDIAN_STATES,
-  PLAN_TASK_TYPES, type Intake, type JourneyPlan, type PlanTaskType,
+  PLAN_TASK_TYPES, TASK_MINUTES, type Intake, type JourneyPlan, type PlanTaskType,
 } from '@avatar-platform/shared';
 
 /** Plans a user may generate per day. Guards the Gemini bill and the DB. */
@@ -85,6 +85,38 @@ function unlockDay(intensity: string, difficulty: string | null): number {
   return UNLOCK_DAY[intensity]?.[(difficulty ?? '').toLowerCase()] ?? 1;
 }
 
+/** At most this many tasks on the SAME scenario in one day: the "learn it, then
+ *  do it" pair. A third (a drill on the same call) is padding, not practice. */
+const MAX_PER_SCENARIO_PER_DAY = 2;
+
+/**
+ * Trim a day to the time the learner actually said they had, and stop it becoming
+ * one scenario done three ways.
+ *
+ * Telling the model to "fill the day" made it do exactly that: it put module +
+ * call + drill of a single scenario on 11 days out of 14, every one of them 17
+ * minutes against a 15-minute budget. The prompt asks; this decides.
+ */
+function fitTheDay(tasks: { type: PlanTaskType; scenarioId: string; why: string }[], minutesPerDay: number) {
+  const budget = Math.max(5, minutesPerDay);
+  const perScenario = new Map<string, number>();
+  const kept: typeof tasks = [];
+  let spent = 0;
+
+  for (const t of tasks) {
+    const used = perScenario.get(t.scenarioId) ?? 0;
+    if (used >= MAX_PER_SCENARIO_PER_DAY) continue;
+    const cost = TASK_MINUTES[t.type] ?? 5;
+    // Always keep the first task, even on a budget too small for it: a day with
+    // nothing in it is worse than a day that runs slightly long.
+    if (kept.length > 0 && spent + cost > budget) continue;
+    kept.push(t);
+    perScenario.set(t.scenarioId, used + 1);
+    spent += cost;
+  }
+  return kept;
+}
+
 interface CatalogueRow {
   id: string;
   title: string;
@@ -140,6 +172,7 @@ export async function generatePlan(userId: string, intake: Intake, learnerName: 
         .slice(0, INTAKE_LIMITS.tasksPerDay)
         .map((t) => ({ type: t.type, scenarioId: t.scenarioId, why: clean(t.why, 160) })),
     }))
+    .map((d) => ({ ...d, tasks: fitTheDay(d.tasks, intake.minutesPerDay) }))
     .filter((d) => d.tasks.length > 0)
     .slice(0, INTAKE_LIMITS.planDays)
     // Dropping an illegal task can empty a day, so renumber after filtering.
@@ -163,7 +196,7 @@ export async function getPlan(userId: string): Promise<JourneyPlan | null> {
 }
 
 /** Exposed for the self-check in plan-service.test.ts. */
-export const __test = { unlockDay };
+export const __test = { unlockDay, fitTheDay };
 
 /** How many plans this user generated in the last 24h. */
 export async function plansToday(userId: string): Promise<number> {
