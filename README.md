@@ -99,6 +99,31 @@ packages/
 docs/          ARCHITECTURE.md · CODEMAP.md · claude.md  (local-only; read these first)
 ```
 
+
+## Product Highlights & Where It Goes Next
+
+**What it really is** (verified against `docs/ARCHITECTURE.md` / `docs/PRODUCT-V2.md`): AI sales-call training for India — BFSI/insurance first — where a trainee talks out loud to an AI customer that behaves like a believable human, and a second AI grades the call.
+
+**What makes it different**
+- **The realism engine, not the voice loop, is the moat.** Layered behaviour: language lock → human phone behaviour (reveals one thing at a time, remembers the whole call) → brush-off → hook → patience with a real `end_call` tool → a **conviction bar** that judges each argument on its merits (no magic words; advanced difficulty demands evidence-backed, situation-specific points) → persona with a hidden need it never volunteers. Being hung up on is always scored — that *is* the lesson.
+- **Measured analytics, no invented numbers** — the scorer genuinely measures talk-to-listen ratio, question count, fillers, and an **ethical-compliance flag**; where nothing was measured the UI says so. The compliance flag feeds the manager cockpit (readiness index, skill heatmaps, conduct reporting).
+- **Real pedagogy** — 9-unit / 36-lesson curriculum (Learn → Watch → Quiz → live Call), mastery tiers, spaced-repetition review flags, certificates — all computed on read, no progress tables. "Client file" dossiers describe the person, never the tactics — the brief generator greps its own output for coaching verbs and re-prompts itself.
+- **One-model pipeline** — Gemini Live does speech-in → reasoning → voice-out in one stream: sub-second latency, 30+ voices, 70+ languages, near-zero cost.
+- **Engineering integrity** — clients can only *reduce* billed duration, never inflate it; rubric weights renormalised so scores can't silently break; leaderboard scopes resolved server-side.
+
+**Monetisation (designed & metered, payments not yet wired)**
+Live voice costs 1 token/second; learning content, drills and reports are free. Wallet packs: **₹299/1,800 tokens (30 min) · ₹499/3,600 (popular) · ₹999/9,000**. Beta runs with `WALLET_ENFORCE` off but every second is already ledgered — real burn data accrues before charging starts. The prepaid-recharge model fits Indian consumer habits (no subscription commitment); at ~₹10/min the Gemini cost underneath leaves healthy margin.
+
+**Near-term roadmap**
+1. **Wire payments into the ledgered wallet** (Razorpay/Stripe) — likely the highest-ROI engineering week in the portfolio; everything else already meters.
+2. **Scenario marketplace** — user-created scenario packs shareable by link; the content flywheel.
+3. **Progress arcs** — longitudinal filler/talk-ratio/conviction trends + weekly recap.
+4. **Difficulty ladder** — same scenario friendly → neutral → hostile; unlock by score.
+5. **B2B BFSI motion** — the enterprise cockpit (heatmaps, credit pools, white-label, compliance flags) is built; it needs one paying insurer pilot. IRDAI-mandated agent training hours make the budget non-discretionary.
+
+**Foreign markets (the most export-ready product in the portfolio)**
+The engine is language-agnostic and the token wallet reprices per currency with zero code changes — $9.99/30 min reads cheap to Western buyers at ~3× INR realisation. Wedges, in order: Gulf sales teams with diaspora agents (Hindi/English/Arabic voices) · IELTS/OET speaking simulation (persona-with-patience ≈ examiner) · US/UK interview prep (incumbents are text-first at $30–60/mo) · compliance-flagged training for regulated industries (UK financial advice, US insurance licensing) — Second Nature/Hyperbound are enterprise-priced and US-centric; none do metered consumer pricing. Sequence: prove INR wallet conversion first, then flip currency for diaspora/Gulf — same infra, zero new build.
+
 ## License
 
 Proprietary. All rights reserved.
