@@ -68,15 +68,43 @@ _END_CALL_TOOL = {
 
 _MIN_FRAME_INTERVAL_SEC = 6.0          # ignore body-language frames faster than this
 
-# Lock Gemini Live to the selected language (else it auto-detects and drifts).
-# Our 2-letter codes -> the BCP-47 codes Gemini Live's speech_config accepts.
+# Our 2-letter codes -> the BCP-47 code sent as Gemini Live's `language_code`.
+#
+# VERIFIED 2026-08-08 against models/gemini-3.1-flash-live-preview with our key
+# (scripts/verify_live_capabilities.py): all 74 languages below answer the phone
+# idiomatically and in the correct script.
+#
+# What actually forces the language is the directive at the top of the system
+# prompt (buildSystemPrompt, apps/api/src/utils/prompt-bundle.ts) — NOT this
+# field. Probed alone, `language_code: "hi-IN"` still replied in English, and the
+# server accepts nonsense like "xx-ZZ" without complaint. Keep both: the prompt
+# decides what is spoken, this pins recognition of the LEARNER's speech.
+#
+# Previously this map held 26 entries while the picker offered 74 languages, so
+# 48 of them were sent with no language_code at all.
 _BCP47 = {
-    "ar": "ar-XA", "bn": "bn-IN", "cmn": "cmn-CN", "zh": "cmn-CN", "de": "de-DE",
-    "en": "en-US", "es": "es-US", "fr": "fr-FR", "gu": "gu-IN", "hi": "hi-IN",
-    "id": "id-ID", "it": "it-IT", "ja": "ja-JP", "kn": "kn-IN", "ko": "ko-KR",
-    "ml": "ml-IN", "mr": "mr-IN", "nl": "nl-NL", "pl": "pl-PL", "pt": "pt-BR",
-    "ru": "ru-RU", "ta": "ta-IN", "te": "te-IN", "th": "th-TH", "tr": "tr-TR",
-    "vi": "vi-VN",
+    # Europe
+    "en": "en-US", "es": "es-US", "fr": "fr-FR", "de": "de-DE", "it": "it-IT",
+    "pt": "pt-BR", "nl": "nl-NL", "ru": "ru-RU", "uk": "uk-UA", "pl": "pl-PL",
+    "cs": "cs-CZ", "sk": "sk-SK", "ro": "ro-RO", "hu": "hu-HU", "el": "el-GR",
+    "bg": "bg-BG", "sr": "sr-RS", "hr": "hr-HR", "sl": "sl-SI", "sv": "sv-SE",
+    "no": "nb-NO", "da": "da-DK", "fi": "fi-FI", "is": "is-IS", "et": "et-EE",
+    "lv": "lv-LV", "lt": "lt-LT", "ca": "ca-ES", "eu": "eu-ES", "gl": "gl-ES",
+    "cy": "cy-GB", "ga": "ga-IE", "sq": "sq-AL",
+    # Middle East & Central Asia
+    "tr": "tr-TR", "ar": "ar-XA", "he": "he-IL", "fa": "fa-IR", "hy": "hy-AM",
+    "az": "az-AZ", "ka": "ka-GE", "kk": "kk-KZ", "uz": "uz-UZ", "mn": "mn-MN",
+    # South Asia
+    "hi": "hi-IN", "bn": "bn-IN", "pa": "pa-IN", "gu": "gu-IN", "mr": "mr-IN",
+    "ta": "ta-IN", "te": "te-IN", "kn": "kn-IN", "ml": "ml-IN", "ur": "ur-IN",
+    "ne": "ne-NP", "si": "si-LK",
+    # South-East & East Asia
+    "th": "th-TH", "lo": "lo-LA", "km": "km-KH", "my": "my-MM", "vi": "vi-VN",
+    "id": "id-ID", "ms": "ms-MY", "tl": "fil-PH", "zh": "cmn-CN", "cmn": "cmn-CN",
+    "yue": "yue-HK", "ja": "ja-JP", "ko": "ko-KR",
+    # Africa
+    "sw": "sw-KE", "am": "am-ET", "ha": "ha-NG", "yo": "yo-NG", "ig": "ig-NG",
+    "zu": "zu-ZA", "af": "af-ZA",
 }
 
 

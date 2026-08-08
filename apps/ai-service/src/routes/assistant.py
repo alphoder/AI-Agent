@@ -24,9 +24,12 @@ from src.core.ws_ticket import verify_ticket
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
-# Native-audio (gemini-3.x-live) supports a wider voice set. "Leda" is youthful —
-# closest to a child-like voice for Bixy.
-_LIVE_VOICES = {"Puck", "Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr", "Autonoe", "Sulafat"}
+# Bixy runs on the same Live model as a scenario call, so it has the same voices.
+# This used to be a hand-picked set of ten on the assumption that the wider set
+# needed native-audio; probing the model with our key (scripts/verify_live_capabilities.py,
+# 2026-08-08) accepted all 30, so there is nothing to restrict. Imported rather
+# than re-listed: two copies of this set is how voices silently fell back before.
+from src.routes.session import _LIVE_VOICES
 _DEFAULT_VOICE = "Leda"
 _MAX_MESSAGE_BYTES = 2_000_000
 _MAX_MESSAGES_PER_SEC = 60

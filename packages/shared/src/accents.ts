@@ -1,6 +1,13 @@
 /** Accent = the BCP-47 regional variant the Gemini Live `language_code` accepts.
- *  Verified working against the live model. English has several; most languages
- *  have a single regional variant (so the accent step auto-resolves). */
+ *  English has several; most languages have a single regional variant (so the
+ *  accent step auto-resolves).
+ *
+ *  VERIFIED 2026-08-08: every code here is accepted by
+ *  models/gemini-3.1-flash-live-preview on our key. Note the caveat recorded in
+ *  session.py `_BCP47` — the server accepts ANY string here without error, so
+ *  "accepted" is not "honoured". The accent the learner hears is driven mainly by
+ *  the `Speak {language} with a natural {accent} accent` line that
+ *  buildSystemPrompt adds. Re-check with scripts/verify_live_capabilities.py. */
 export interface AccentOption { code: string; label: string }
 
 export const ACCENTS: Record<string, AccentOption[]> = {
