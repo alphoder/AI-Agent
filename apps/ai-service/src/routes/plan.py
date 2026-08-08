@@ -1,4 +1,9 @@
-"""Personalised journey plan — turns the My Journey intake into a day-by-day roadmap.
+"""Personalised journey plan — turns the My Journey intake into a week of practice.
+
+The journey is built ONE WEEK AT A TIME. Week 1 comes from the questionnaire;
+finishing a week generates the next one, and the gateway has already removed
+everything the learner has mastered from the catalogue it sends. So this route
+never has to know what came before — the shortlist IS the memory.
 
 Runs on Gemini Flash Lite. Internal-key protected (called by the API gateway,
 which supplies the scenario catalogue and validates every id we return).
@@ -23,20 +28,23 @@ from src.config import settings
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
-_MAX_DAYS = 30
+_MAX_DAYS = 7
 _MAX_TASKS = 3
 
-_SYSTEM = """You build a personalised speaking-practice roadmap for ONE learner.
+_SYSTEM = """You build ONE WEEK of a personalised speaking-practice roadmap for ONE learner.
 
-You are given the learner's intake answers and a CATALOGUE of practice scenarios.
-Produce a day-by-day plan that takes this specific person from where they are to
-what they said they want.
+You are given the learner's intake answers and a CATALOGUE of practice scenarios
+that has already been filtered to this person: everything in it suits their role
+and goals, and anything they have already mastered has been removed. Use it.
+
+This is WEEK {week} of their journey. Produce {days} days that take this specific
+person forward from where they are now.
 
 HARD RULES
 - Use ONLY scenarioId values that appear in the catalogue. Never invent an id.
 - Never repeat the same scenarioId AND type on the same day (a module plus a call
   for the same scenario on one day is correct and encouraged).
-- Plan exactly {days} days. Day numbers are consecutive from 1.
+- Plan exactly {days} days, numbered 1 to {days} — one week, not a whole course.
 - FILL THE DAY. They gave you {minutes} minutes a day. Keep adding tasks until the
   day's total is close to that budget, up to {max_tasks} tasks (module about 6 min,
   call about 8 min, drill about 3 min, review about 5 min). A 15-minute day with one
@@ -51,8 +59,15 @@ HARD RULES
 - Bias scenario choice towards the outcomes they picked and the moments they said
   go wrong. Their industry decides the flavour of customer they meet.
 - Later days must revisit an earlier scenario as a "review" task at least twice,
-  so the plan consolidates instead of only moving forward. A "review" scenarioId
-  must be one you already used on an earlier day.
+  so the week consolidates instead of only moving forward. A "review" scenarioId
+  must be one you already used on an earlier day OF THIS WEEK, or one listed under
+  UNFINISHED below.
+- UNFINISHED BUSINESS. If the prompt lists scenarios they scored badly on, put at
+  least one of them in the first three days as a "review". They did not get it
+  last week; the point of this week is that they do.
+- A WEEK HAS A SHAPE. Days 1 to 2 rebuild confidence on something they can win,
+  days 3 to 5 are the real work of their stated goal, days 6 to 7 stretch them and
+  consolidate. Do not scatter unrelated topics across seven days.
 
 TASK TYPES
 - "module": learn the technique behind a scenario before speaking it.
@@ -61,8 +76,9 @@ TASK TYPES
 - "review": repeat a scenario they have already been given, to raise the score.
 
 WRITING
-- "headline": one short line naming what this plan gets them, in their own terms.
-  Max 12 words. No em-dashes.
+- "headline": one short line naming what THIS WEEK gets them, in their own terms.
+  Max 12 words. No em-dashes. On week 2 and later it should read as a continuation,
+  not as a fresh start.
 - "focus": 2 to 5 words naming the day's theme.
 - "why": one short sentence, addressed to the learner as "you", saying why THIS
   scenario is on THIS day for THEM. Max 18 words. No em-dashes.
@@ -81,11 +97,20 @@ class CatalogueItem(BaseModel):
     summary: str = ""
 
 
+class Unfinished(BaseModel):
+    id: str
+    title: str
+    best: int = 0
+
+
 class PlanRequest(BaseModel):
     intake: dict
     catalogue: list[CatalogueItem]
-    days: int = 14
+    days: int = 7
+    week: int = 1
     learner_name: str = ""
+    # Scenarios they have attempted and are still below bronze on. Empty in week 1.
+    unfinished: list[Unfinished] = Field(default_factory=list)
 
 
 # The day a difficulty tier unlocks, per intensity setting. A per-item "from day N"
@@ -102,11 +127,15 @@ def unlock_day(intensity: str, difficulty: str) -> int:
     return tiers.get((difficulty or "").lower(), 1)
 
 
-def _catalogue_text(items: list[CatalogueItem], intensity: str) -> str:
+def _catalogue_text(items: list[CatalogueItem], intensity: str, week: int = 1) -> str:
+    """"from day N" is relative to THIS week: by week three, a scenario that
+    unlocks on journey-day 10 is legal on day 1. The gateway enforces the same
+    offset, so a model that ignores this loses the task rather than the ramp."""
+    offset = (week - 1) * 7
     lines = []
     for c in items:
         tags = ", ".join(c.tags[:6])
-        day = unlock_day(intensity, c.difficulty)
+        day = max(1, unlock_day(intensity, c.difficulty) - offset)
         lines.append(
             f"- {c.id} | {c.title[:90]} | {c.difficulty or 'unknown'} | from day {day} | {tags} | {c.summary[:120]}"
         )
@@ -124,9 +153,15 @@ async def generate_plan(body: PlanRequest):
     minutes = int(body.intake.get("minutesPerDay") or 15)
     intensity = str(body.intake.get("intensity") or "balanced")
     who = f"The learner's name is {body.learner_name}.\n" if body.learner_name else ""
+    unfinished = ""
+    if body.unfinished:
+        rows = "\n".join(f"- {u.id} | {u.title[:90]} | scored {u.best}" for u in body.unfinished)
+        unfinished = f"UNFINISHED (attempted, still weak — bring at least one back early):\n{rows}\n\n"
     prompt = (
-        f"{who}INTAKE ANSWERS (JSON):\n{json.dumps(body.intake)[:3000]}\n\n"
-        f"CATALOGUE (id | title | difficulty | earliest day | tags | summary):\n{_catalogue_text(body.catalogue, intensity)[:26000]}"
+        f"{who}This is week {body.week}.\n"
+        f"INTAKE ANSWERS (JSON):\n{json.dumps(body.intake)[:3000]}\n\n"
+        f"{unfinished}"
+        f"CATALOGUE (id | title | difficulty | earliest day | tags | summary):\n{_catalogue_text(body.catalogue, intensity, body.week)[:26000]}"
     )
 
     url = (
@@ -134,7 +169,7 @@ async def generate_plan(body: PlanRequest):
         f"{settings.gemini_flash_model}:generateContent?key={settings.gemini_api_key}"
     )
     payload = {
-        "systemInstruction": {"parts": [{"text": _SYSTEM.format(days=days, max_tasks=_MAX_TASKS, minutes=minutes)}]},
+        "systemInstruction": {"parts": [{"text": _SYSTEM.format(days=days, max_tasks=_MAX_TASKS, minutes=minutes, week=body.week)}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         # Low temperature: this is a scheduling job, not a creative one.
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 8192, "responseMimeType": "application/json"},

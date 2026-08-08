@@ -67,6 +67,20 @@ export default function JourneyPage() {
     }
   }
 
+  async function startNextWeek() {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const { data } = await apiClient.post('/journey/plan/next-week');
+      setPlan(data.data.plan);
+      window.scrollTo({ top: 0 });
+    } catch (e: any) {
+      setError(e.response?.data?.error?.message ?? 'Could not build next week right now.');
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   async function refreshPlan() {
     setRefreshing(true);
     setError(null);
@@ -108,7 +122,14 @@ export default function JourneyPage() {
 
   return (
     <div className="space-y-6">
-      <Roadmap plan={plan} streak={streak} xp={xp} certificates={certs} />
+      <Roadmap
+        plan={plan}
+        streak={streak}
+        xp={xp}
+        certificates={certs}
+        onNextWeek={startNextWeek}
+        building={refreshing}
+      />
 
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 
@@ -119,7 +140,7 @@ export default function JourneyPage() {
           className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
         >
           {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Rebuild my plan
+          Rebuild this week
         </button>
         <button
           onClick={() => { setPlan(null); setError(null); setPhase('intake'); }}

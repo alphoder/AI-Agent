@@ -149,6 +149,9 @@ export interface PlanDay {
 
 export interface JourneyPlan {
   headline: string;
+  /** Which 7-day week of the journey this is. Week 1 comes from the intake;
+   *  every week after is built from what they actually scored. */
+  week: number;
   days: PlanDay[];
 }
 

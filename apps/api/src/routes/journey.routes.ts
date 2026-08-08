@@ -147,31 +147,67 @@ async function withProgress(userId: string, plan: JourneyPlan) {
   const meta = new Map(scenarios.rows.map((r) => [r.id, r]));
   const stat = new Map(attempts.rows.map((r) => [r.scenario_id, r]));
 
+  const view = (t: JourneyPlan['days'][number]['tasks'][number]) => {
+    const s = stat.get(t.scenarioId);
+    const n = s?.attempts ?? 0;
+    // A review only counts once they have come BACK to the scenario.
+    const done = t.type === 'review' ? n >= 2 : n >= 1;
+    const m = meta.get(t.scenarioId);
+    return {
+      ...t,
+      title: m?.title ?? 'Scenario',
+      level: m?.difficulty_level ?? null,
+      language: m?.language ?? 'en',
+      attempts: n,
+      best: s?.best ?? null,
+      mastery: masteryFor(s?.best ?? null),
+      done,
+      // A scenario that vanished from the library must not strand the day.
+      missing: !m,
+    };
+  };
+
+  /**
+   * The week reacts to what they actually scored, without a regeneration.
+   *
+   * A call they have already made and scored below bronze is the most useful
+   * thing they could do next, so it is added to the earliest unfinished day as a
+   * review. Computed on read: no writes, no second Gemini call, and it
+   * disappears by itself the moment the score comes up.
+   */
+  const weakest = plan.days
+    .flatMap((d) => d.tasks)
+    .filter((t) => t.type !== 'review')
+    .map((t) => ({ t, s: stat.get(t.scenarioId) }))
+    .filter((x) => (x.s?.attempts ?? 0) >= 1 && (x.s?.best ?? 100) < MASTERY.bronze)
+    .sort((a, b) => (a.s?.best ?? 0) - (b.s?.best ?? 0))[0];
+
+  let injected = false;
   const days = plan.days.map((d) => {
-    const tasks = d.tasks.map((t) => {
-      const s = stat.get(t.scenarioId);
-      const n = s?.attempts ?? 0;
-      // A review only counts once they have come BACK to the scenario.
-      const done = t.type === 'review' ? n >= 2 : n >= 1;
-      const m = meta.get(t.scenarioId);
-      return {
-        ...t,
-        title: m?.title ?? 'Scenario',
-        level: m?.difficulty_level ?? null,
-        language: m?.language ?? 'en',
-        attempts: n,
-        best: s?.best ?? null,
-        mastery: masteryFor(s?.best ?? null),
-        done,
-        // A scenario that vanished from the library must not strand the day.
-        missing: !m,
-      };
-    });
-    return { ...d, tasks, done: tasks.every((t) => t.done || t.missing) };
+    const tasks = d.tasks.map(view);
+    const dayDone = tasks.every((t) => t.done || t.missing);
+
+    // Only the first not-yet-finished day gets it, and only if that day is not
+    // already retrying the same scenario.
+    if (weakest && !injected && !dayDone && !d.tasks.some((t) => t.scenarioId === weakest.t.scenarioId)) {
+      injected = true;
+      const extra = view({
+        type: 'review',
+        scenarioId: weakest.t.scenarioId,
+        why: `You scored ${Math.round(weakest.s?.best ?? 0)} here. Go again and beat it.`,
+      });
+      if (!extra.missing) {
+        const withExtra = [...tasks, { ...extra, adaptive: true as const }];
+        return { ...d, tasks: withExtra, done: withExtra.every((t) => t.done || t.missing) };
+      }
+    }
+    return { ...d, tasks, done: dayDone };
   });
 
   const currentDay = days.find((d) => !d.done)?.day ?? days[days.length - 1]?.day ?? 1;
-  return { headline: plan.headline, days, currentDay };
+  // The week is finished when every day is; that is what unlocks the next one.
+  const weekComplete = days.length > 0 && days.every((d) => d.done);
+  return { headline: plan.headline, week: plan.week ?? 1, days, currentDay, weekComplete };
 }
 
 /**
@@ -216,22 +252,62 @@ router.post('/intake', wrap(async (req: AuthenticatedRequest, res: Response) => 
   }
 }));
 
-/** POST /api/journey/plan/refresh — rebuild from the saved intake, no re-asking. */
+/** The saved intake, or null. Both plan endpoints need it and neither re-asks. */
+async function savedIntake(userId: string): Promise<{ intake: unknown; name: string } | null> {
+  const row = await db.query(
+    "SELECT name, metadata->'intake' AS intake FROM users WHERE id = $1 AND deleted_at IS NULL",
+    [userId],
+  );
+  const saved = row.rows[0]?.intake;
+  return saved ? { intake: saved, name: row.rows[0].name ?? '' } : null;
+}
+
+/**
+ * POST /api/journey/plan/next-week — build the next 7 days.
+ *
+ * Only once the current week is actually finished, so the button cannot be used
+ * to skip the work. generatePlan() reads their scores itself: what they mastered
+ * drops out of the shortlist and what they struggled with comes back.
+ */
+router.post('/plan/next-week', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const current = await getPlan(me);
+  if (!current) {
+    return res.status(400).json({ success: false, error: { code: 'NO_PLAN', message: 'Answer the questions first.' } });
+  }
+  const progress = await withProgress(me, current);
+  if (!progress.weekComplete) {
+    return res.status(409).json({ success: false, error: { code: 'WEEK_UNFINISHED', message: 'Finish this week first.' } });
+  }
+  if (await plansToday(me) >= PLAN_LIMIT_PER_DAY) {
+    return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can build ${PLAN_LIMIT_PER_DAY} plans a day. Try again tomorrow.` } });
+  }
+  const saved = await savedIntake(me);
+  if (!saved) {
+    return res.status(400).json({ success: false, error: { code: 'NO_INTAKE', message: 'Answer the questions first.' } });
+  }
+  try {
+    const plan = await generatePlan(me, normaliseIntake(saved.intake), saved.name, (current.week ?? 1) + 1);
+    res.json({ success: true, data: { plan: await withProgress(me, plan) } });
+  } catch (err) {
+    logger.error({ err, userId: me }, 'next week generation failed');
+    res.status(502).json({ success: false, error: { code: 'PLAN_FAILED', message: 'Could not build next week right now.' } });
+  }
+}));
+
+/** POST /api/journey/plan/refresh — rebuild THIS week from the saved intake. */
 router.post('/plan/refresh', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
   if (await plansToday(me) >= PLAN_LIMIT_PER_DAY) {
     return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can rebuild your plan ${PLAN_LIMIT_PER_DAY} times a day. Try again tomorrow.` } });
   }
-  const row = await db.query(
-    "SELECT name, metadata->'intake' AS intake FROM users WHERE id = $1 AND deleted_at IS NULL",
-    [me],
-  );
-  const saved = row.rows[0]?.intake;
+  const saved = await savedIntake(me);
   if (!saved) {
     return res.status(400).json({ success: false, error: { code: 'NO_INTAKE', message: 'Answer the questions first.' } });
   }
+  const week = (await getPlan(me))?.week ?? 1;
   try {
-    const plan = await generatePlan(me, normaliseIntake(saved), row.rows[0].name ?? '');
+    const plan = await generatePlan(me, normaliseIntake(saved.intake), saved.name, week);
     res.json({ success: true, data: { plan: await withProgress(me, plan) } });
   } catch (err) {
     logger.error({ err, userId: me }, 'plan refresh failed');

@@ -3,12 +3,15 @@ import { logger } from '../config/logger';
 import { callAIService } from '../utils/ai-service-client';
 import {
   INTAKE_IDS, INTAKE_LIMITS, MINUTES_PER_DAY, DAYS_PER_WEEK, INDIAN_STATES,
-  PLAN_TASK_TYPES, TASK_MINUTES, type Intake, type JourneyPlan, type PlanTaskType,
+  PLAN_TASK_TYPES, TASK_MINUTES, MASTERY,
+  type Intake, type JourneyPlan, type PlanTaskType,
 } from '@avatar-platform/shared';
+import { shortlist, MASTERED_AT, type CatalogueRow } from './plan-shortlist';
 
 /** Plans a user may generate per day. Guards the Gemini bill and the DB. */
 export const PLAN_LIMIT_PER_DAY = 3;
-const PLAN_DAYS = 14;
+/** One week at a time. Finishing a week generates the next one from real scores. */
+export const PLAN_DAYS = 7;
 const PLAN_TIMEOUT_MS = 30_000;
 
 // --- validation -------------------------------------------------------------
@@ -117,32 +120,57 @@ function fitTheDay(tasks: { type: PlanTaskType; scenarioId: string; why: string 
   return kept;
 }
 
-interface CatalogueRow {
-  id: string;
-  title: string;
-  difficulty_level: string | null;
-  tags: string[] | null;
-  description: string | null;
+/** Best score per scenario for this user. The only progress store there is. */
+async function bestScores(userId: string): Promise<Map<string, number>> {
+  const res = await db.query(
+    `SELECT s.scenario_id, MAX(sc.overall_score)::float AS best
+       FROM sessions s
+       JOIN session_scores sc ON sc.session_id = s.id
+      WHERE s.user_id = $1
+      GROUP BY s.scenario_id`,
+    [userId],
+  );
+  return new Map(res.rows.map((r) => [r.scenario_id as string, Number(r.best)]));
 }
 
 /**
- * Build a plan for this user and persist it.
+ * Build one WEEK of the journey for this user and persist it as that week.
  *
- * Every scenarioId the model returns is checked against the catalogue we sent
+ * Week 1 comes from the questionnaire alone. Every week after that is built from
+ * what they actually scored: anything they reached silver on is dropped from the
+ * shortlist (they have it), anything they scored badly on is handed to the model
+ * as unfinished business to bring back. That is what makes week 2 a continuation
+ * rather than a reshuffle of the same deck.
+ *
+ * Every scenarioId the model returns is checked against the shortlist we sent
  * before it reaches the database, so a hallucinated id can never become a task
  * the learner cannot open.
  */
-export async function generatePlan(userId: string, intake: Intake, learnerName: string): Promise<JourneyPlan> {
+export async function generatePlan(
+  userId: string,
+  intake: Intake,
+  learnerName: string,
+  week = 1,
+): Promise<JourneyPlan> {
   const catalogue = await db.query(
     `SELECT id, title, difficulty_level, tags, description
        FROM scenarios
-      WHERE deleted_at IS NULL AND visibility = 'public' AND created_by IS NULL
-      ORDER BY difficulty_level, title
-      LIMIT 200`,
+      WHERE deleted_at IS NULL AND visibility = 'public' AND created_by IS NULL`,
   );
   if (catalogue.rows.length === 0) throw new Error('scenario catalogue is empty');
 
-  const byId = new Map(catalogue.rows.map((r) => [r.id, r]));
+  const best = await bestScores(userId);
+  const mastered = new Set([...best].filter(([, s]) => s >= MASTERED_AT).map(([id]) => id));
+  const candidates = shortlist(catalogue.rows as CatalogueRow[], intake, mastered);
+  if (candidates.length === 0) throw new Error('nothing left to practise for this intake');
+
+  const byId = new Map(candidates.map((r) => [r.id, r]));
+
+  // Unfinished business: attempted, still below bronze, and still on the list.
+  const unfinished = candidates
+    .filter((r) => (best.get(r.id) ?? 100) < MASTERY.bronze)
+    .slice(0, 6)
+    .map((r) => ({ id: r.id, title: r.title, best: Math.round(best.get(r.id) ?? 0) }));
 
   const res = await callAIService({
     path: '/plan/generate',
@@ -151,7 +179,9 @@ export async function generatePlan(userId: string, intake: Intake, learnerName: 
       intake,
       learner_name: learnerName.slice(0, 40),
       days: PLAN_DAYS,
-      catalogue: catalogue.rows.map((r) => ({
+      week,
+      unfinished,
+      catalogue: candidates.map((r) => ({
         id: r.id,
         title: r.title,
         difficulty: r.difficulty_level ?? '',
@@ -162,37 +192,47 @@ export async function generatePlan(userId: string, intake: Intake, learnerName: 
   });
   const raw = (await res.json()) as JourneyPlan;
 
+  // The ramp is measured from the start of the JOURNEY, not of the week: by week
+  // three a "from day 10" scenario is legal on the first day of the week.
+  const dayOffset = (week - 1) * PLAN_DAYS;
+
   const days = (raw.days ?? [])
     .map((d, i) => ({
       day: i + 1,
       focus: clean(d.focus, 60),
       tasks: (d.tasks ?? [])
         .filter((t) => byId.has(t.scenarioId) && PLAN_TASK_TYPES.includes(t.type as PlanTaskType))
-        .filter((t) => unlockDay(intake.intensity, byId.get(t.scenarioId)!.difficulty_level) <= i + 1)
+        .filter((t) => unlockDay(intake.intensity, byId.get(t.scenarioId)!.difficulty_level) <= dayOffset + i + 1)
         .slice(0, INTAKE_LIMITS.tasksPerDay)
         .map((t) => ({ type: t.type, scenarioId: t.scenarioId, why: clean(t.why, 160) })),
     }))
     .map((d) => ({ ...d, tasks: fitTheDay(d.tasks, intake.minutesPerDay) }))
     .filter((d) => d.tasks.length > 0)
-    .slice(0, INTAKE_LIMITS.planDays)
+    .slice(0, PLAN_DAYS)
     // Dropping an illegal task can empty a day, so renumber after filtering.
     .map((d, i) => ({ ...d, day: i + 1 }));
 
   if (days.length === 0) throw new Error('plan had no usable days');
 
-  const plan: JourneyPlan = { headline: clean(raw.headline, 120), days };
-  await db.query('INSERT INTO journey_plans (user_id, plan) VALUES ($1, $2::jsonb)', [userId, JSON.stringify(plan)]);
-  logger.info({ userId, days: days.length }, 'journey plan generated');
+  const plan: JourneyPlan = { headline: clean(raw.headline, 120), week, days };
+  await db.query(
+    `INSERT INTO journey_plans (user_id, week, plan) VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT ON CONSTRAINT journey_plans_user_week_unique
+     DO UPDATE SET plan = EXCLUDED.plan, created_at = NOW()`,
+    [userId, week, JSON.stringify(plan)],
+  );
+  logger.info({ userId, week, days: days.length, shortlisted: candidates.length }, 'journey week generated');
   return plan;
 }
 
-/** The live plan is simply the newest row. */
+/** The live plan is the highest week they have reached. */
 export async function getPlan(userId: string): Promise<JourneyPlan | null> {
   const res = await db.query(
-    'SELECT plan FROM journey_plans WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+    'SELECT week, plan FROM journey_plans WHERE user_id = $1 ORDER BY week DESC LIMIT 1',
     [userId],
   );
-  return res.rows[0]?.plan ?? null;
+  const row = res.rows[0];
+  return row ? { ...row.plan, week: row.week } : null;
 }
 
 /** Exposed for the self-check in plan-service.test.ts. */
