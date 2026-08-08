@@ -50,6 +50,10 @@ export const CATEGORIES: CatalogCategory[] = [
     match: [], // the default home for the seeded library
     tracks: [
       { key: 'cold-calls', label: 'Cold Calls', blurb: 'Earn the first thirty seconds.', match: ['cold-call'] },
+      // Declared before renewals and objections on purpose: these rows also carry
+      // 'cross-sell' and 'objection-handling', and first-hit-wins would swallow them.
+      { key: 'banca', label: 'Bancassurance', blurb: 'They came in for banking, not insurance.', match: ['bancassurance'] },
+      { key: 'compliance', label: 'Compliance & Ethics', blurb: 'The sale you are supposed to lose.', match: ['compliance', 'mis-selling', 'suitability'] },
       { key: 'objections', label: 'Objections', blurb: 'Price, doubt and "I will think about it".', match: ['objection-handling', 'closing', 'follow-up'] },
       { key: 'renewals', label: 'Renewals & Service', blurb: 'Keep them, and grow them.', match: ['renewal', 'retention', 'upsell', 'claims', 'service', 'cross-sell'] },
       { key: 'commercial', label: 'Commercial & B2B', blurb: 'Businesses, not households.', match: ['b2b', 'sme', 'group', 'keyman', 'logistics', 'startup'] },
@@ -88,10 +92,10 @@ export const CATEGORIES: CatalogCategory[] = [
     label: 'Negotiation',
     blurb: 'Hold your position without losing the room.',
     image: '/categories/negotiation.webp',
-    // Deliberately not matching the bare 'negotiation' tag: the only seeded scenario
-    // carrying it is an insurance renewal, and pulling it out of Sales to be the lone
-    // occupant of this category reads as broken. Empty until real content is seeded.
-    match: ['vendor', 'procurement', 'contract-terms'],
+    // 'negotiation' is now the category tag (the one insurance renewal that used to
+    // carry it was retagged in the seed, so it stays in Sales where it belongs).
+    // 'pricing' is here as well as on the track: a price negotiation is not a sale.
+    match: ['negotiation', 'vendor', 'procurement', 'contract-terms', 'pricing'],
     tracks: [
       { key: 'pricing', label: 'Pricing', blurb: 'Defend the number.', match: ['pricing'] },
       { key: 'vendor', label: 'Vendors', blurb: 'Buying, not selling.', match: ['vendor', 'procurement'] },
