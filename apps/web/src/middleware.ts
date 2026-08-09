@@ -4,7 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 const PUBLIC_PATHS = ['/', '/login'];
 
 const PUBLIC_PREFIXES = ['/api/', '/_next/', '/favicon.ico'];
-const STATIC_EXTENSIONS = /\.(ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|otf|css|js|map)$/;
+// Anything served straight out of public/. An extension missing here is not a subtle
+// bug: the asset 307s to /login and the browser gets an HTML page where it wanted
+// media, which surfaces as an unplayable video rather than as an auth redirect.
+const STATIC_EXTENSIONS =
+  /\.(ico|png|jpg|jpeg|gif|svg|webp|avif|woff|woff2|ttf|otf|css|js|map|mp4|webm|mov|m4v|ogv|mp3|wav|m4a|ogg|pdf|txt|xml|json|webmanifest)$/;
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))) return true;

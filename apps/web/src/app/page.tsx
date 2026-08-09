@@ -86,11 +86,28 @@ export default function Landing() {
         </div>
       </header>
 
-      {/* Hero — Bixy image as the full-bleed background, brand text overlaid */}
+      {/* Hero — Bixy video as the full-bleed background, brand text overlaid */}
       <section className="relative isolate flex min-h-[90vh] items-center overflow-hidden bg-white">
+        {/* The still stays underneath: it paints immediately, it is what shows if the
+            video cannot play, and it is the whole hero for anyone who asked for less
+            motion. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/landing/hero-full.png" alt="Bixy, your AI speaking coach, listening in 70+ languages"
           className="absolute inset-0 -z-20 h-full w-full object-cover" />
+        {/* muted + playsInline are what make autoplay legal on iOS and Chrome; without
+            both, the hero is a frozen first frame. */}
+        <video
+          src="/landing/video.mp4"
+          poster="/landing/hero-full.png"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-hidden
+          tabIndex={-1}
+          className="absolute inset-0 -z-20 h-full w-full object-cover motion-reduce:hidden"
+        />
         {/* Legibility scrim: bright on the left for the text, clear over Bixy on the right */}
         {/* Legibility scrim. It has to clear the LONGEST rotating word, not the
             shortest, or "price objection" lands on the busy artwork. */}
