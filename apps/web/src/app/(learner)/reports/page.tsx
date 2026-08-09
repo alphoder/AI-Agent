@@ -3,12 +3,18 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, ArrowLeft, PersonStanding, Download, Flag } from 'lucide-react';
+import { Loader2, ArrowLeft, PersonStanding, Download, Flag, Check, X } from 'lucide-react';
 import { ScoreRing, SplitBar } from '@/components/charts/charts';
 import apiClient from '@/lib/api-client';
 import type { ReportData } from '@/components/report-pdf';
+import { gradeFor, PASS_MARK } from '@avatar-platform/shared';
+import { GradeBadge } from '@/components/ui/grade-badge';
 
-interface CriteriaScore { criterion_name: string; score: number; weight: number; justification: string }
+interface CriteriaScore {
+  criterion_name: string; score: number; weight: number; justification: string;
+  /** Added by the scorer; older rows predate them, hence optional. */
+  passed?: boolean; off_rubric?: boolean;
+}
 interface Report {
   overall_score: number;
   criteria_scores: CriteriaScore[];
@@ -139,6 +145,15 @@ function ReportView({ sessionId }: { sessionId: string }) {
   }
   if (error || !report) return <p className="text-sm text-destructive">{error || 'Report not found.'}</p>;
 
+  const passed = report.overall_score >= PASS_MARK;
+  const grade = gradeFor(report.overall_score, 1);
+  const passedCount = report.criteria_scores.filter((c) => c.passed ?? c.score >= 3).length;
+  // Weakest first: the top of this list is the shortest route to a pass. Off-rubric
+  // extras sink to the bottom, since they cannot move the grade either way.
+  const graded = [...report.criteria_scores].sort(
+    (a, b) => Number(a.off_rubric ?? false) - Number(b.off_rubric ?? false) || a.score - b.score || b.weight - a.weight,
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -155,43 +170,43 @@ function ReportView({ sessionId }: { sessionId: string }) {
         </button>
       </div>
 
-      {/* The score is the headline: one dial, then the detail. */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex items-center gap-5 rounded-2xl border border-border/50 bg-card p-6">
+      {/* The verdict is the headline. A score with no pass mark next to it makes the
+          learner guess whether 68 was good; this says so outright. */}
+      <div className={`rounded-2xl border p-6 ${passed ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}>
+        <div className="flex flex-wrap items-center gap-5">
           <ScoreRing score={report.overall_score} size={96} stroke={8} />
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Overall</p>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {report.overall_score >= 85 ? 'Excellent call.'
-                : report.overall_score >= 70 ? 'Strong call.'
-                : report.overall_score >= 50 ? 'Solid, with room to push.'
-                : 'Worth another run.'}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <GradeBadge grade={grade} />
+              <span className="text-xs text-muted-foreground">pass mark {PASS_MARK}</span>
+            </div>
+            <p className="mt-1.5 text-lg font-semibold leading-snug">
+              {passed ? 'Passed. This one is done.' : `${Math.max(1, Math.ceil(PASS_MARK - report.overall_score))} points short of a pass.`}
             </p>
-            {meta?.duration_sec != null && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {Math.floor(meta.duration_sec / 60)}m {meta.duration_sec % 60}s spoken
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-5 rounded-2xl border border-border/50 bg-card p-6">
-          {report.body_language_score != null ? (
-            <ScoreRing score={report.body_language_score} size={96} stroke={8} />
-          ) : (
-            <PersonStanding className="h-12 w-12 shrink-0 text-muted-foreground" />
-          )}
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Body language</p>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {report.body_language_score != null ? 'Posture, presence and eye contact.' : 'Camera was off, so nothing was read.'}
+              {passed
+                ? 'It has moved to Completed. Run it again any time to raise the score.'
+                : 'It stays in Scenarios until you clear the mark. The weakest criteria below are where the points are.'}
+            </p>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {meta?.duration_sec != null && <>{Math.floor(meta.duration_sec / 60)}m {meta.duration_sec % 60}s spoken · </>}
+              {passedCount} of {report.criteria_scores.length} criteria passed
+              {report.body_language_score != null && <> · body language {Math.round(report.body_language_score)}</>}
             </p>
           </div>
         </div>
       </div>
 
-      {report.body_language_feedback && (
+      {/* Only when the camera was actually on. The old empty-ring tile said "camera
+          was off" in a box the size of the score, which is a lot of report given to
+          something that did not happen. */}
+      {report.body_language_score != null && report.body_language_feedback && (
         <div className="rounded-2xl border border-border/50 bg-card p-5">
-          <h3 className="text-sm font-semibold mb-1">Body language</h3>
+          <div className="mb-1 flex items-center gap-2">
+            <PersonStanding className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Body language</h3>
+            <span className="text-xs tabular-nums text-muted-foreground">{Math.round(report.body_language_score)}/100</span>
+          </div>
           <p className="text-sm text-muted-foreground">{report.body_language_feedback}</p>
         </div>
       )}
@@ -216,22 +231,37 @@ function ReportView({ sessionId }: { sessionId: string }) {
           heading over nothing reads as a broken page. */}
       {report.criteria_scores.length > 0 && (
       <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
-        <h3 className="text-sm font-semibold">Rubric breakdown</h3>
-        {report.criteria_scores.map((c, i) => (
-          <div key={i}>
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="font-medium">{c.criterion_name}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">
-                <span className="font-semibold text-foreground">{Math.round((c.score / 5) * 100)}</span>
-                <span className="ml-1.5 text-xs">weight {c.weight}%</span>
-              </span>
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="text-sm font-semibold">Graded against the rubric</h3>
+          <span className="text-xs text-muted-foreground">weakest first · pass is 3 of 5</span>
+        </div>
+        {graded.map((c, i) => {
+          const pct = Math.round((c.score / 5) * 100);
+          const ok = c.passed ?? c.score >= 3;
+          return (
+            <div key={i}>
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="flex min-w-0 items-center gap-1.5 font-medium">
+                  {ok ? <Check className="h-3.5 w-3.5 shrink-0 text-success" /> : <X className="h-3.5 w-3.5 shrink-0 text-destructive" />}
+                  <span className="truncate">{c.criterion_name}</span>
+                  {c.off_rubric && (
+                    <span title="Not part of this scenario's rubric, so it does not affect the score"
+                      className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">extra</span>
+                  )}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  <span className={`font-semibold ${ok ? 'text-foreground' : 'text-destructive'}`}>{c.score}/5</span>
+                  <span className="ml-1.5 text-xs">{c.weight}% of grade</span>
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className={`h-full rounded-full transition-[width] duration-500 ease-out ${ok ? 'bg-success' : 'bg-destructive'}`}
+                  style={{ width: `${Math.max(2, pct)}%` }} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">{c.justification}</p>
             </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out" style={{ width: `${Math.max(2, (c.score / 5) * 100)}%` }} />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1.5">{c.justification}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
       )}
 

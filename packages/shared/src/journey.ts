@@ -47,6 +47,39 @@ export const JOURNEY_MINUTES = 10; // nominal module length shown in the header
 export const MASTERY = { bronze: 50, silver: 70, gold: 85 } as const;
 export type Mastery = 'none' | 'bronze' | 'silver' | 'gold';
 
+/**
+ * The pass mark. At or above it a scenario counts as COMPLETED: it leaves the
+ * learner's Scenarios list and lands on Completed. Below the fail mark the attempt
+ * counts as FAILED and the scenario stays in Scenarios to be retried.
+ *
+ * Deliberately the existing mastery cutoffs rather than two new numbers, so a
+ * silver crown and "completed" can never disagree.
+ */
+export const PASS_MARK = MASTERY.silver;   // 70
+export const FAIL_MARK = MASTERY.bronze;   // below 50 is a fail
+
+/** completed = green · attempted = yellow · failed = red · none = never tried. */
+export type Grade = 'completed' | 'attempted' | 'failed' | 'none';
+
+export const GRADE_LABEL: Record<Grade, string> = {
+  completed: 'Completed',
+  attempted: 'Attempted',
+  failed: 'Failed',
+  none: 'Not tried',
+};
+
+/**
+ * Grade a scenario from the learner's BEST score on it, not their latest: one bad
+ * run after a good one must not un-complete something they have already proved.
+ * `attempts` distinguishes "never tried" from "tried and scored nothing".
+ */
+export function gradeFor(best: number | null, attempts = 0): Grade {
+  if (best == null) return attempts > 0 ? 'failed' : 'none';
+  if (best >= PASS_MARK) return 'completed';
+  if (best >= FAIL_MARK) return 'attempted';
+  return 'failed';
+}
+
 export function masteryFor(best: number | null): Mastery {
   if (best == null) return 'none';
   if (best >= MASTERY.gold) return 'gold';

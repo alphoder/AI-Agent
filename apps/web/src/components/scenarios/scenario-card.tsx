@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { Mic, Pencil, Globe, Lock, Languages } from 'lucide-react';
+import type { Grade } from '@avatar-platform/shared';
+import { GradeBadge } from '@/components/ui/grade-badge';
 
 export interface Scenario {
   id: string;
@@ -23,7 +25,10 @@ export const DIFFICULTY_STYLE: Record<string, string> = {
 
 export const DIFFICULTIES = ['beginner', 'intermediate', 'advanced'] as const;
 
-export function ScenarioCard({ s, starting, onStart }: { s: Scenario; starting: boolean; onStart: () => void }) {
+export function ScenarioCard({ s, starting, onStart, grade = 'none' }: {
+  s: Scenario; starting: boolean; onStart: () => void; grade?: Grade;
+}) {
+  const tried = grade !== 'none';
   return (
     <div className="group flex flex-col rounded-2xl border border-border bg-card p-5 transition-[box-shadow,border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
       <div className="flex items-start justify-between gap-2">
@@ -34,13 +39,14 @@ export function ScenarioCard({ s, starting, onStart }: { s: Scenario; starting: 
       </div>
       <p className="mt-1 line-clamp-2 flex-1 text-sm text-muted-foreground">{s.description}</p>
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <GradeBadge grade={grade} />
         <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${DIFFICULTY_STYLE[s.difficulty_level] || 'bg-muted text-muted-foreground'}`}>{s.difficulty_level}</span>
         <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground"><Languages className="h-3 w-3" /> {s.language.toUpperCase()}</span>
       </div>
       <div className="mt-4 flex items-center gap-2">
         <button onClick={onStart} disabled={starting}
           className="press flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-          <Mic className="h-4 w-4" /> {starting ? 'Starting…' : 'Practice'}
+          <Mic className="h-4 w-4" /> {starting ? 'Starting…' : tried ? 'Try again' : 'Practice'}
         </button>
         {s.is_owner && (
           <Link href={`/scenarios/edit/${s.id}`} className="press rounded-full border border-border p-2 text-muted-foreground hover:bg-muted" title="Edit"><Pencil className="h-4 w-4" /></Link>

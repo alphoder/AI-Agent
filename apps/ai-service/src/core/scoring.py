@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import re
 
 import httpx
 import structlog
@@ -112,6 +113,62 @@ def _format_rubric(rubric: list[dict]) -> str:
             header += "\nLevels:\n" + "\n".join(lines)
         parts.append(header)
     return "\n\n".join(parts)
+
+
+_CRITERION_PASS = 3.0   # the rubric's own middle level is the line between weak and acceptable
+
+
+def _norm(name: str) -> str:
+    """Match criterion names loosely: the model re-cases and re-punctuates them."""
+    return re.sub(r"[^a-z0-9]+", "", str(name or "").lower())
+
+
+def _grade(returned: list[dict], rubric: list[dict]) -> list[dict]:
+    """
+    Re-attach the RUBRIC's weight to each criterion the model scored.
+
+    The model is asked to echo the weights back and mostly does, but it is free text:
+    it drifts them, renormalises them, or invents a criterion. Trusting those numbers
+    means the model decides how much each criterion is worth, which is the one part of
+    scoring that must not be negotiable. The rubric is the authority; the model only
+    supplies the 1-5 judgement and the justification.
+
+    Anything the model returns that is not in the rubric is kept and shown, but carries
+    zero weight, so an invented criterion cannot move the grade.
+    """
+    by_name = {_norm(c.get("name")): c for c in rubric}
+    out: list[dict] = []
+    for c in returned:
+        name = str(c.get("criterion_name") or c.get("name") or "").strip()
+        match = by_name.get(_norm(name))
+        raw = c.get("score", 0)
+        try:
+            score = max(0.0, min(5.0, float(raw)))   # a 1-5 rubric; 7 or -1 is not a score
+        except (TypeError, ValueError):
+            score = 0.0
+        weight = float(match.get("weight", 0) or 0) if match else 0.0
+        out.append({
+            "criterion_name": match.get("name") if match else name,
+            "score": score,
+            "weight": weight,
+            "justification": str(c.get("justification") or "").strip(),
+            # Surfaced so the report can mark the criterion pass/fail per-line.
+            "passed": score >= _CRITERION_PASS,
+            "off_rubric": match is None,
+        })
+    if any(c["off_rubric"] for c in out):
+        logger.warning("scoring.off_rubric_criteria",
+                       names=[c["criterion_name"] for c in out if c["off_rubric"]][:5])
+    return out
+
+
+def _overall(criteria: list[dict]) -> float:
+    """Weighted 0-100. Falls back to an equal-weight mean when no criterion matched."""
+    total = sum(c["weight"] for c in criteria)
+    if total > 0:
+        return round(sum((c["score"] / 5.0) * c["weight"] for c in criteria) / total * 100.0, 1)
+    scored = [c["score"] for c in criteria]
+    return round(sum(scored) / len(scored) / 5.0 * 100.0, 1) if scored else 0.0
 
 
 def _format_notes(notes: list[dict]) -> str:
@@ -343,22 +400,8 @@ class ScoringEngine:
         if result is None:
             raise RuntimeError(f"Scoring failed after 2 attempts: {last_error}")
 
-        criteria_scores = result.get("criteria_scores", [])
-        # Normalise by the ACTUAL total weight, not a hardcoded 100 — so the 0-100
-        # score is correct even if the rubric's weights don't sum to 100 or the model
-        # returns fractional weights (e.g. 0.33 instead of 33, which otherwise yields
-        # a nonsensical ~0.4 instead of ~40).
-        total_weight = sum((c.get("weight", 0) or 0) for c in criteria_scores)
-        if total_weight > 0:
-            overall_score = round(
-                sum((c.get("score", 0) / 5.0) * (c.get("weight", 0) or 0) for c in criteria_scores)
-                / total_weight * 100.0,
-                1,
-            )
-        else:
-            # Model omitted weights entirely — fall back to an equal-weight average.
-            scores = [c.get("score", 0) for c in criteria_scores]
-            overall_score = round(sum(scores) / len(scores) / 5.0 * 100.0, 1) if scores else 0.0
+        criteria_scores = _grade(result.get("criteria_scores", []), actual_rubric)
+        overall_score = _overall(criteria_scores)
 
         return {
             "overall_score": overall_score,

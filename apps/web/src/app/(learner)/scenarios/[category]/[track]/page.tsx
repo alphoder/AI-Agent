@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useParams, notFound } from 'next/navigation';
 import { ChevronLeft, Search, Dices, ArrowUpDown, Mic } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { fetchAllScenarios } from '@/lib/scenarios';
-import { categoryByKey, trackByKey, categoryFor, trackFor, languageName } from '@avatar-platform/shared';
+import { fetchAllScenarios, fetchMyGrades } from '@/lib/scenarios';
+import { categoryByKey, trackByKey, categoryFor, trackFor, languageName, gradeFor } from '@avatar-platform/shared';
 import { ScenarioCard, FilterPill, DIFFICULTIES, type Scenario } from '@/components/scenarios/scenario-card';
 
 const SORTS = [
@@ -29,6 +29,8 @@ export default function TrackPage() {
   const track = trackByKey(categoryKey, trackKey);
 
   const [all, setAll] = useState<Scenario[] | null>(null);
+  const [grades, setGrades] = useState<Map<string, { best: number | null; attempts: number }>>(new Map());
+  const [showPassed, setShowPassed] = useState(false);
   const [failed, setFailed] = useState(false);
   const [q, setQ] = useState('');
   const [difficulty, setDifficulty] = useState<string | null>(null);
@@ -41,7 +43,9 @@ export default function TrackPage() {
   async function load() {
     setFailed(false);
     try {
-      setAll(await fetchAllScenarios());
+      const [list, mine] = await Promise.all([fetchAllScenarios(), fetchMyGrades()]);
+      setAll(list);
+      setGrades(mine);
     } catch {
       setFailed(true);
       setAll([]);
@@ -58,6 +62,10 @@ export default function TrackPage() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase().slice(0, 100);
     const out = inTrack.filter((s) => {
+      // Passed scenarios leave this list: they live on Completed now. Failed and
+      // attempted ones stay, because the next thing to do with them is run them again.
+      const g = grades.get(s.id);
+      if (!showPassed && gradeFor(g?.best ?? null, g?.attempts ?? 0) === 'completed') return false;
       if (difficulty && s.difficulty_level !== difficulty) return false;
       if (language && s.language !== language) return false;
       if (!needle) return true;
@@ -73,7 +81,7 @@ export default function TrackPage() {
     else if (sort === 'level-desc') out.sort((a, b) => (LEVEL_ORDER[b.difficulty_level] ?? 9) - (LEVEL_ORDER[a.difficulty_level] ?? 9));
     // 'newest' keeps the API's order, which is already newest-first.
     return out;
-  }, [inTrack, q, difficulty, language, sort]);
+  }, [inTrack, q, difficulty, language, sort, grades, showPassed]);
 
   if (!category || !track) notFound();
 
@@ -122,6 +130,9 @@ export default function TrackPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          <FilterPill active={showPassed} onClick={() => setShowPassed((v) => !v)}>
+            {showPassed ? 'Hide passed' : 'Show passed'}
+          </FilterPill>
           <FilterPill active={!difficulty} onClick={() => setDifficulty(null)}>All levels</FilterPill>
           {DIFFICULTIES.map((d) => (
             <FilterPill key={d} active={difficulty === d} onClick={() => setDifficulty(d)}><span className="capitalize">{d}</span></FilterPill>
@@ -177,7 +188,9 @@ export default function TrackPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((s) => (
-            <ScenarioCard key={s.id} s={s} starting={false} onStart={() => router.push(`/scenarios/module/${s.id}`)} />
+            <ScenarioCard key={s.id} s={s} starting={false}
+              grade={gradeFor(grades.get(s.id)?.best ?? null, grades.get(s.id)?.attempts ?? 0)}
+              onStart={() => router.push(`/scenarios/module/${s.id}`)} />
           ))}
         </div>
       )}

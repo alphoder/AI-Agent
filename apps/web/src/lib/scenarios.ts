@@ -12,6 +12,19 @@ const MAX_PAGES = 10;   // 600 scenarios; a runaway guard, not a real ceiling
  * which silently under-counted a 36-scenario library. Page until the API says
  * there is nothing left.
  */
+/** My grade on each scenario I have attempted, keyed by scenario id. */
+export async function fetchMyGrades(): Promise<Map<string, { best: number | null; attempts: number }>> {
+  // ponytail: /analytics/completed already returns every attempted scenario with its
+  // best score, so browse reuses it rather than adding a second progress endpoint.
+  try {
+    const { data } = await apiClient.get('/analytics/completed');
+    const rows = (data.data ?? []) as { scenarioId: string; best: number | null; attempts: number }[];
+    return new Map(rows.map((r) => [r.scenarioId, { best: r.best, attempts: r.attempts }]));
+  } catch {
+    return new Map();   // browse still works, just without badges
+  }
+}
+
 export async function fetchAllScenarios(): Promise<Scenario[]> {
   const out: Scenario[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
