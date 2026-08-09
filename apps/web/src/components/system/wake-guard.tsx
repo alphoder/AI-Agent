@@ -32,8 +32,13 @@ export function WakeGuard() {
     let cancelled = false;
 
     (async () => {
-      // Fast first probe — if the API answers quickly it is already warm.
-      if (await probe(2500)) return;
+      // First probe. This budget is what decides whether the overlay is ever
+      // seen, so it is generous on purpose: a warm-but-slow free-tier API (or a
+      // slow connection) answering in 3-6s is NOT cold, and flashing "Starting
+      // things up" at someone whose backend is fine is worse than waiting.
+      // Only a genuinely unreachable API should get past this.
+      // ponytail: one threshold, no backoff curve — raise it if real p99 exceeds it.
+      if (await probe(8000)) return;
       if (cancelled) return;
 
       setCold(true);
@@ -41,7 +46,10 @@ export function WakeGuard() {
       // gate must never trap the user: if the probe keeps failing (cold start,
       // CORS, blocked storage, offline), we still reveal the app and let its own
       // retries handle things.
-      const MAX_ATTEMPTS = 6; // ~ up to ~50s of cold-start grace
+      // Render's cold start is 30-60s. At 6 attempts this gave up around 50s and
+      // revealed a still-dead app to anyone on the slow end of that range, which
+      // reads as "the site is broken" rather than "the site is waking".
+      const MAX_ATTEMPTS = 10; // ~85s — past the far end of a real cold start
       for (let i = 0; i < MAX_ATTEMPTS && !cancelled; i++) {
         await new Promise((r) => setTimeout(r, 2500));
         if (cancelled) return;
