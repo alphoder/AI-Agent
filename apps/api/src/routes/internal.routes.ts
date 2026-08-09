@@ -126,6 +126,90 @@ router.get('/sessions/:id/transcript', async (req: Request, res: Response, next:
 });
 
 /**
+ * POST /api/internal/assistant/memory — append Bixy conversation turns to the
+ * user's 24-hour memory. Body: { user_id, entries: [{ role: 'user'|'assistant', text }] }.
+ * Expired rows are purged first; per-user rows are capped to the newest 300.
+ */
+router.post('/assistant/memory', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { user_id, entries } = req.body;
+    if (!user_id || !Array.isArray(entries) || entries.length === 0) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'user_id and entries required' } });
+    }
+    // TTL: anything older than 24h is gone before we write or read.
+    await db.query('DELETE FROM assistant_memory WHERE user_id = $1 AND expires_at <= NOW()', [user_id]);
+
+    let inserted = 0;
+    for (const e of entries) {
+      const role = e?.role === 'assistant' ? 'assistant' : 'user';
+      const text = typeof e?.text === 'string' ? e.text.trim().slice(0, 4000) : '';
+      if (!text) continue;
+      await db.query(
+        'INSERT INTO assistant_memory (user_id, role, text) VALUES ($1, $2, $3)',
+        [user_id, role, text],
+      );
+      inserted++;
+    }
+    // Hygiene cap — memory is short-term by design; keep the newest 300 rows.
+    await db.query(
+      `DELETE FROM assistant_memory
+       WHERE user_id = $1 AND id NOT IN (
+         SELECT id FROM assistant_memory WHERE user_id = $1 ORDER BY created_at DESC LIMIT 300
+       )`,
+      [user_id],
+    );
+
+    res.status(201).json({ success: true, data: { inserted } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/internal/assistant/memory — recall Bixy's 24-hour memory for a user.
+ * Query: { user_id, q?, limit? } — q does a loose word match over the text;
+ * without q the newest rows are returned. Newest first, capped at 60.
+ */
+router.get('/assistant/memory', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = String(req.query.user_id ?? '');
+    if (!userId) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_QUERY', message: 'user_id required' } });
+    }
+    await db.query('DELETE FROM assistant_memory WHERE user_id = $1 AND expires_at <= NOW()', [userId]);
+
+    const q = String(req.query.q ?? '').trim().slice(0, 120);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '30'), 10) || 30, 1), 60);
+    let rows: { role: string; text: string; created_at: Date }[] = [];
+
+    if (q) {
+      const words = q.split(/\s+/).filter(Boolean).slice(0, 6).map((w) => w.replace(/[%_]/g, ''));
+      if (words.length > 0) {
+        const cond = words.map((_, i) => `text ILIKE '%' || $${i + 2} || '%'`).join(' OR ');
+        const r = await db.query(
+          `SELECT role, text, created_at FROM assistant_memory
+           WHERE user_id = $1 AND (${cond})
+           ORDER BY created_at DESC LIMIT $${words.length + 2}`,
+          [userId, ...words, limit],
+        );
+        rows = r.rows;
+      }
+    } else {
+      const r = await db.query(
+        `SELECT role, text, created_at FROM assistant_memory
+         WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [userId, limit],
+      );
+      rows = r.rows;
+    }
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/internal/sessions/:id/score — save a score from the AI scorer.
  */
 router.post('/sessions/:id/score', async (req: Request, res: Response, next: NextFunction) => {

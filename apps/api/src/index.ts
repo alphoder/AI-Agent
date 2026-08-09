@@ -14,6 +14,19 @@ async function main() {
     logger.info(`API server running on port ${config.port}`);
   });
 
+  // Bixy's 24-hour conversation memory: sweep expired rows on boot and then
+  // every 15 minutes (unref'd so it never holds the process open at shutdown).
+  const sweepAssistantMemory = async () => {
+    try {
+      await db.query('DELETE FROM assistant_memory WHERE expires_at <= NOW()');
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'assistant memory sweep failed');
+    }
+  };
+  sweepAssistantMemory();
+  const memorySweep = setInterval(sweepAssistantMemory, 15 * 60 * 1000);
+  memorySweep.unref();
+
   setupGracefulShutdown(server);
 }
 

@@ -1,17 +1,22 @@
 import type { Metadata } from 'next';
-import localFont from 'next/font/local';
+import { Fraunces, Manrope } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
 
-// Satoshi — one grotesk across the whole site (body + display). Self-hosted.
-const satoshi = localFont({
-  src: [
-    { path: './fonts/Satoshi-400.woff2', weight: '400', style: 'normal' },
-    { path: './fonts/Satoshi-500.woff2', weight: '500', style: 'normal' },
-    { path: './fonts/Satoshi-700.woff2', weight: '700', style: 'normal' },
-    { path: './fonts/Satoshi-900.woff2', weight: '900', style: 'normal' },
-  ],
+// Brand register (DESIGN.md): Manrope carries the whole product (body, labels,
+// buttons, data); Fraunces (optical-size axis) is the landing display face only.
+// Next fetches both at build time and serves them self-hosted — no runtime CDN.
+const manrope = Manrope({
+  subsets: ['latin'],
   variable: '--font-sans',
+  display: 'swap',
+});
+
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  axes: ['opsz'],
+  style: ['normal', 'italic'],
+  variable: '--font-display',
   display: 'swap',
 });
 
@@ -25,7 +30,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={satoshi.variable}>
+    <html lang="en" className={`${manrope.variable} ${fraunces.variable}`}>
       <body className="font-sans">
         <Providers>{children}</Providers>
       </body>

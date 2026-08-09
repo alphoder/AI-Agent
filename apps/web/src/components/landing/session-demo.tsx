@@ -99,7 +99,7 @@ export function SessionDemo() {
           {METRICS.map((m) => (
             <div key={m.label} className="px-5 py-4">
               <div className="text-xs uppercase tracking-wide text-zinc-400">{m.label}</div>
-              <div className="mt-1 font-display text-lg text-zinc-900">{m.value}</div>
+              <div className="mt-1 text-lg font-semibold text-zinc-900">{m.value}</div>
             </div>
           ))}
         </div>

@@ -3,13 +3,27 @@ import { logger } from '../config/logger';
 import { callAIService } from '../utils/ai-service-client';
 import {
   INTAKE_IDS, INTAKE_LIMITS, MINUTES_PER_DAY, DAYS_PER_WEEK, INDIAN_STATES,
-  PLAN_TASK_TYPES, type Intake, type JourneyPlan, type PlanTaskType,
+  INTAKE_ROLES, INTAKE_INDUSTRIES, INTAKE_OUTCOMES, INTAKE_STRUGGLES,
+  PLAN_TASK_TYPES, JOURNEY_PLAN_LIMIT_PER_MONTH, JOURNEY_PASS_SCORE,
+  type Intake, type JourneyPlan, type JourneyPlanKind, type PlanTaskType,
 } from '@avatar-platform/shared';
 
-/** Plans a user may generate per day. Guards the Gemini bill and the DB. */
-export const PLAN_LIMIT_PER_DAY = 3;
+/**
+ * Plans a user may generate per month (intake build + rebuilds). Extended
+ * journeys are free: they are generated only when the current plan is finished
+ * and are counted separately (see plansThisMonth). Guards the Gemini bill.
+ */
+export const PLAN_LIMIT_PER_MONTH = JOURNEY_PLAN_LIMIT_PER_MONTH;
 const PLAN_DAYS = 14;
 const PLAN_TIMEOUT_MS = 30_000;
+
+// The pool of candidate scenarios sent to the model. Sending the whole
+// catalogue (up to 200 rows) makes the call slow and expensive; a curated,
+// relevance-ranked pool is cheaper, faster, and produces a tighter plan.
+const SCENARIO_POOL_SIZE = 48;
+// Never send a starved pool: if almost everything is passed, top up from passed
+// scenarios rather than handing the model nothing to work with.
+const POOL_MIN_FLOOR = 10;
 
 // --- validation -------------------------------------------------------------
 
@@ -93,24 +107,111 @@ interface CatalogueRow {
   description: string | null;
 }
 
+/** The learner's best score per scenario — the single source of "passed". */
+async function bestScores(userId: string): Promise<Map<string, number>> {
+  const res = await db.query(
+    `SELECT s.scenario_id, MAX(sc.overall_score)::float AS best
+       FROM sessions s
+       JOIN session_scores sc ON sc.session_id = s.id
+      WHERE s.user_id = $1
+      GROUP BY s.scenario_id`,
+    [userId],
+  );
+  return new Map(res.rows.map((r) => [r.scenario_id, Number(r.best)]));
+}
+
+/** Keywords that make a scenario relevant to THIS learner's answers. */
+function relevanceKeywords(intake: Intake): Set<string> {
+  const words = new Set<string>();
+  const add = (s: string) => {
+    for (const w of s.toLowerCase().split(/[^a-z0-9]+/)) if (w.length > 2) words.add(w);
+  };
+  add(intake.role);
+  add(intake.industry);
+  intake.outcomes.forEach(add);
+  intake.struggles.forEach(add);
+  // The ids are terse ('cold_calls'); the labels ('Open cold calls') carry more.
+  const opts = [...INTAKE_ROLES, ...INTAKE_INDUSTRIES, ...INTAKE_OUTCOMES, ...INTAKE_STRUGGLES];
+  for (const o of opts) {
+    if (intake.outcomes.includes(o.id) || intake.struggles.includes(o.id)
+      || intake.role === o.id || intake.industry === o.id) add(o.label);
+  }
+  return words;
+}
+
+function relevanceScore(row: CatalogueRow, keywords: Set<string>): number {
+  let score = 0;
+  for (const tag of row.tags ?? []) {
+    for (const w of tag.toLowerCase().split(/[^a-z0-9]+/)) if (w.length > 2 && keywords.has(w)) score += 1;
+  }
+  const title = (row.title ?? '').toLowerCase();
+  for (const w of title.split(/[^a-z0-9]+/)) if (w.length > 3 && keywords.has(w)) score += 2;
+  return score;
+}
+
 /**
- * Build a plan for this user and persist it.
+ * Pick the candidate pool the model may choose from.
  *
- * Every scenarioId the model returns is checked against the catalogue we sent
- * before it reaches the database, so a hallucinated id can never become a task
- * the learner cannot open.
+ * - Passed scenarios (best >= JOURNEY_PASS_SCORE) are excluded, so a plan never
+ *   re-trains mastered material. If that starves the pool, passed scenarios top
+ *   it back up (better a repeat than a threadbare plan).
+ * - Attempted-but-not-passed scenarios rank lower: prefer fresh material.
+ * - Tier-balanced: each difficulty level gets an equal share of the pool so the
+ *   model can still build the difficulty ramp the plan needs.
  */
-export async function generatePlan(userId: string, intake: Intake, learnerName: string): Promise<JourneyPlan> {
+async function selectScenarioPool(userId: string, intake: Intake, limit = SCENARIO_POOL_SIZE): Promise<CatalogueRow[]> {
   const catalogue = await db.query(
     `SELECT id, title, difficulty_level, tags, description
        FROM scenarios
-      WHERE deleted_at IS NULL AND visibility = 'public' AND created_by IS NULL
-      ORDER BY difficulty_level, title
-      LIMIT 200`,
+      WHERE deleted_at IS NULL AND visibility = 'public' AND created_by IS NULL`,
   );
   if (catalogue.rows.length === 0) throw new Error('scenario catalogue is empty');
 
-  const byId = new Map(catalogue.rows.map((r) => [r.id, r]));
+  const best = await bestScores(userId);
+  const isPassed = (id: string) => (best.get(id) ?? 0) >= JOURNEY_PASS_SCORE;
+  const keywords = relevanceKeywords(intake);
+  const ranked = (catalogue.rows as CatalogueRow[])
+    .map((row) => ({ row, score: relevanceScore(row, keywords) - (isPassed(row.id) ? 2 : best.has(row.id) ? 1 : 0) }))
+    .sort((a, b) => b.score - a.score || a.row.title.localeCompare(b.row.title));
+
+  // Fresh (not yet passed) scenarios first; a passed scenario is only a
+  // top-up if the pool would otherwise be too thin to build a plan.
+  const fresh = ranked.filter((x) => !isPassed(x.row.id));
+  const pool = fresh.length >= POOL_MIN_FLOOR ? fresh : [...fresh, ...ranked.filter((x) => isPassed(x.row.id))];
+
+  // Tier balance: give every difficulty an equal slice of the pool.
+  const byTier = new Map<string, typeof pool>();
+  for (const x of pool) {
+    const tier = x.row.difficulty_level ?? 'intermediate';
+    if (!byTier.has(tier)) byTier.set(tier, []);
+    byTier.get(tier)!.push(x);
+  }
+  const perTier = Math.max(1, Math.ceil(limit / byTier.size));
+  const chosen: typeof pool = [];
+  for (const tierRows of byTier.values()) chosen.push(...tierRows.slice(0, perTier));
+  return chosen.slice(0, limit).map((x) => x.row);
+}
+
+/**
+ * Build a plan for this user and persist it.
+ *
+ * The catalogue sent to the model is a curated, relevance-ranked pool (passed
+ * scenarios excluded), so the call is cheaper, faster and more focused than
+ * shipping the entire library.
+ *
+ * Every scenarioId the model returns is checked against the pool we sent before
+ * it reaches the database, so a hallucinated id can never become a task the
+ * learner cannot open.
+ */
+export async function generatePlan(
+  userId: string,
+  intake: Intake,
+  learnerName: string,
+  opts: { kind?: JourneyPlanKind } = {},
+): Promise<JourneyPlan> {
+  const catalogue = await selectScenarioPool(userId, intake, SCENARIO_POOL_SIZE);
+
+  const byId = new Map(catalogue.map((r) => [r.id, r]));
 
   const res = await callAIService({
     path: '/plan/generate',
@@ -119,7 +220,7 @@ export async function generatePlan(userId: string, intake: Intake, learnerName: 
       intake,
       learner_name: learnerName.slice(0, 40),
       days: PLAN_DAYS,
-      catalogue: catalogue.rows.map((r) => ({
+      catalogue: catalogue.map((r) => ({
         id: r.id,
         title: r.title,
         difficulty: r.difficulty_level ?? '',
@@ -129,6 +230,7 @@ export async function generatePlan(userId: string, intake: Intake, learnerName: 
     },
   });
   const raw = (await res.json()) as JourneyPlan;
+  const kind: JourneyPlanKind = opts.kind ?? 'initial';
 
   const days = (raw.days ?? [])
     .map((d, i) => ({
@@ -147,7 +249,7 @@ export async function generatePlan(userId: string, intake: Intake, learnerName: 
 
   if (days.length === 0) throw new Error('plan had no usable days');
 
-  const plan: JourneyPlan = { headline: clean(raw.headline, 120), days };
+  const plan: JourneyPlan = { headline: clean(raw.headline, 120), days, kind };
   await db.query('INSERT INTO journey_plans (user_id, plan) VALUES ($1, $2::jsonb)', [userId, JSON.stringify(plan)]);
   logger.info({ userId, days: days.length }, 'journey plan generated');
   return plan;
@@ -165,10 +267,16 @@ export async function getPlan(userId: string): Promise<JourneyPlan | null> {
 /** Exposed for the self-check in plan-service.test.ts. */
 export const __test = { unlockDay };
 
-/** How many plans this user generated in the last 24h. */
-export async function plansToday(userId: string): Promise<number> {
+/**
+ * How many plan generations this user has used in the last 30 days.
+ * Extended journeys are free and deliberately excluded: they only happen once
+ * the current plan is finished, so they can never be farmed for rewrites.
+ */
+export async function plansThisMonth(userId: string): Promise<number> {
   const res = await db.query(
-    "SELECT COUNT(*)::int AS n FROM journey_plans WHERE user_id = $1 AND created_at > NOW() - INTERVAL '24 hours'",
+    `SELECT COUNT(*)::int AS n FROM journey_plans
+      WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'
+        AND (plan->>'kind' IS DISTINCT FROM 'extended')`,
     [userId],
   );
   return Number(res.rows[0]?.n ?? 0);

@@ -5,7 +5,7 @@ import { db } from '../config/database';
 import { logger } from '../config/logger';
 import { callAIService } from '../utils/ai-service-client';
 import { getStreak, getXp } from '../services/game-service';
-import { normaliseIntake, generatePlan, getPlan, plansToday, PLAN_LIMIT_PER_DAY } from '../services/plan-service';
+import { normaliseIntake, generatePlan, getPlan, plansThisMonth, PLAN_LIMIT_PER_MONTH } from '../services/plan-service';
 import { JOURNEY, MASTERY, masteryFor, Mastery, type JourneyPlan } from '@avatar-platform/shared';
 
 
@@ -30,9 +30,12 @@ interface LessonProgress {
  * sessions + session_scores. ponytail: no progress tables; the truth already
  * lives in the score history, we just read it.
  */
-router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
-  const me = req.user!.sub;
-
+/**
+ * The static curriculum with per-lesson progress, plus the learner's
+ * white-label branding. Split out of GET / so the journey page (the page every
+ * learner lands on) never pays for the curriculum payload it does not render.
+ */
+async function loadCurriculum(userId: string) {
   const titles = JOURNEY.flatMap((u) => u.lessons.map((l) => l.scenario));
   const scenarioRows = await db.query(
     `SELECT id, title, difficulty_level FROM scenarios
@@ -50,7 +53,7 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
      LEFT JOIN session_scores sc ON sc.session_id = s.id
      WHERE s.user_id = $1 AND s.scenario_id = ANY($2)
      GROUP BY s.scenario_id`,
-    [me, scenarioRows.rows.map((r) => r.id)],
+    [userId, scenarioRows.rows.map((r) => r.id)],
   );
   const byScenario = new Map<string, { attempts: number; best: number | null }>(
     prog.rows.map((r) => [r.scenario_id, { attempts: r.attempts, best: r.best }]),
@@ -76,17 +79,33 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
     return { key: u.key, title: u.title, drills: u.drills, do: u.do, dont: u.dont, lessons, doneCount };
   });
 
-  const next = units.flatMap((u) => u.lessons).find((l) => l.state === 'next') ?? null;
-  const firstTimer = units.every((u) => u.lessons.every((l) => l.attempts === 0));
-
-  // --- Game layer: streak + xp (computed on read), review picks, certificates. ---
-  const [streak, xp] = await Promise.all([getStreak(me), getXp(me)]);
-
   // Spaced repetition, the lazy way: the 2 weakest attempted lessons resurface.
   const attempted = units.flatMap((u) => u.lessons).filter((l) => l.best != null && l.state !== 'next');
   attempted.sort((a, b) => (a.best ?? 0) - (b.best ?? 0));
   const reviewKeys = new Set(attempted.slice(0, 2).map((l) => l.key));
   units.forEach((u) => u.lessons.forEach((l) => { l.review = reviewKeys.has(l.key); }));
+
+  // White-label: the learner's first workspace with branding themes the academy.
+  const brand = await db.query(
+    `SELECT w.academy_name, w.accent_color, w.logo_url
+     FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id
+     WHERE wm.user_id = $1 AND w.academy_name IS NOT NULL
+     ORDER BY wm.joined_at ASC LIMIT 1`,
+    [userId],
+  );
+  const branding = brand.rows[0] ?? { academy_name: null, accent_color: null, logo_url: null };
+
+  return { units, branding };
+}
+
+/**
+ * GET /api/journey — the slim page payload: the plan with progress, the game
+ * stats, and how many plan builds the learner has left this month. The static
+ * curriculum lives on GET /curriculum for the pages that actually render it.
+ */
+router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const { units } = await loadCurriculum(me);
 
   // Certificates: a unit is certified when every lesson reaches silver. Issued
   // lazily here (idempotent insert) — no cron, no event bus.
@@ -99,27 +118,40 @@ router.get('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
       );
     }
   }
-  const certs = await db.query(
-    'SELECT unit_key, issued_at FROM certificates WHERE user_id = $1 ORDER BY issued_at DESC',
-    [me],
-  );
+  const [certs, streak, xp, used] = await Promise.all([
+    db.query('SELECT unit_key, issued_at FROM certificates WHERE user_id = $1 ORDER BY issued_at DESC', [me]),
+    getStreak(me),
+    getXp(me),
+    plansThisMonth(me),
+  ]);
 
-  // White-label: the learner's first workspace with branding themes the academy.
-  const brand = await db.query(
-    `SELECT w.academy_name, w.accent_color, w.logo_url
-     FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id
-     WHERE wm.user_id = $1 AND w.academy_name IS NOT NULL
-     ORDER BY wm.joined_at ASC LIMIT 1`,
-    [me],
-  );
-  const branding = brand.rows[0] ?? { academy_name: null, accent_color: null, logo_url: null };
-
-  // --- The personalised plan (v2). Kept alongside `units`, which the module
-  // page still reads. Progress is computed here the same way: from sessions.
   const plan = await getPlan(me);
   const planView = plan ? await withProgress(me, plan) : null;
+  const finished = !!planView && planView.days.length > 0 && planView.days.every((d) => d.done);
 
-  res.json({ success: true, data: { units, next, firstTimer, streak, xp, certificates: certs.rows, branding, plan: planView } });
+  res.json({
+    success: true,
+    data: {
+      plan: planView,
+      streak,
+      xp,
+      certificates: certs.rows,
+      finished,
+      generationsLeft: Math.max(0, PLAN_LIMIT_PER_MONTH - used),
+      generationsLimit: PLAN_LIMIT_PER_MONTH,
+    },
+  });
+}));
+
+/**
+ * GET /api/journey/curriculum — the static curriculum with per-lesson progress
+ * and branding, for the module / scenario-module pages. Kept off the journey
+ * page's GET / so that route stays small.
+ */
+router.get('/curriculum', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const [curriculum, xp] = await Promise.all([loadCurriculum(me), getXp(me)]);
+  res.json({ success: true, data: { units: curriculum.units, branding: curriculum.branding, xp } });
 }));
 
 /**
@@ -171,7 +203,8 @@ async function withProgress(userId: string, plan: JourneyPlan) {
   });
 
   const currentDay = days.find((d) => !d.done)?.day ?? days[days.length - 1]?.day ?? 1;
-  return { headline: plan.headline, days, currentDay };
+  const finished = days.length > 0 && days.every((d) => d.done);
+  return { headline: plan.headline, days, currentDay, kind: plan.kind, finished };
 }
 
 /**
@@ -185,8 +218,8 @@ router.post('/intake', wrap(async (req: AuthenticatedRequest, res: Response) => 
   if (intake.outcomes.length === 0) {
     return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'Pick at least one goal.' } });
   }
-  if (await plansToday(me) >= PLAN_LIMIT_PER_DAY) {
-    return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can rebuild your plan ${PLAN_LIMIT_PER_DAY} times a day. Try again tomorrow.` } });
+  if (await plansThisMonth(me) >= PLAN_LIMIT_PER_MONTH) {
+    return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can build ${PLAN_LIMIT_PER_MONTH} plans a month. Your next one unlocks next month.` } });
   }
 
   // org/city/state also land in metadata.profile: that is what the competition
@@ -209,7 +242,8 @@ router.post('/intake', wrap(async (req: AuthenticatedRequest, res: Response) => 
 
   try {
     const plan = await generatePlan(me, intake, user.rows[0].name ?? '');
-    res.json({ success: true, data: { plan: await withProgress(me, plan) } });
+    const used = await plansThisMonth(me);
+    res.json({ success: true, data: { plan: await withProgress(me, plan), generationsLeft: Math.max(0, PLAN_LIMIT_PER_MONTH - used) } });
   } catch (err) {
     logger.error({ err, userId: me }, 'plan generation failed');
     res.status(502).json({ success: false, error: { code: 'PLAN_FAILED', message: 'Could not build your plan. Your answers are saved, please try again.' } });
@@ -219,8 +253,8 @@ router.post('/intake', wrap(async (req: AuthenticatedRequest, res: Response) => 
 /** POST /api/journey/plan/refresh — rebuild from the saved intake, no re-asking. */
 router.post('/plan/refresh', wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
-  if (await plansToday(me) >= PLAN_LIMIT_PER_DAY) {
-    return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can rebuild your plan ${PLAN_LIMIT_PER_DAY} times a day. Try again tomorrow.` } });
+  if (await plansThisMonth(me) >= PLAN_LIMIT_PER_MONTH) {
+    return res.status(429).json({ success: false, error: { code: 'PLAN_LIMIT', message: `You can build ${PLAN_LIMIT_PER_MONTH} plans a month. Your next one unlocks next month.` } });
   }
   const row = await db.query(
     "SELECT name, metadata->'intake' AS intake FROM users WHERE id = $1 AND deleted_at IS NULL",
@@ -232,10 +266,47 @@ router.post('/plan/refresh', wrap(async (req: AuthenticatedRequest, res: Respons
   }
   try {
     const plan = await generatePlan(me, normaliseIntake(saved), row.rows[0].name ?? '');
-    res.json({ success: true, data: { plan: await withProgress(me, plan) } });
+    const used = await plansThisMonth(me);
+    res.json({ success: true, data: { plan: await withProgress(me, plan), generationsLeft: Math.max(0, PLAN_LIMIT_PER_MONTH - used) } });
   } catch (err) {
     logger.error({ err, userId: me }, 'plan refresh failed');
     res.status(502).json({ success: false, error: { code: 'PLAN_FAILED', message: 'Could not rebuild your plan right now.' } });
+  }
+}));
+
+/**
+ * POST /api/journey/extend — the free continuation.
+ *
+ * Once the learner finishes the WHOLE current plan (every task done), the next
+ * journey is generated with passed scenarios excluded (best score >= 50), so
+ * nothing they have mastered gets re-trained. Free by design: the monthly cap
+ * covers manual builds/rebuilds only — this is the product's retention loop,
+ * not a rewrite button, so it does not consume the learner's monthly budget.
+ */
+router.post('/extend', wrap(async (req: AuthenticatedRequest, res: Response) => {
+  const me = req.user!.sub;
+  const row = await db.query(
+    "SELECT name, metadata->'intake' AS intake FROM users WHERE id = $1 AND deleted_at IS NULL",
+    [me],
+  );
+  const saved = row.rows[0]?.intake;
+  if (!saved) {
+    return res.status(400).json({ success: false, error: { code: 'NO_INTAKE', message: 'Answer the questions first.' } });
+  }
+  const plan = await getPlan(me);
+  if (!plan) {
+    return res.status(400).json({ success: false, error: { code: 'NO_PLAN', message: 'Build your first plan before extending it.' } });
+  }
+  const view = await withProgress(me, plan);
+  if (view.days.length === 0 || !view.days.every((d) => d.done)) {
+    return res.status(400).json({ success: false, error: { code: 'PLAN_NOT_FINISHED', message: 'Finish your current journey first.' } });
+  }
+  try {
+    const extended = await generatePlan(me, normaliseIntake(saved), row.rows[0].name ?? '', { kind: 'extended' });
+    res.json({ success: true, data: { plan: await withProgress(me, extended) } });
+  } catch (err) {
+    logger.error({ err, userId: me }, 'journey extension failed');
+    res.status(502).json({ success: false, error: { code: 'PLAN_FAILED', message: 'Could not prepare your extended journey right now.' } });
   }
 }));
 

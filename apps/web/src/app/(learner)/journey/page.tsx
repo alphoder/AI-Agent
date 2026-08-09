@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { RefreshCw, PencilLine, Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { RefreshCw, PencilLine, Loader2, PartyPopper } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -24,18 +24,31 @@ function buildingLines(a: IntakeAnswers): string[] {
   return lines;
 }
 
+const EXTEND_LINES = [
+  'You finished your journey — every task complete',
+  'Gathering scenarios you have not yet passed',
+  'Preparing your extended journey…',
+];
+
 export default function JourneyPage() {
   const user = useAuth((s) => s.user);
   const firstName = (user?.name || '').split(' ')[0];
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [plan, setPlan] = useState<PlanView | null>(null);
+  const [finished, setFinished] = useState(false);
   const [streak, setStreak] = useState(0);
   const [xp, setXp] = useState(0);
   const [certs, setCerts] = useState(0);
   const [lines, setLines] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [extending, setExtending] = useState(false);
+  const [generationsLeft, setGenerationsLeft] = useState(2);
+  const [generationsLimit, setGenerationsLimit] = useState(2);
+  // Guards the auto-extend so a double effect (StrictMode) or a re-run cannot
+  // generate two extended plans for the same finished journey.
+  const extendedRef = useRef(false);
 
   useEffect(() => { load(); }, []);
 
@@ -45,8 +58,21 @@ export default function JourneyPage() {
       setStreak(data.data.streak ?? 0);
       setXp(data.data.xp ?? 0);
       setCerts((data.data.certificates ?? []).length);
-      if (data.data.plan) { setPlan(data.data.plan); setPhase('plan'); }
-      else setPhase('intake');
+      setGenerationsLeft(data.data.generationsLeft ?? 0);
+      setGenerationsLimit(data.data.generationsLimit ?? 2);
+      if (data.data.plan) {
+        setPlan(data.data.plan);
+        setFinished(!!data.data.finished);
+        setPhase('plan');
+        // The plan is done: the free extended journey (passed scenarios
+        // excluded) is generated automatically, right here.
+        if (data.data.finished && !extendedRef.current) {
+          extendedRef.current = true;
+          void extendPlan();
+        }
+      } else {
+        setPhase('intake');
+      }
     } catch {
       setPhase('error');
     }
@@ -59,11 +85,34 @@ export default function JourneyPage() {
     try {
       const { data } = await apiClient.post('/journey/intake', answers);
       setPlan(data.data.plan);
+      setFinished(false);
+      setGenerationsLeft(data.data.generationsLeft ?? Math.max(0, generationsLimit - 1));
       setPhase('plan');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       setError(e.response?.data?.error?.message ?? 'Could not build your plan. Please try again.');
       setPhase('intake');
+    }
+  }
+
+  /** POST /journey/extend — free, not metered by the monthly cap. */
+  async function extendPlan() {
+    setError(null);
+    setLines(EXTEND_LINES);
+    setExtending(true);
+    setPhase('building');
+    try {
+      const { data } = await apiClient.post('/journey/extend');
+      setPlan(data.data.plan);
+      setFinished(false);
+      setPhase('plan');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      setError(e.response?.data?.error?.message ?? 'Could not prepare your extended journey. Try again in a moment.');
+      setFinished(true);
+      setPhase('plan');
+    } finally {
+      setExtending(false);
     }
   }
 
@@ -73,6 +122,8 @@ export default function JourneyPage() {
     try {
       const { data } = await apiClient.post('/journey/plan/refresh');
       setPlan(data.data.plan);
+      setFinished(false);
+      setGenerationsLeft(data.data.generationsLeft ?? 0);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       setError(e.response?.data?.error?.message ?? 'Could not rebuild your plan right now.');
@@ -106,27 +157,58 @@ export default function JourneyPage() {
   if (phase === 'building') return <BuildingPlan lines={lines} />;
   if (!plan) return null;
 
+  const outOfRebuilds = generationsLeft <= 0;
+
   return (
     <div className="space-y-6">
+      {finished && (
+        <div className="rounded-2xl border border-primary/30 bg-primary/[0.06] p-5">
+          <div className="flex items-start gap-3">
+            <PartyPopper className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <div className="min-w-0">
+              <p className="font-semibold">You finished your journey!</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {extending ? 'Preparing your extended journey…' : 'Your extended journey — built around what you have not passed yet — is ready to start.'}
+              </p>
+              {!extending && (
+                <button
+                  onClick={() => { extendedRef.current = true; void extendPlan(); }}
+                  className="press mt-3 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  {error ? 'Try again' : 'Start my extended journey'}
+                </button>
+              )}
+            </div>
+          </div>
+          {error && <p className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+        </div>
+      )}
+
       <Roadmap plan={plan} streak={streak} xp={xp} certificates={certs} />
 
-      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      {!finished && error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 
-      <div className="flex flex-wrap gap-2 border-t border-border pt-5">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-5">
         <button
           onClick={refreshPlan}
-          disabled={refreshing}
-          className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+          disabled={refreshing || outOfRebuilds}
+          title={outOfRebuilds ? `You have used all ${generationsLimit} plan builds this month.` : undefined}
+          className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
         >
           {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           Rebuild my plan
         </button>
         <button
-          onClick={() => { setPlan(null); setError(null); setPhase('intake'); }}
+          onClick={() => { setPlan(null); setError(null); setFinished(false); setPhase('intake'); }}
           className="press inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <PencilLine className="h-3.5 w-3.5" /> Answer the questions again
         </button>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {outOfRebuilds
+            ? `${generationsLimit} of ${generationsLimit} plan builds used this month`
+            : `${generationsLeft} of ${generationsLimit} plan builds left this month`}
+        </span>
       </div>
     </div>
   );

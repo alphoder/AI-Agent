@@ -52,7 +52,7 @@ export default function ScenarioModulePage() {
     try {
       const [scRes, jRes] = await Promise.all([
         apiClient.get(`/scenarios/${scenarioId}`),
-        apiClient.get('/journey'),
+        apiClient.get('/journey/curriculum'),
       ]);
       const sc: Scenario = scRes.data.data;
       setScenario(sc);

@@ -20,7 +20,15 @@ export interface PlanTaskView {
   missing: boolean;
 }
 export interface PlanDayView { day: number; focus: string; tasks: PlanTaskView[]; done: boolean }
-export interface PlanView { headline: string; days: PlanDayView[]; currentDay: number }
+export interface PlanView {
+  headline: string;
+  days: PlanDayView[];
+  currentDay: number;
+  /** 'initial' for intake/rebuilds, 'extended' for the free continuation. */
+  kind?: string;
+  /** True when every day in the plan is done. */
+  finished?: boolean;
+}
 
 const TASK_ICON: Record<PlanTaskType, React.ReactNode> = {
   module: <BookOpen className="h-4 w-4" />,

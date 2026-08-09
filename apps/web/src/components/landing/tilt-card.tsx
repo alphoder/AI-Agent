@@ -6,7 +6,13 @@ import { ReactNode, useRef } from 'react';
 export function TiltCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement | null>(null);
 
+  // Respect reduced-motion: the card stays flat, only the CSS hover shadow remains.
+  const reduced = typeof window !== 'undefined'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+
   function onMove(e: React.MouseEvent) {
+    if (reduced) return;
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();

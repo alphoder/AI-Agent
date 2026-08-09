@@ -13,7 +13,7 @@ interface Entry { role: 'user' | 'assistant'; text: string }
 
 const BIXY_VOICE = 'Leda';
 const WAKE = /\bbix(y|ie|i|ee)\b/i; // "hey bixy", "bixy", ...
-const IDLE_MS = 45000;             // close the session only after this much true silence
+const IDLE_MS = 30000;             // auto-off: close the session after this much true silence
 
 const HINTS = [
   'Say “Hey Bixy” to wake me',
@@ -60,11 +60,17 @@ RECOMMEND A SCENARIO (whenever the user wants practice, or is unsure where to st
 Ask at most TWO quick questions, one at a time: (1) what do you want to practise or get better at, and (2) how tough — beginner, intermediate, or advanced? Then CALL list_scenarios with a relevant query, pick the 1-2 best fits from the results, say in one short sentence why each fits, and offer to start one. When they choose, CALL start_practice.
 You CANNOT create new scenarios — only an admin can add to the library. If the user asks for something custom, do not apologise at length: find the CLOSEST existing scenario and pitch it ("the closest we have is the angry motor-renewal customer — want to try that?"). If nothing fits at all, tell them their admin can add it.`;
 
+  const sleepAndMemory = `
+
+SLEEP: If the user asks you to be quiet, stop talking, stay silent, go to sleep or take a nap — e.g. "stay quiet for 10 minutes", "don't talk for 2 hours", "go to sleep" — call go_sleep with the number of minutes (10, 120, ...). If they say goodnight or go to sleep with no time, call go_sleep without minutes.
+
+MEMORY: You have a short-term memory of everything you and the user said earlier today (the last 24 hours). It is never included automatically. When the user references an earlier conversation ("as I was saying…", "do you remember the cold-call scenario?", "what did we talk about this morning?") or asks you to remember something, call recall_memory (optionally with a topic) and use its results before answering. If it returns nothing relevant, say so simply and move on.`;
+
   const close = `
 
 Always CALL tools to actually do things; never just describe. Ignore any wake phrase like "hey bixy" and act on the rest.`;
 
-  return base + (isAdmin ? build : recommend) + close;
+  return base + (isAdmin ? build : recommend) + sleepAndMemory + close;
 }
 
 const TOOLS = [
@@ -120,6 +126,8 @@ export function AssistantWidget() {
   const [last, setLast] = useState<Entry | null>(null); // latest line, for the inline caption
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState(0);
+  // Seconds left in a requested quiet period ("stay quiet for 10 min"); null when not napping.
+  const [napping, setNapping] = useState<number | null>(null);
   // A scenario Bixy just built — shown as a card; the user starts it.
   const [built, setBuilt] = useState<{ id: string; title: string; description: string; objective: string; difficulty: string; language: string; voice: string } | null>(null);
 
@@ -138,6 +146,10 @@ export function AssistantWidget() {
   const recRef = useRef<any>(null);
   const speakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playSrcsRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const speakingRef = useRef(false);
+  const vadHitsRef = useRef(0);
+  const nappingUntilRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectingRef = useRef(false);
@@ -152,6 +164,14 @@ export function AssistantWidget() {
     const t = setInterval(() => setHint((h) => (h + 1) % HINTS.length), 4200);
     return () => clearInterval(t);
   }, [awake]);
+
+  // Count down a requested quiet period ("stay quiet for 10 minutes").
+  useEffect(() => {
+    if (napping === null) return;
+    if (napping <= 0) { nappingUntilRef.current = null; setNapping(null); return; }
+    const t = setTimeout(() => setNapping((s) => (s === null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [napping]);
 
   const playAudio = useCallback((b64: string) => {
     const ctx = outCtxRef.current;
@@ -170,9 +190,25 @@ export function AssistantWidget() {
     const at = Math.max(ctx.currentTime, playCursorRef.current);
     src.start(at);
     playCursorRef.current = at + buf.duration;
+    playSrcsRef.current.add(src);
+    src.onended = () => playSrcsRef.current.delete(src);
     setSpeaking(true);
+    speakingRef.current = true;
     if (speakTimerRef.current) clearTimeout(speakTimerRef.current);
-    speakTimerRef.current = setTimeout(() => setSpeaking(false), (playCursorRef.current - ctx.currentTime) * 1000 + 200);
+    speakTimerRef.current = setTimeout(() => { setSpeaking(false); speakingRef.current = false; }, (playCursorRef.current - ctx.currentTime) * 1000 + 200);
+  }, []);
+
+  // Cut Bixy off right now and drop anything queued behind her. Without this, an
+  // interrupted reply keeps playing out (playCursorRef only ever advances) behind
+  // the new reply — the stale-audio "loop".
+  const flushPlayback = useCallback(() => {
+    playSrcsRef.current.forEach((s) => { try { s.stop(); } catch { /* already ended */ } });
+    playSrcsRef.current.clear();
+    playCursorRef.current = outCtxRef.current?.currentTime ?? 0;
+    if (speakTimerRef.current) clearTimeout(speakTimerRef.current);
+    speakTimerRef.current = null;
+    speakingRef.current = false;
+    setSpeaking(false);
   }, []);
 
   // Stream raw mic audio straight to Gemini — browser-agnostic, works wherever the
@@ -202,26 +238,47 @@ export function AssistantWidget() {
       proc.connect(inCtx.destination);
       proc.onaudioprocess = (e) => {
         if (!awakeRef.current || ws.readyState !== WebSocket.OPEN) return;
-        const pcm = floatTo16BitPCM(e.inputBuffer.getChannelData(0));
+        const ch = e.inputBuffer.getChannelData(0);
+        // Cheap VAD: if the user starts talking while Bixy is mid-reply, cut her
+        // off at once (Gemini also sends `interrupted`, but this is instant — no
+        // stale tail of her last sentence).
+        let rms = 0;
+        for (let i = 0; i < ch.length; i += 4) rms += ch[i] * ch[i];
+        rms = Math.sqrt(rms / (ch.length / 4));
+        if (rms > 0.02) vadHitsRef.current = Math.min(vadHitsRef.current + 1, 8);
+        else vadHitsRef.current = 0;
+        if (vadHitsRef.current >= 3 && speakingRef.current) flushPlayback();
+        const pcm = floatTo16BitPCM(ch);
         ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(pcm) }));
       };
     } catch {
       setError('I need mic access to hear you.');
     }
-  }, []);
+  }, [flushPlayback]);
 
-  // Tear down the Gemini session and go quiet (only after real silence, or manual stop).
-  const goToSleep = useCallback(() => {
+  // Tear down the Gemini session and go quiet (after real silence, on tap, or a
+  // requested nap: "stay quiet for 10 minutes"). Flushes audio so a click always
+  // stops her mid-word, not after the queued reply finishes.
+  const goToSleep = useCallback((napMinutes?: number) => {
     awakeRef.current = false;
     setAwake(false);
     setReady(false);
     setSpeaking(false);
+    speakingRef.current = false;
     pendingRef.current = [];
+    flushPlayback();
     stopMic();
     if (reconnectRef.current) clearTimeout(reconnectRef.current);
     try { wsRef.current?.close(1000); } catch { /* ignore */ }
     wsRef.current = null;
-  }, [stopMic]);
+    if (napMinutes && napMinutes > 0) {
+      nappingUntilRef.current = Date.now() + napMinutes * 60000;
+      setNapping(napMinutes * 60);
+    } else {
+      nappingUntilRef.current = null;
+      setNapping(null);
+    }
+  }, [flushPlayback, stopMic]);
 
   // Keep-alive: any speech (or Bixy talking) pushes the silence deadline out.
   const bumpIdle = useCallback(() => {
@@ -325,6 +382,11 @@ export function AssistantWidget() {
   }, []);
 
   const wake = useCallback(() => {
+    // If Bixy was asked to stay quiet ("go to sleep for 10 minutes"), voice wake
+    // stays suppressed until the quiet period ends — a tap overrides (see toggle).
+    if (nappingUntilRef.current && Date.now() < nappingUntilRef.current) return;
+    nappingUntilRef.current = null;
+    setNapping(null);
     if (!awakeRef.current) {
       awakeRef.current = true;
       setAwake(true);
@@ -408,12 +470,18 @@ export function AssistantWidget() {
               bumpIdle();
               break;
             }
+            case 'interrupted': flushPlayback(); break;   // user spoke over Bixy → drop stale queued audio now
+            case 'sleep': {
+              const m = Number(msg.minutes);
+              goToSleep(Number.isFinite(m) && m > 0 ? m : undefined);
+              break;
+            }
             case 'response_end': bumpIdle(); break;   // keep the chat open; don't hang up
             case 'error': setError(msg.message || 'Hmm, that glitched — keep talking.'); break;
           }
         };
         ws.onclose = () => {
-          wsRef.current = null; connectingRef.current = false; setReady(false); setSpeaking(false);
+          wsRef.current = null; connectingRef.current = false; setReady(false); setSpeaking(false); speakingRef.current = false;
           stopMic();
           // Reconnect only if the user is still in the conversation.
           if (mountedRef.current && awakeRef.current) {
@@ -430,12 +498,12 @@ export function AssistantWidget() {
         if (reconnectRef.current) clearTimeout(reconnectRef.current);
         reconnectRef.current = setTimeout(() => connectRef.current(), 3000);
       });
-  }, [executeTool, playAudio, bumpIdle, startMic, stopMic]);
+  }, [executeTool, playAudio, bumpIdle, startMic, stopMic, flushPlayback, goToSleep]);
   connectRef.current = connect;
 
   function toggle() {
     if (awakeRef.current) goToSleep();
-    else wake();
+    else { nappingUntilRef.current = null; setNapping(null); wake(); } // a tap always overrides a nap
   }
 
   // "Build with Bixy" button (anywhere in the app) → wake Bixy and start the
@@ -472,7 +540,11 @@ export function AssistantWidget() {
 
   // Inline caption (no panel) — speaks for itself right on the orb.
   let caption: string;
-  if (unsupported && !awake) caption = 'Tap me to talk';
+  if (napping && napping > 0) {
+    const m = Math.ceil(napping / 60);
+    caption = m >= 1 ? `Quiet for ${m} more min — tap to wake` : 'Just a few seconds…';
+  }
+  else if (unsupported && !awake) caption = 'Tap me to talk';
   else if (error) caption = error;
   else if (!awake) caption = HINTS[hint];
   else if (!ready) caption = 'Waking up…';
