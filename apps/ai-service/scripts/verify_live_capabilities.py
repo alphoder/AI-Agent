@@ -120,15 +120,51 @@ LANGUAGES = ("en-US=English,hi-IN=Hindi,mr-IN=Marathi,bn-IN=Bengali,ta-IN=Tamil,
              "ar-XA=Arabic,cmn-CN=Chinese,ja-JP=Japanese,ko-KR=Korean,ru-RU=Russian")
 
 
-async def main():
+async def probe_voice(name: str) -> tuple[str, str]:
+    """A bad voice is rejected at setup, so this never generates a turn."""
+    setup = {"setup": {
+        "model": MODEL,
+        "generation_config": {
+            "response_modalities": ["AUDIO"],
+            "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": name}}},
+        },
+    }}
+    async with SEM:
+        try:
+            async with websockets.connect(URL + KEY, max_size=None, open_timeout=30) as ws:
+                await ws.send(json.dumps(setup))
+                await asyncio.wait_for(ws.recv(), timeout=25)  # setupComplete = accepted
+                return name, ""
+        except Exception as e:  # noqa: BLE001
+            return name, re.sub(r'key=[\w-]+', 'key=REDACTED', str(e))[:100]
+
+
+async def run_voices():
+    names = (sys.argv[2] if len(sys.argv) > 2 else VOICES).split(",")
+    out = await asyncio.gather(*[probe_voice(v) for v in names])
+    ok = [n for n, err in out if not err]
+    for name, err in out:
+        print(f"{name:16} {'OK' if not err else 'REJECTED  ' + err}")
+    print(f"\n{len(ok)}/{len(names)} voices accepted by {MODEL}")
+
+
+async def run_languages():
     langs = (sys.argv[2] if len(sys.argv) > 2 else LANGUAGES).split(",")
     out = await asyncio.gather(*[speak(l) for l in langs])
+    ok = 0
     for spec, (said, err) in zip(langs, out):
         lang = spec.split("=")[0]
         if err:
             print(f"{lang:8} ERROR   {err}")
         else:
+            ok += 1
             print(f"{lang:8} {script_of(said):12} {said[:70]}")
+    print(f"\n{ok}/{len(langs)} languages replied")
 
 
-asyncio.run(main())
+# argv[1] selects the mode; it used to be read and ignored, so `… voices` quietly
+# ran the language probe and the VOICES list was never exercised at all.
+MODE = sys.argv[1] if len(sys.argv) > 1 else "languages"
+if MODE not in ("voices", "languages"):
+    sys.exit(f"unknown mode {MODE!r} — use 'voices' or 'languages'")
+asyncio.run(run_voices() if MODE == "voices" else run_languages())
