@@ -144,13 +144,15 @@ async function isAdmin(userId: string): Promise<boolean> {
 }
 
 /**
- * POST /api/scenarios — create (admin only; owned by caller).
+ * POST /api/scenarios — create, owned by the caller.
+ *
+ * Anyone may create. Only an admin may publish: `visibility` is forced to private
+ * for everyone else, or any user could push a scenario into the shared library
+ * that every other learner then sees.
  */
-router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', rateLimit(20), wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
-  if (!(await isAdmin(me))) {
-    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can create scenarios. Ask Bixy to suggest one from the library instead.' } });
-  }
+  const admin = await isAdmin(me);
   const err = validatePayload(req.body);
   if (err) return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: err } });
 
@@ -164,7 +166,7 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
     [
       b.title.trim(), b.description || null, b.objective.trim(), b.system_prompt.trim(),
       b.opening_message || null, b.language || 'en', b.voice || 'Aoede',
-      JSON.stringify(b.scoring_rubric ?? []), b.visibility || 'private',
+      JSON.stringify(b.scoring_rubric ?? []), admin ? (b.visibility || 'private') : 'private',
       b.max_duration_sec || 600, b.max_turns || 40, b.difficulty_level || 'intermediate',
       Array.isArray(b.tags) ? b.tags : [], me,
     ],
@@ -184,9 +186,9 @@ router.post('/', wrap(async (req: AuthenticatedRequest, res: Response) => {
  */
 router.post('/generate', rateLimit(10), wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
-  if (!(await isAdmin(me))) {
-    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can create scenarios.' } });
-  }
+  // Open to every learner: the row is written private and owned by the caller, so
+  // one person's practice call never reaches anyone else's library. rateLimit(10)
+  // above is what guards the Gemini bill.
   const brief = String(req.body?.brief ?? '').trim().slice(0, 2000);
   if (!brief) {
     return res.status(400).json({ success: false, error: { code: 'INVALID_BODY', message: 'Tell me what the situation is.' } });
@@ -332,11 +334,9 @@ router.delete('/:id', validateUuidParam('id'), wrap(async (req: AuthenticatedReq
 /**
  * POST /api/scenarios/:id/duplicate — copy a public/owned scenario into a private draft.
  */
-router.post('/:id/duplicate', validateUuidParam('id'), wrap(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/duplicate', validateUuidParam('id'), rateLimit(20), wrap(async (req: AuthenticatedRequest, res: Response) => {
   const me = req.user!.sub;
-  if (!(await isAdmin(me))) {
-    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can create scenarios.' } });
-  }
+  // Anyone may copy a scenario they can already see; the copy is a private draft.
   const src = await db.query(
     `SELECT * FROM scenarios WHERE id = $1 AND deleted_at IS NULL AND (visibility = 'public' OR created_by = $2)`,
     [req.params.id, me],

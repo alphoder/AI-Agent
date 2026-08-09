@@ -192,7 +192,8 @@ MEMORY: You have a short-term memory of everything you and the user said earlier
 
 Always CALL tools to actually do things; never just describe. Ignore any wake phrase like "hey bixy" and act on the rest.`;
 
-  return base + (isAdmin ? build : recommend) + sleepAndMemory + close;
+  // Everyone can build now; admins additionally get the publish-facing wording.
+  return base + build + recommend + sleepAndMemory + close;
 }
 
 const TOOLS = [
@@ -219,8 +220,9 @@ const TOOLS = [
 ];
 
 /** Non-admins get the library, not the workshop — create_scenario is admin-only. */
-function toolsFor(isAdmin: boolean) {
-  return [{ function_declarations: TOOLS[0].function_declarations.filter((d) => isAdmin || d.name !== 'create_scenario') }];
+function toolsFor(_isAdmin: boolean) {
+  // Scenario building is open to everyone; the row is private to whoever asked.
+  return [{ function_declarations: TOOLS[0].function_declarations }];
 }
 
 function resolveLang(input?: string): string | undefined {
@@ -437,9 +439,6 @@ export function AssistantWidget() {
         router.push(`/session/${match.id}?lang=${lang}`); return { ok: true, started: match.title, language: lang };
       }
       if (name === 'create_scenario') {
-        if (!adminRef.current) {
-          return { error: 'Only admins can create scenarios. Use list_scenarios to find and suggest the closest existing one instead.' };
-        }
         const lang = resolveLang(args.language as string) || 'en';
         if (writingRef.current) {
           return { error: 'You are already writing one. Tell them it is still being written.' };
@@ -634,9 +633,7 @@ export function AssistantWidget() {
   useEffect(() => {
     const onBuild = () => {
       wake();
-      sendToGemini(adminRef.current
-        ? 'Help me build a custom practice scenario, then run it.'
-        : 'Help me find the right scenario to practise.');
+      sendToGemini('Help me build a custom practice scenario, then run it.');
     };
     window.addEventListener('bixy:build', onBuild);
     return () => window.removeEventListener('bixy:build', onBuild);

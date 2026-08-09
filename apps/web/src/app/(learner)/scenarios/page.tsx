@@ -5,7 +5,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Plus, Sparkles, ArrowRight } from 'lucide-react';
 import { fetchAllScenarios } from '@/lib/scenarios';
-import { useAuth } from '@/hooks/use-auth';
 import { CATEGORIES, categoryFor } from '@avatar-platform/shared';
 import type { Scenario } from '@/components/scenarios/scenario-card';
 
@@ -15,8 +14,6 @@ import type { Scenario } from '@/components/scenarios/scenario-card';
  * queries to save nothing).
  */
 export default function ScenarioCategoriesPage() {
-  const user = useAuth((s) => s.user);
-  const admin = (user?.metadata as { role?: string } | null)?.role === 'admin';
   const [scenarios, setScenarios] = useState<Scenario[] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -44,11 +41,9 @@ export default function ScenarioCategoriesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Scenarios</h1>
           <p className="mt-1 text-sm text-muted-foreground">Pick the kind of conversation you want to get better at.</p>
         </div>
-        {admin && (
-          <Link href="/scenarios/create" className="press inline-flex shrink-0 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
-            <Plus className="h-4 w-4" /> Create
-          </Link>
-        )}
+        <Link href="/scenarios/create" className="press inline-flex shrink-0 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
+          <Plus className="h-4 w-4" /> Create
+        </Link>
       </div>
 
       <button
@@ -57,9 +52,9 @@ export default function ScenarioCategoriesPage() {
       >
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Sparkles className="h-5 w-5" /></span>
         <span className="flex-1">
-          <span className="block font-semibold">{admin ? 'Build your own practice call' : 'Not sure where to start?'}</span>
+          <span className="block font-semibold">Build your own practice call</span>
           <span className="block text-sm text-muted-foreground">
-            {admin ? 'Tell Bixy the situation and it designs the customer for you.' : 'Tell Bixy what you want to get better at and it picks the right call.'}
+            Tell Bixy the situation and it designs the customer for you. It is yours alone, not added to the shared library.
           </span>
         </span>
         <span className="hidden shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground sm:inline-block">Talk to Bixy</span>
