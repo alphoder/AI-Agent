@@ -87,7 +87,9 @@ export default function Landing() {
       </header>
 
       {/* Hero — Bixy video as the full-bleed background, brand text overlaid */}
-      <section className="relative isolate flex min-h-[90vh] items-center overflow-hidden bg-white">
+      {/* Shorter on phones: a 16:9 clip in a portrait viewport is already cropped hard,
+          and a full-height hero left the panel covering most of what survived. */}
+      <section className="relative isolate flex min-h-[78vh] items-center overflow-hidden bg-white sm:min-h-[90vh]">
         {/* The still stays underneath: it paints immediately, it is what shows if the
             video cannot play, and it is the whole hero for anyone who asked for less
             motion. */}
@@ -108,45 +110,54 @@ export default function Landing() {
           tabIndex={-1}
           className="absolute inset-0 -z-20 h-full w-full object-cover motion-reduce:hidden"
         />
-        {/* Legibility scrim: bright on the left for the text, clear over Bixy on the right */}
-        {/* Legibility scrim. It has to clear the LONGEST rotating word, not the
-            shortest, or "price objection" lands on the busy artwork. */}
-        <div aria-hidden className="absolute inset-0 -z-10 bg-[linear-gradient(100deg,white,white_32%,rgba(255,255,255,0.78)_56%,rgba(255,255,255,0.25)_72%,transparent_84%)]" />
-        <div aria-hidden className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-t from-white to-transparent" />
+        {/* The old scrim washed flat white across 84% of the frame, which is why the
+            video read as barely there. Nothing covers it now except the small panel
+            the copy sits on; this is only a short fade so the video does not end on a
+            hard edge against the white section below. */}
+        <div aria-hidden className="absolute inset-x-0 bottom-0 -z-10 h-24 bg-gradient-to-t from-white to-transparent" />
 
-        <div className="mx-auto w-full max-w-6xl px-6">
-          <div className="max-w-2xl">
-            <Reveal>
-              <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl leading-[1.02] tracking-tight text-zinc-900">
-                Your{' '}
-                <span key={moment} className="word-swap inline-block italic text-blue-600">{MOMENTS[moment]}</span>,
-                <br />
-                rehearsed.
-              </h1>
-            </Reveal>
-            <Reveal delay={140}>
-              <p className="mt-6 max-w-lg text-lg text-zinc-600 leading-relaxed">
-                You get one shot at a real customer. Here you get as many as you need. Read the client&apos;s file, call them, and find out where it falls apart, while it still costs nothing.
-              </p>
-            </Reveal>
-            <Reveal delay={220}>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Link href={dest} className="group inline-flex items-center gap-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 font-medium shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5">
-                  Start practicing <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                </Link>
-                <a href="#how" className="inline-flex items-center gap-1.5 rounded-full border border-zinc-300 bg-white/70 backdrop-blur px-6 py-3 font-medium text-zinc-700 hover:bg-white transition-colors">
-                  How it works
-                </a>
-              </div>
-            </Reveal>
-            <Reveal delay={300}>
-              <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-2 text-sm text-zinc-500">
-                <span>Free while in beta</span>
-                <span>Built for BFSI teams in India</span>
-                <span>Five minutes a call</span>
-                <span>Hindi, Tamil, Telugu &amp; 70+ more</span>
-              </div>
-            </Reveal>
+        {/* Anchored to the bottom and to the same max-w-6xl gutter as the header, so
+            the copy lines up with the nav above it rather than floating. */}
+        <div className="absolute inset-x-0 bottom-0 z-10 pb-12 sm:pb-14">
+          <div className="mx-auto w-full max-w-6xl px-6">
+            {/* A contained frosted panel, not a full-width wash: the copy stays legible
+                over the busiest part of the frame while the rest of the video, Bixy
+                included, is left completely alone. */}
+            <div className="max-w-md rounded-2xl border border-white/70 bg-white/75 px-5 py-4 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.45)] backdrop-blur-md sm:px-6 sm:py-5">
+              <Reveal>
+                <h1 className="font-display text-3xl sm:text-4xl leading-[1.08] tracking-tight text-zinc-900">
+                  Your{' '}
+                  <span key={moment} className="word-swap inline-block italic text-blue-600">{MOMENTS[moment]}</span>,
+                  <br />
+                  rehearsed.
+                </h1>
+              </Reveal>
+              <Reveal delay={140}>
+                <p className="mt-3 max-w-md text-sm text-zinc-600 leading-relaxed">
+                  Practise real sales and interview calls out loud with an AI who pushes back, then get scored on how you actually sounded.
+                </p>
+              </Reveal>
+              <Reveal delay={220}>
+                <div className="mt-5 flex flex-wrap items-center gap-2.5">
+                  <Link href={dest} className="group inline-flex items-center gap-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 text-sm font-medium shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5">
+                    Start practicing <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+                  </Link>
+                  <a href="#how" className="inline-flex items-center gap-1.5 rounded-full border border-zinc-300 bg-white/80 backdrop-blur px-5 py-2.5 text-sm font-medium text-zinc-700 hover:bg-white transition-colors">
+                    How it works
+                  </a>
+                </div>
+              </Reveal>
+              <Reveal delay={300}>
+                {/* Two on a phone, four from sm up: four wrapped to three lines and made
+                    the panel tall enough to bury the video behind it. */}
+                <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-zinc-500 sm:mt-5">
+                  <span>Free while in beta</span>
+                  <span className="hidden sm:inline">Built for BFSI teams in India</span>
+                  <span>Five minutes a call</span>
+                  <span className="hidden sm:inline">Hindi, Tamil, Telugu &amp; 70+ more</span>
+                </div>
+              </Reveal>
+            </div>
           </div>
         </div>
       </section>
