@@ -89,6 +89,10 @@ export function normaliseIntake(body: unknown): Intake {
  * too, because a model asked for the perfect topic match will happily put an
  * advanced customer on day one of a beginner's plan.
  */
+// Measured in JOURNEY days, not week days, so with 7-day weeks a gentle learner
+// meets advanced scenarios in week 2 (day 10 = week 2, day 3). That only works
+// because the week actually increments now; while it was stuck at 1, `gentle`
+// could never reach advanced at all.
 const UNLOCK_DAY: Record<string, Record<string, number>> = {
   gentle: { beginner: 1, intermediate: 5, advanced: 10 },
   balanced: { beginner: 1, intermediate: 3, advanced: 7 },
@@ -108,9 +112,8 @@ const MAX_PER_SCENARIO_PER_DAY = 2;
  * one scenario done three ways.
  *
  * Telling the model to "fill the day" made it do exactly that: module + call +
- * drill of a single scenario on 11 days out of 14, every one 17 minutes against a
- * 15-minute budget. The prompt asks; this decides. Carried over from the previous
- * planner, which this file otherwise replaces.
+ * drill of a single scenario on nearly every day, each running 17 minutes against
+ * a 15-minute budget. The prompt asks; this decides.
  */
 function fitTheDay(tasks: { type: PlanTaskType; scenarioId: string; why: string }[], minutesPerDay: number) {
   const budget = Math.max(5, minutesPerDay);
@@ -138,6 +141,40 @@ interface CatalogueRow {
   difficulty_level: string | null;
   tags: string[] | null;
   description: string | null;
+}
+
+/**
+ * Which week the next plan belongs to.
+ *
+ * Extending moves to the NEXT week so it inserts a new row; anything else
+ * rebuilds the week they are on, which the unique constraint turns into an
+ * in-place update. A first-time learner starts at week 1.
+ */
+async function nextWeek(userId: string, kind: JourneyPlanKind): Promise<number> {
+  const res = await db.query('SELECT COALESCE(MAX(week), 0)::int AS w FROM journey_plans WHERE user_id = $1', [userId]);
+  const current = Number(res.rows[0]?.w ?? 0);
+  if (current === 0) return 1;
+  return kind === 'extended' ? current + 1 : current;
+}
+
+/**
+ * Scenarios they have attempted and are still weak on. The prompt has an
+ * "unfinished business" branch that was dead because nothing ever populated it.
+ */
+async function unfinishedFor(userId: string): Promise<{ id: string; title: string; best: number }[]> {
+  const res = await db.query(
+    `SELECT s.scenario_id AS id, sc2.title, MAX(sc.overall_score)::float AS best
+       FROM sessions s
+       JOIN session_scores sc ON sc.session_id = s.id
+       JOIN scenarios sc2 ON sc2.id = s.scenario_id
+      WHERE s.user_id = $1
+      GROUP BY s.scenario_id, sc2.title
+     HAVING MAX(sc.overall_score) < $2
+      ORDER BY MAX(sc.overall_score) ASC
+      LIMIT 10`,
+    [userId, JOURNEY_PASS_SCORE],
+  );
+  return res.rows.map((r) => ({ id: r.id, title: r.title, best: Math.round(Number(r.best)) }));
 }
 
 /** The learner's best score per scenario — the single source of "passed". */
@@ -242,7 +279,15 @@ export async function generatePlan(
   learnerName: string,
   opts: { kind?: JourneyPlanKind; week?: number } = {},
 ): Promise<JourneyPlan> {
+  // The week is DERIVED, not passed in. Every caller used to omit it, so it
+  // defaulted to 1 and the upsert overwrote week 1 forever: extending a journey
+  // replaced the plan it was meant to follow, and rewrote its kind to 'extended',
+  // which also reset the monthly build count. Deriving it here means a new caller
+  // cannot reintroduce that by forgetting an argument.
+  const week = opts.week ?? await nextWeek(userId, opts.kind ?? 'initial');
   const catalogue = await selectScenarioPool(userId, intake, SCENARIO_POOL_SIZE);
+  // Week 1 has no history to bring back; later weeks do.
+  const unfinished = week > 1 ? await unfinishedFor(userId) : [];
 
   const byId = new Map(catalogue.map((r) => [r.id, r]));
 
@@ -253,6 +298,8 @@ export async function generatePlan(
       intake,
       learner_name: learnerName.slice(0, 40),
       days: PLAN_DAYS,
+      week,
+      unfinished,
       catalogue: catalogue.map((r) => ({
         id: r.id,
         title: r.title,
@@ -264,7 +311,6 @@ export async function generatePlan(
   });
   const raw = (await res.json()) as JourneyPlan;
   const kind: JourneyPlanKind = opts.kind ?? 'initial';
-  const week = Math.max(1, opts.week ?? 1);
   // The ramp is measured from the start of the JOURNEY, not of the week: by week
   // three a "from day 10" scenario is legal on the first day of the week.
   const dayOffset = (week - 1) * PLAN_DAYS;
@@ -301,14 +347,17 @@ export async function generatePlan(
 /** The live plan is simply the newest row. */
 export async function getPlan(userId: string): Promise<JourneyPlan | null> {
   const res = await db.query(
-    'SELECT plan FROM journey_plans WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+    // Highest WEEK, not newest row. Migration 031 made a user hold several plans
+    // at once, one per week; "newest by date" would show a rebuilt earlier week
+    // instead of the week they are actually on.
+    'SELECT plan FROM journey_plans WHERE user_id = $1 ORDER BY week DESC LIMIT 1',
     [userId],
   );
   return res.rows[0]?.plan ?? null;
 }
 
 /** Exposed for the self-check in plan-service.test.ts. */
-export const __test = { unlockDay, fitTheDay };
+export const __test = { unlockDay, fitTheDay, nextWeek };
 
 /**
  * How many plan generations this user has used in the last 30 days.

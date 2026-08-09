@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { normaliseIntake, __test } from './plan-service';
 import { TASK_MINUTES } from '@avatar-platform/shared';
+import { db } from '../config/database';
 
 const { unlockDay, fitTheDay } = __test;
 
@@ -123,3 +124,33 @@ const { unlockDay, fitTheDay } = __test;
 }
 
 console.log('plan-service: all checks passed');
+
+// --- the week must advance, or extending overwrites the plan it follows -------
+// nextWeek is the whole fix for a bug no unit test could see: no caller passed
+// `week`, so it defaulted to 1 and the (user, week) upsert rewrote week 1 forever.
+// Extending replaced the finished plan AND flipped its stored kind to 'extended',
+// which reset the monthly build counter too.
+void (async () => {
+  const { nextWeek } = __test as unknown as {
+    nextWeek: (userId: string, kind: string) => Promise<number>;
+  };
+  // Stub the single query it makes, so this stays pure with no database.
+  const real = db.query;
+  const withMax = (w: number) => { (db as { query: unknown }).query = async () => ({ rows: [{ w }] }); };
+
+  withMax(0);
+  assert.equal(await nextWeek('u', 'initial'), 1, 'a first-time learner starts at week 1');
+  assert.equal(await nextWeek('u', 'extended'), 1, 'nothing to extend yet');
+
+  withMax(1);
+  assert.equal(await nextWeek('u', 'extended'), 2, 'extending moves to a NEW week, so it inserts');
+  assert.equal(await nextWeek('u', 'initial'), 1, 'a rebuild replaces the week they are on');
+
+  withMax(3);
+  assert.equal(await nextWeek('u', 'extended'), 4);
+  assert.equal(await nextWeek('u', 'initial'), 3, 'a rebuild on week 3 must not jump back to week 1');
+
+  (db as { query: unknown }).query = real;
+  console.log('plan-service: week checks passed');
+  process.exit(0);
+})();

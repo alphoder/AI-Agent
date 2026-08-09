@@ -134,11 +134,14 @@ export const INTAKE_LIMITS = {
 export const JOURNEY_PLAN_LIMIT_PER_MONTH = 2;
 
 /**
- * The pass mark. A scenario is "passed" when the best overall score is >= this
- * (50). Passed scenarios are excluded from extended journeys so a learner is
- * never re-trained on material they have already mastered.
+ * The pass mark used by the journey, kept identical to the one the rest of the
+ * app shows.
+ *
+ * It was 50 while Completed/Scenarios called 70 a pass, so the journey dropped
+ * scenarios at 50 that the learner was still being told to improve. One number,
+ * defined once in journey.ts, or the two disagree in front of the user.
  */
-export const JOURNEY_PASS_SCORE = 50;
+export { PASS_MARK as JOURNEY_PASS_SCORE } from './journey';
 
 export type JourneyPlanKind = 'initial' | 'extended';
 
