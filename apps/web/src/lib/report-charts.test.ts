@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import {
-  donutPath, radarGeometry, scoreBand, weakestFirst, contribution, idealBand, CRITERION_PASS,
+  donutPath, radarGeometry, scoreBand, weakestFirst, contribution, idealBand, pieSlices, CRITERION_PASS,
   type Criterion,
 } from './report-charts';
 
@@ -84,3 +84,31 @@ const crit = (name: string, score: number, weight: number, extra: Partial<Criter
 }
 
 console.log('report-charts: all checks passed');
+
+// --- pie ---------------------------------------------------------------------
+{
+  const cs = [crit('A', 5, 50), crit('B', 1, 30), crit('C', 3, 20), crit('extra', 1, 0, { off_rubric: true })];
+  const slices = pieSlices(cs, 60, 60, 50, 30);
+
+  assert.equal(slices.length, 3, 'zero-weight extras are dropped, not drawn as slivers');
+  assert.ok(!slices.some((s) => /NaN/.test(s.path)));
+
+  // Slice width is the WEIGHT share, which is the point of the chart.
+  assert.deepEqual(slices.map((s) => s.share), [50, 30, 20]);
+  assert.ok(Math.abs(slices.reduce((n, s) => n + s.share, 0) - 100) < 0.01);
+
+  // Pass colour comes from the criterion, not the slice size.
+  assert.deepEqual(slices.map((s) => s.passed), [true, false, true]);
+
+  // A lone criterion is a full ring and must still be a drawable arc.
+  const one = pieSlices([crit('only', 4, 100)], 60, 60, 50, 30);
+  assert.equal(one.length, 1);
+  assert.ok(!/NaN/.test(one[0].path));
+  assert.equal(one[0].share, 100);
+
+  // An empty or all-zero rubric draws nothing rather than dividing by zero.
+  assert.deepEqual(pieSlices([], 60, 60, 50, 30), []);
+  assert.deepEqual(pieSlices([crit('x', 3, 0)], 60, 60, 50, 30), []);
+}
+
+console.log('report-charts: pie checks passed');

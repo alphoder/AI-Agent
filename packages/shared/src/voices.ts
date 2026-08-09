@@ -47,3 +47,38 @@ export const FEMALE_VOICES: VoiceOption[] = GEMINI_VOICES.filter((v) => v.gender
 
 /** Static sample clip URL for a voice (served from apps/web/public/voices). */
 export const voiceSampleUrl = (id: string): string => `/voices/${id}.wav`;
+
+const FEMALE_HINTS =
+  /\b(she|her|hers|herself|mrs|ms|smt|woman|women|lady|ladies|mother|mom|wife|daughter|sister|aunt|girl|female|housewife|homemaker)\b/gi;
+const MALE_HINTS =
+  /\b(he|him|his|himself|mr|shri|man|men|gentleman|father|dad|husband|son|brother|uncle|boy|male)\b/gi;
+
+/**
+ * Which gender the scenario's character is written as, read out of the persona
+ * text. There is no gender column on `scenarios` — the character lives in
+ * `system_prompt` as prose — so the text is the only honest source.
+ *
+ * Returns null when the writing does not commit to a gender, which is the
+ * common case and MUST stay meaningful: null means "offer every voice", not
+ * "guess". Never infer from `scenario.voice`; every row has one (the seed
+ * defaults it), so that would claim a gender for scenarios that never stated
+ * one and would silently hide half the catalogue.
+ *
+ * ponytail: word-count heuristic, no NLP. A tie or a blank reads as null.
+ * Self-check: npx tsx packages/shared/src/voices.test.ts
+ */
+export function personaGenderOf(...parts: (string | null | undefined)[]): VoiceGender | null {
+  const text = parts.filter(Boolean).join(' ');
+  if (!text.trim()) return null;
+  const female = (text.match(FEMALE_HINTS) || []).length;
+  const male = (text.match(MALE_HINTS) || []).length;
+  if (female === male) return null;
+  return female > male ? 'female' : 'male';
+}
+
+/** Voices offerable for a persona — every voice when the gender is unstated. */
+export function voicesForPersona(gender: VoiceGender | null): VoiceOption[] {
+  if (gender === 'male') return MALE_VOICES;
+  if (gender === 'female') return FEMALE_VOICES;
+  return GEMINI_VOICES;
+}

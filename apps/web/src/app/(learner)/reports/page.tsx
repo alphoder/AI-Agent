@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, ArrowLeft, PersonStanding, Download, Flag, Check, X } from 'lucide-react';
-import { ScoreRing, SplitBar, RadarChart, ContributionBars } from '@/components/charts/charts';
+import { ScoreRing, SplitBar, RubricPie, ContributionBars } from '@/components/charts/charts';
 import apiClient from '@/lib/api-client';
 import type { ReportData } from '@/components/report-pdf';
 import { gradeFor, PASS_MARK } from '@avatar-platform/shared';
@@ -243,15 +243,13 @@ function ReportView({ sessionId }: { sessionId: string }) {
           actually came from. The per-criterion detail below is the evidence. */}
       {report.criteria_scores.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
-          {report.criteria_scores.length >= 3 && (
-            <div className="rounded-2xl border border-border/50 bg-card p-5">
-              <h3 className="text-sm font-semibold">Performance profile</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">Dashed ring is the 3-of-5 pass line.</p>
-              <div className="mt-3 flex justify-center">
-                <RadarChart criteria={report.criteria_scores} />
-              </div>
-            </div>
-          )}
+          <div className="rounded-2xl border border-border/50 bg-card p-5">
+            <h3 className="text-sm font-semibold">Performance profile</h3>
+            <p className="mt-0.5 mb-3 text-xs text-muted-foreground">
+              Slice width is the criterion&apos;s share of the grade. Green passed, red did not.
+            </p>
+            <RubricPie criteria={report.criteria_scores} />
+          </div>
           <div className="rounded-2xl border border-border/50 bg-card p-5">
             <h3 className="text-sm font-semibold">Where the score came from</h3>
             <p className="mt-0.5 mb-3 text-xs text-muted-foreground">

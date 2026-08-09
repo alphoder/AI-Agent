@@ -127,3 +127,67 @@ export function contribution(c: Criterion, totalWeight: number): number {
 
 const round = (n: number) => Math.round(n * 100) / 100;
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+// --- pie / donut of the rubric ----------------------------------------------
+
+export interface PieSlice {
+  path: string;          // donut segment
+  label: string;
+  score: number;         // 0-5
+  weight: number;        // % of grade
+  share: number;         // this slice's share of the ring, 0-100
+  passed: boolean;
+  /** Mid-angle point on the ring, for a leader dot or an inline figure. */
+  midX: number;
+  midY: number;
+}
+
+/**
+ * The rubric as a pie: every slice is as wide as that criterion's WEIGHT, so the
+ * ring shows what the grade is actually made of, and each slice is coloured by
+ * whether it passed. Criterion names go in a legend beside it rather than around
+ * the circle — long names ("Trust-Led Cross-Sell & Next Step") clipped badly on
+ * the radar this replaces.
+ *
+ * Off-rubric extras carry zero weight and are dropped: a zero-width slice is not
+ * drawable and they cannot move the grade anyway.
+ */
+export function pieSlices(
+  criteria: Criterion[],
+  cx: number,
+  cy: number,
+  r: number,
+  innerR: number,
+): PieSlice[] {
+  const used = criteria.filter((c) => c.weight > 0);
+  const total = used.reduce((n, c) => n + c.weight, 0);
+  if (total <= 0) return [];
+
+  let a0 = -Math.PI / 2;              // start at 12 o'clock
+  return used.map((c) => {
+    const share = (c.weight / total) * 100;
+    // A single criterion would be a full circle, which cannot be drawn as one
+    // arc (start == end); nudge it closed.
+    const sweep = Math.min((c.weight / total) * 2 * Math.PI, 2 * Math.PI - 0.001);
+    const a1 = a0 + sweep;
+    const large = sweep > Math.PI ? 1 : 0;
+    const p = (ang: number, rad: number) => `${round(cx + rad * Math.cos(ang))},${round(cy + rad * Math.sin(ang))}`;
+    const path =
+      `M ${p(a0, r)} A ${r} ${r} 0 ${large} 1 ${p(a1, r)}` +
+      ` L ${p(a1, innerR)} A ${innerR} ${innerR} 0 ${large} 0 ${p(a0, innerR)} Z`;
+    const mid = (a0 + a1) / 2;
+    const midR = (r + innerR) / 2;
+    const slice: PieSlice = {
+      path,
+      label: c.criterion_name,
+      score: c.score,
+      weight: c.weight,
+      share: round(share),
+      passed: c.passed ?? c.score >= CRITERION_PASS,
+      midX: round(cx + midR * Math.cos(mid)),
+      midY: round(cy + midR * Math.sin(mid)),
+    };
+    a0 = a1;
+    return slice;
+  });
+}

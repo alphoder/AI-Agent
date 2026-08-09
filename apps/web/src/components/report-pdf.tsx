@@ -8,7 +8,7 @@ import {
   Svg, Path, Circle, Line, Polygon, Rect, G,
 } from '@react-pdf/renderer';
 import {
-  donutPath, radarGeometry, weakestFirst, contribution, scoreBand, CRITERION_PASS,
+  donutPath, pieSlices, weakestFirst, contribution, scoreBand, CRITERION_PASS,
 } from '@/lib/report-charts';
 
 export interface ReportData {
@@ -87,6 +87,11 @@ const s = StyleSheet.create({
   just: { color: C.slate, fontSize: 8.5, lineHeight: 1.4, marginTop: 3 },
 
   col: { flex: 1, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12 },
+  pieRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  legendRow: { flexDirection: 'row', gap: 5, marginBottom: 5 },
+  swatch: { width: 7, height: 7, borderRadius: 2, marginTop: 2 },
+  legendName: { fontSize: 7.5, color: C.ink, lineHeight: 1.3 },
+  legendMeta: { fontSize: 6.5, color: C.light },
   li: { fontSize: 8.5, color: C.slate, marginBottom: 4, lineHeight: 1.4 },
   narrative: { fontSize: 9, color: C.slate, lineHeight: 1.5 },
   footer: { position: 'absolute', bottom: 20, left: 32, right: 32, fontSize: 8, color: C.light, textAlign: 'center', borderTopWidth: 1, borderTopColor: C.line, paddingTop: 7 },
@@ -110,25 +115,42 @@ function Donut({ score, size = 78, label }: { score: number; size?: number; labe
   );
 }
 
-/** The rubric as a shape. Same geometry as the on-screen chart. */
-function Radar({ criteria, size = 210 }: { criteria: ReportData['criteria_scores']; size?: number }) {
-  const g = radarGeometry(criteria, size, 52);
+/** The rubric as a pie. Same geometry as the on-screen chart. */
+function RubricPie({ criteria, size = 132 }: { criteria: ReportData['criteria_scores']; size?: number }) {
+  const slices = pieSlices(criteria, size / 2, size / 2, size / 2 - 2, size / 2 - 26);
+  if (slices.length === 0) return null;
+  const passed = slices.filter((x) => x.passed).length;
   return (
     <Svg width={size} height={size}>
       <G>
-        {g.rings.map((pts, i) => <Polygon key={i} points={pts} stroke={C.line} strokeWidth={0.7} fill="none" />)}
-        {g.spokes.map((k, i) => <Line key={i} x1={k.x1} y1={k.y1} x2={k.x2} y2={k.y2} stroke={C.line} strokeWidth={0.7} />)}
-        <Polygon points={g.passShape} stroke={C.amber} strokeWidth={0.9} fill="none" />
-        <Polygon points={g.shape} fill={C.indigo} fillOpacity={0.15} stroke={C.indigo} strokeWidth={1.6} />
-        {g.points.map((p, i) => <Circle key={i} cx={p.x} cy={p.y} r={2} fill={C.indigo} />)}
-        {g.points.map((p, i) => (
-          <Text key={i} x={p.labelX} y={p.labelY + 2} style={{ fontSize: 6 }} fill={C.slate}
-            textAnchor={p.anchor === 'start' ? 'start' : p.anchor === 'end' ? 'end' : 'middle'}>
-            {p.label.length > 14 ? `${p.label.slice(0, 13)}…` : p.label}
-          </Text>
+        {slices.map((x, i) => (
+          <Path key={i} d={x.path} fill={x.passed ? C.green : C.red} fillOpacity={x.passed ? 0.9 : 0.75}
+            stroke="#ffffff" strokeWidth={1.2} />
         ))}
+        <Text x={size / 2} y={size / 2 + 1} style={{ fontSize: 15, fontFamily: 'Helvetica-Bold' }} fill={C.ink} textAnchor="middle">
+          {`${passed}/${slices.length}`}
+        </Text>
+        <Text x={size / 2} y={size / 2 + 11} style={{ fontSize: 6 }} fill={C.light} textAnchor="middle">passed</Text>
       </G>
     </Svg>
+  );
+}
+
+/** Legend for the pie: full criterion names, which do not fit around a circle. */
+function PieLegend({ criteria }: { criteria: ReportData['criteria_scores'] }) {
+  const slices = pieSlices(criteria, 0, 0, 10, 5);
+  return (
+    <View>
+      {slices.map((x, i) => (
+        <View key={i} style={s.legendRow}>
+          <View style={[s.swatch, { backgroundColor: x.passed ? C.green : C.red }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={s.legendName}>{x.label}</Text>
+            <Text style={s.legendMeta}>{x.score}/5  ·  {x.weight}% of grade</Text>
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -225,11 +247,14 @@ export function ReportPDF({ data }: { data: ReportData }) {
 
         {/* The two charts that carry the analysis. */}
         <View style={s.row}>
-          {data.criteria_scores.length >= 3 && (
+          {data.criteria_scores.length > 0 && (
             <View style={s.card}>
               <Text style={s.cardTitle}>Performance profile</Text>
-              <Radar criteria={data.criteria_scores} />
-              <Text style={{ fontSize: 7, color: C.light, marginTop: 2 }}>Amber ring is the 3-of-5 pass line.</Text>
+              <View style={s.pieRow}>
+                <RubricPie criteria={data.criteria_scores} />
+                <View style={{ flex: 1 }}><PieLegend criteria={data.criteria_scores} /></View>
+              </View>
+              <Text style={{ fontSize: 7, color: C.light, marginTop: 4 }}>Slice width is the criterion&apos;s share of the grade.</Text>
             </View>
           )}
           {data.criteria_scores.length > 0 && (

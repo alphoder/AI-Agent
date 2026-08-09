@@ -54,14 +54,14 @@ function Section({ title, blurb, rows, empty, router }: {
               <article key={r.scenarioId}
                 className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
                 {cat && (
-                  <div className="relative h-20 w-full overflow-hidden bg-muted">
+                  <div className="relative h-24 w-full overflow-hidden bg-muted">
                     <Image src={cat.image} alt="" fill sizes="(max-width:640px) 100vw, 33vw" className="object-cover opacity-80" />
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-transparent" />
                     <span className="absolute bottom-2 left-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{cat.label}</span>
                     <GradeBadge grade={grade} className="absolute right-2 top-2" />
                   </div>
                 )}
-                <div className="flex flex-1 items-start gap-3 p-4">
+                <div className="flex flex-1 items-start gap-3 p-5">
                   <ScoreRing score={r.best} size={56} stroke={5} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start gap-1.5">

@@ -2,7 +2,7 @@
 
 import { useId, useState } from 'react';
 import {
-  radarGeometry, weakestFirst, contribution, CRITERION_PASS, type Criterion as RCriterion,
+  pieSlices, weakestFirst, contribution, CRITERION_PASS, type Criterion as RCriterion,
 } from '@/lib/report-charts';
 
 /**
@@ -182,37 +182,46 @@ export function Tile({ title, hint, empty, children }: {
 }
 
 /**
- * The rubric as a shape rather than a list.
- *
- * A spike on Discovery beside a dent on Closing reads in one glance; five bars
- * make you compare numbers. The dashed inner ring is the 3-of-5 pass line, so
- * "which criteria am I under the bar on" is answerable without reading a single
- * figure. Geometry comes from lib/report-charts so the PDF draws the same shape.
+ * The rubric as a pie: slice width is the criterion's WEIGHT, so the ring shows
+ * what the grade is made of, and slice colour is whether it passed. The names sit
+ * in a legend rather than around the circle — around it, real criterion names
+ * ("Trust-Led Cross-Sell & Next Step") clipped against the edge.
  */
-export function RadarChart({ criteria, size = 260 }: { criteria: RCriterion[]; size?: number }) {
-  if (criteria.length < 3) return null;   // two axes is a line, not a radar
-  const g = radarGeometry(criteria, size, 62);
+export function RubricPie({ criteria, size = 190 }: { criteria: RCriterion[]; size?: number }) {
+  const slices = pieSlices(criteria, size / 2, size / 2, size / 2 - 4, size / 2 - 34);
+  if (slices.length === 0) return null;
+  const passed = slices.filter((x) => x.passed).length;
+
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} className="h-auto w-full max-w-[300px]" role="img"
-      aria-label={`Rubric profile: ${criteria.map((c) => `${c.criterion_name} ${c.score} of 5`).join(', ')}`}>
-      {g.rings.map((pts, i) => (
-        <polygon key={i} points={pts} fill="none" stroke="hsl(var(--border))" strokeWidth={1} />
-      ))}
-      {g.spokes.map((s, i) => (
-        <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="hsl(var(--border))" strokeWidth={1} />
-      ))}
-      <polygon points={g.passShape} fill="none" stroke={AXIS} strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />
-      <polygon points={g.shape} fill="hsl(var(--primary) / 0.18)" stroke="hsl(var(--primary))" strokeWidth={2} strokeLinejoin="round" />
-      {g.points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r={3} fill="hsl(var(--primary))" />
-      ))}
-      {g.points.map((p, i) => (
-        <text key={i} x={p.labelX} y={p.labelY} textAnchor={p.anchor} dominantBaseline="middle"
-          className="fill-muted-foreground" style={{ fontSize: 9 }}>
-          {p.label.length > 16 ? `${p.label.slice(0, 15)}…` : p.label}
-        </text>
-      ))}
-    </svg>
+    <div className="flex flex-wrap items-center gap-5">
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} className="shrink-0" role="img"
+        aria-label={`Rubric: ${slices.map((x) => `${x.label} ${x.score} of 5, ${x.weight}% of the grade`).join('; ')}`}>
+        {slices.map((x, i) => (
+          <path key={i} d={x.path}
+            className={x.passed ? 'fill-success' : 'fill-destructive'}
+            fillOpacity={x.passed ? 0.9 : 0.75}
+            stroke="hsl(var(--card))" strokeWidth={1.5} />
+        ))}
+        <text x={size / 2} y={size / 2 - 2} textAnchor="middle" className="fill-foreground"
+          style={{ fontSize: 19, fontWeight: 700 }}>{passed}/{slices.length}</text>
+        <text x={size / 2} y={size / 2 + 13} textAnchor="middle" className="fill-muted-foreground"
+          style={{ fontSize: 8.5 }}>criteria passed</text>
+      </svg>
+
+      <ul className="min-w-[9rem] flex-1 space-y-2">
+        {slices.map((x, i) => (
+          <li key={i} className="flex items-start gap-2 text-xs">
+            <span aria-hidden className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-sm ${x.passed ? 'bg-success' : 'bg-destructive'}`} />
+            <span className="min-w-0 flex-1">
+              <span className="block leading-snug">{x.label}</span>
+              <span className="text-muted-foreground">
+                {x.score}/5 · {x.weight}% of grade
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
