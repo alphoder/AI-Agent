@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Play, BookOpen, MessageSquare, RotateCcw, Lock, Flame, Zap, Award, ArrowRight, Loader2 } from 'lucide-react';
+import { Check, Play, BookOpen, MessageSquare, RotateCcw, Lock, Flame, Zap, Award } from 'lucide-react';
 import { TASK_MINUTES, type PlanTaskType } from '@avatar-platform/shared';
 import { cn } from '@/lib/utils';
 
@@ -18,16 +18,16 @@ export interface PlanTaskView {
   mastery: string;
   done: boolean;
   missing: boolean;
-  /** Added on read because they scored badly on it — not part of the written week. */
-  adaptive?: boolean;
 }
 export interface PlanDayView { day: number; focus: string; tasks: PlanTaskView[]; done: boolean }
 export interface PlanView {
   headline: string;
-  week: number;
   days: PlanDayView[];
   currentDay: number;
-  weekComplete: boolean;
+  /** 'initial' for intake/rebuilds, 'extended' for the free continuation. */
+  kind?: string;
+  /** True when every day in the plan is done. */
+  finished?: boolean;
 }
 
 const TASK_ICON: Record<PlanTaskType, React.ReactNode> = {
@@ -53,9 +53,8 @@ function Stat({ icon, value, label }: { icon: React.ReactNode; value: string | n
   );
 }
 
-export function Roadmap({ plan, streak, xp, certificates, onNextWeek, building }: {
+export function Roadmap({ plan, streak, xp, certificates }: {
   plan: PlanView; streak: number; xp: number; certificates: number;
-  onNextWeek?: () => void; building?: boolean;
 }) {
   const router = useRouter();
   const todayRef = useRef<HTMLLIElement>(null);
@@ -82,9 +81,7 @@ export function Roadmap({ plan, streak, xp, certificates, onNextWeek, building }
     <div className="max-w-3xl space-y-8">
       <header className="space-y-5">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Week {plan.week} of your journey
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Your plan</p>
           <h1 className="mt-1 text-balance text-3xl font-bold tracking-tight">{plan.headline || 'Your personalised path'}</h1>
         </div>
         <div className="flex flex-wrap gap-6">
@@ -152,7 +149,6 @@ export function Roadmap({ plan, streak, xp, certificates, onNextWeek, building }
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
                           <span className="truncate font-medium leading-tight">{t.title}</span>
-                          {t.adaptive && <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-primary">Added for you</span>}
                           {t.level && <span className="shrink-0 rounded-full border border-border px-1.5 py-px text-[10px] uppercase tracking-wide text-muted-foreground">{t.level}</span>}
                         </span>
                         <span className="mt-0.5 block truncate text-sm text-muted-foreground">
@@ -170,25 +166,6 @@ export function Roadmap({ plan, streak, xp, certificates, onNextWeek, building }
           );
         })}
       </ol>
-
-      {plan.weekComplete && onNextWeek && (
-        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 text-center">
-          <p className="text-lg font-bold tracking-tight">Week {plan.week} done.</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-            Week {plan.week + 1} is built from how this one actually went — what you have got, you
-            will not repeat.
-          </p>
-          <button
-            type="button"
-            onClick={onNextWeek}
-            disabled={building}
-            className="press mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-60"
-          >
-            {building ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            {building ? `Building week ${plan.week + 1}` : `Start week ${plan.week + 1}`}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

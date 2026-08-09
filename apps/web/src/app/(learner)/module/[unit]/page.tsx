@@ -19,7 +19,7 @@ export default function UnitRedirect() {
   const [dead, setDead] = useState(false);
 
   useEffect(() => {
-    apiClient.get('/journey').then(({ data }) => {
+    apiClient.get('/journey/curriculum').then(({ data }) => {
       const unit = (data.data.units as Unit[]).find((u) => u.key === unitKey);
       const sid = unit?.lessons.find((l) => l.scenarioId)?.scenarioId;
       if (sid) router.replace(`/scenarios/module/${sid}`);

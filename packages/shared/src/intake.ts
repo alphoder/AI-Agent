@@ -125,6 +125,23 @@ export const INTAKE_LIMITS = {
   tasksPerDay: 3,
 };
 
+/**
+ * How many personalised plans a learner may generate per month (intake build +
+ * rebuilds). Auto-generated EXTENDED journeys are free and do not count — they
+ * only exist once the current plan is finished, and re-running one would be a
+ * fresh, not a rewrite.
+ */
+export const JOURNEY_PLAN_LIMIT_PER_MONTH = 2;
+
+/**
+ * The pass mark. A scenario is "passed" when the best overall score is >= this
+ * (50). Passed scenarios are excluded from extended journeys so a learner is
+ * never re-trained on material they have already mastered.
+ */
+export const JOURNEY_PASS_SCORE = 50;
+
+export type JourneyPlanKind = 'initial' | 'extended';
+
 export function labelFor(opts: IntakeOption[], id: string): string {
   return opts.find((o) => o.id === id)?.label ?? id;
 }
@@ -153,6 +170,8 @@ export interface JourneyPlan {
    *  every week after is built from what they actually scored. */
   week: number;
   days: PlanDay[];
+  /** 'initial' for intake/rebuilds, 'extended' for the auto-generated continuation. */
+  kind?: JourneyPlanKind;
 }
 
 export const PLAN_TASK_TYPES: PlanTaskType[] = ['module', 'call', 'drill', 'review'];
