@@ -7,7 +7,7 @@ import { Loader2, ArrowLeft, PersonStanding, Download, Flag, Check, X } from 'lu
 import { ScoreRing, SplitBar, RubricPie, ContributionBars } from '@/components/charts/charts';
 import apiClient from '@/lib/api-client';
 import type { ReportData } from '@/components/report-pdf';
-import { gradeFor, PASS_MARK } from '@avatar-platform/shared';
+import { gradeFor, PASS_MARK, SESSION_MIN_REPORT_SEC } from '@avatar-platform/shared';
 import { GradeBadge } from '@/components/ui/grade-badge';
 
 interface CriteriaScore {
@@ -42,7 +42,7 @@ function scoreColor(s: number) {
 
 function ReportView({ sessionId }: { sessionId: string }) {
   const [report, setReport] = useState<Report | null>(null);
-  const [meta, setMeta] = useState<{ scenario_title: string; language: string; ended_at: string | null; duration_sec: number | null } | null>(null);
+  const [meta, setMeta] = useState<{ scenario_title: string; language: string; ended_at: string | null; duration_sec: number | null; scored: boolean | null } | null>(null);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [markers, setMarkers] = useState<{ id: string; at_sec: number | null; body: string }[]>([]);
   const [waiting, setWaiting] = useState(true);
@@ -97,12 +97,16 @@ function ReportView({ sessionId }: { sessionId: string }) {
     }
   }
 
-  // Sessions under 1m30s aren't scored (matches MIN_REPORT_SEC in the API).
-  const tooShort = meta != null && (meta.duration_sec ?? 0) < 90;
+  // Not scored = learner ended it under a minute (SESSION_MIN_REPORT_SEC, the
+  // same rule as the API). Older sessions predate the `scored` flag, so fall
+  // back to the duration heuristic for them. Customer-ended calls are always
+  // scored and therefore never "too short".
+  const tooShort = meta != null && (meta.scored === false
+    || (meta.scored == null && (meta.duration_sec ?? 0) < SESSION_MIN_REPORT_SEC));
 
   useEffect(() => {
     if (!meta) return;          // wait until we know the duration
-    if ((meta.duration_sec ?? 0) < 90) { setWaiting(false); return; } // too short → no report to poll for
+    if (tooShort) { setWaiting(false); return; } // not scored → no report to poll for
     let tries = 0;
     let timer: ReturnType<typeof setTimeout>;
     let active = true;
@@ -132,9 +136,9 @@ function ReportView({ sessionId }: { sessionId: string }) {
           <ArrowLeft className="h-4 w-4" /> All sessions
         </Link>
         <div className="rounded-2xl border border-border bg-card p-10 text-center">
-          <p className="font-semibold">Session too short for a report</p>
+          <p className="font-semibold">Call too short for a report</p>
           <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
-            We only score sessions that run at least <span className="text-foreground font-medium">1 min 30 sec</span>. Practise a little longer next time and you&apos;ll get a full breakdown.
+            Calls you end under <span className="text-foreground font-medium">1 minute</span> aren&apos;t scored — practise a little longer next time and you&apos;ll get a full breakdown. When the customer hangs up first, you always get one.
           </p>
           <Link href="/scenarios" className="press mt-5 inline-block rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
             Practise again

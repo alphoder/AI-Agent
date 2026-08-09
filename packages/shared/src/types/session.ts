@@ -55,3 +55,11 @@ export interface CriteriaScore {
   weight: number;
   justification: string;
 }
+
+/**
+ * Minimum call length (seconds) for a LEARNER-ended session to be sent to
+ * report generation. Customer-ended calls are always scored, regardless of
+ * length — being hung up on is the lesson. Mirrored by the API's end handler
+ * and the reports UI, so the page can tell a scored call from a dropped one.
+ */
+export const SESSION_MIN_REPORT_SEC = 60;

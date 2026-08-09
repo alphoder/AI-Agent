@@ -8,13 +8,14 @@ import { validateUuidParam } from '../middleware/validate-uuid';
 import { aiServiceWsUrl, callAIServiceBackground } from '../utils/ai-service-client';
 import { buildSystemPrompt } from '../utils/prompt-bundle';
 import { signWsTicket } from '../utils/ws-ticket';
-import { languageName, VOICE_IDS, accentLabel } from '@avatar-platform/shared';
+import { languageName, VOICE_IDS, accentLabel, SESSION_MIN_REPORT_SEC } from '@avatar-platform/shared';
 import { ensureWallet, adjustWallet, walletEnforced } from '../services/wallet-service';
 import { getStreak } from '../services/game-service';
 
 // Scoring thresholds. If the CUSTOMER hangs up the call is always scored (being
-// hung up on is the lesson). If the LEARNER ends it, require a real attempt.
-const USER_END_MIN_SEC = 60;
+// hung up on is the lesson). If the LEARNER ends it, require a real attempt —
+// SESSION_MIN_REPORT_SEC (shared) is the minimum length for a learner-ended
+// call to be sent to report generation.
 /** A call runs at most 5 minutes, counted from the customer's first word.
  *  Ring time is excluded because the clock only starts when they speak. */
 const MAX_CALL_SEC = 300;
@@ -204,8 +205,12 @@ router.post('/:id/end', validateUuidParam('id'), wrap(async (req: AuthenticatedR
   //    lesson, and the report explains why they walked (no minimum).
   //  - the LEARNER ended it -> needs >= 60s, so an accidental exit isn't scored.
   const duration = session.duration_sec ?? 0;
-  const threshold = endedBy === 'customer' ? 0 : USER_END_MIN_SEC;
+  const threshold = endedBy === 'customer' ? 0 : SESSION_MIN_REPORT_SEC;
   const scored = duration >= threshold;
+  // Persist the decision so the reports UI can tell a scored call from a
+  // dropped one: a customer-hung-up call is scored even under a minute, a
+  // learner-ended one under SESSION_MIN_REPORT_SEC is not.
+  await db.query('UPDATE sessions SET scored = $2 WHERE id = $1', [session.id, scored]);
   if (scored) {
     const sc = await db.query(
       'SELECT objective, system_prompt, scoring_rubric, difficulty_level FROM scenarios WHERE id = $1',
@@ -239,7 +244,7 @@ router.get('/:id', validateUuidParam('id'), wrap(async (req: AuthenticatedReques
   const me = req.user!.sub;
   const result = await db.query(
     `SELECT s.id, s.scenario_id, s.language, s.status, s.started_at, s.ended_at,
-            s.duration_sec, s.total_turns, sc.title AS scenario_title
+            s.duration_sec, s.total_turns, s.scored, sc.title AS scenario_title
      FROM sessions s JOIN scenarios sc ON sc.id = s.scenario_id
      WHERE s.id = $1 AND s.user_id = $2`,
     [req.params.id, me],
