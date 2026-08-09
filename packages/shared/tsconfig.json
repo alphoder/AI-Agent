@@ -16,5 +16,6 @@
     "moduleResolution": "node"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "// exclude": "Self-checks are run with tsx and use node builtins; this package targets the browser and has no @types/node, so compiling them here fails the build and would ship them in dist.",
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }
