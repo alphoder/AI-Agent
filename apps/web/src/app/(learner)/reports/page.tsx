@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, ArrowLeft, PersonStanding, Download, Flag, Check, X } from 'lucide-react';
-import { ScoreRing, SplitBar } from '@/components/charts/charts';
+import { ScoreRing, SplitBar, RadarChart, ContributionBars } from '@/components/charts/charts';
 import apiClient from '@/lib/api-client';
 import type { ReportData } from '@/components/report-pdf';
 import { gradeFor, PASS_MARK } from '@avatar-platform/shared';
@@ -60,6 +60,7 @@ function ReportView({ sessionId }: { sessionId: string }) {
 
   async function downloadPdf() {
     if (!report) return;
+    const stats = callStats(report.narrative_feedback);
     setDownloading(true);
     try {
       const [{ pdf }, { ReportPDF }] = await Promise.all([import('@react-pdf/renderer'), import('@/components/report-pdf')]);
@@ -74,6 +75,13 @@ function ReportView({ sessionId }: { sessionId: string }) {
         narrative_feedback: report.narrative_feedback,
         body_language_score: report.body_language_score,
         body_language_feedback: report.body_language_feedback,
+        // The PDF draws the same figures the screen does, rather than re-deriving
+        // them from the narrative and drifting.
+        talkRatio: stats.talkRatio,
+        questions: stats.questions,
+        fillers: stats.fillers,
+        durationSec: meta?.duration_sec ?? null,
+        passMark: PASS_MARK,
       };
       const blob = await pdf(<ReportPDF data={payload} />).toBlob();
       const url = URL.createObjectURL(blob);
@@ -231,6 +239,29 @@ function ReportView({ sessionId }: { sessionId: string }) {
 
       {/* Rubric. Hidden entirely when the scorer returned no criteria: a lone
           heading over nothing reads as a broken page. */}
+      {/* The analytical read: the SHAPE of the performance and where the points
+          actually came from. The per-criterion detail below is the evidence. */}
+      {report.criteria_scores.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {report.criteria_scores.length >= 3 && (
+            <div className="rounded-2xl border border-border/50 bg-card p-5">
+              <h3 className="text-sm font-semibold">Performance profile</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">Dashed ring is the 3-of-5 pass line.</p>
+              <div className="mt-3 flex justify-center">
+                <RadarChart criteria={report.criteria_scores} />
+              </div>
+            </div>
+          )}
+          <div className="rounded-2xl border border-border/50 bg-card p-5">
+            <h3 className="text-sm font-semibold">Where the score came from</h3>
+            <p className="mt-0.5 mb-3 text-xs text-muted-foreground">
+              Each criterion in points of the 100. The track is what it could have carried.
+            </p>
+            <ContributionBars criteria={report.criteria_scores} />
+          </div>
+        </div>
+      )}
+
       {report.criteria_scores.length > 0 && (
       <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
         <div className="flex items-baseline justify-between gap-3">

@@ -1,6 +1,9 @@
 'use client';
 
 import { useId, useState } from 'react';
+import {
+  radarGeometry, weakestFirst, contribution, CRITERION_PASS, type Criterion as RCriterion,
+} from '@/lib/report-charts';
 
 /**
  * Chart primitives for the Review pages.
@@ -175,5 +178,83 @@ export function Tile({ title, hint, empty, children }: {
         {empty ? <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p> : children}
       </div>
     </section>
+  );
+}
+
+/**
+ * The rubric as a shape rather than a list.
+ *
+ * A spike on Discovery beside a dent on Closing reads in one glance; five bars
+ * make you compare numbers. The dashed inner ring is the 3-of-5 pass line, so
+ * "which criteria am I under the bar on" is answerable without reading a single
+ * figure. Geometry comes from lib/report-charts so the PDF draws the same shape.
+ */
+export function RadarChart({ criteria, size = 260 }: { criteria: RCriterion[]; size?: number }) {
+  if (criteria.length < 3) return null;   // two axes is a line, not a radar
+  const g = radarGeometry(criteria, size, 62);
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} className="h-auto w-full max-w-[300px]" role="img"
+      aria-label={`Rubric profile: ${criteria.map((c) => `${c.criterion_name} ${c.score} of 5`).join(', ')}`}>
+      {g.rings.map((pts, i) => (
+        <polygon key={i} points={pts} fill="none" stroke="hsl(var(--border))" strokeWidth={1} />
+      ))}
+      {g.spokes.map((s, i) => (
+        <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="hsl(var(--border))" strokeWidth={1} />
+      ))}
+      <polygon points={g.passShape} fill="none" stroke={AXIS} strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />
+      <polygon points={g.shape} fill="hsl(var(--primary) / 0.18)" stroke="hsl(var(--primary))" strokeWidth={2} strokeLinejoin="round" />
+      {g.points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={3} fill="hsl(var(--primary))" />
+      ))}
+      {g.points.map((p, i) => (
+        <text key={i} x={p.labelX} y={p.labelY} textAnchor={p.anchor} dominantBaseline="middle"
+          className="fill-muted-foreground" style={{ fontSize: 9 }}>
+          {p.label.length > 16 ? `${p.label.slice(0, 15)}…` : p.label}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * Where the final score actually came from: each criterion's contribution in
+ * POINTS of the 100, not its raw 1-5. A criterion can score badly and barely
+ * matter, or score well and carry the whole call; the raw number hides both.
+ */
+export function ContributionBars({ criteria }: { criteria: RCriterion[] }) {
+  const onRubric = criteria.filter((c) => !c.off_rubric);
+  const total = onRubric.reduce((n, c) => n + c.weight, 0);
+  if (total <= 0) return null;
+  const rows = weakestFirst(onRubric).map((c) => ({
+    name: c.criterion_name,
+    got: contribution(c, total),
+    max: contribution({ ...c, score: 5 }, total),
+    passed: c.passed ?? c.score >= CRITERION_PASS,
+    score: c.score,
+  }));
+  const widest = Math.max(...rows.map((r) => r.max), 1);
+
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.name}>
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="truncate font-medium">{r.name}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              <span className={r.passed ? 'font-semibold text-foreground' : 'font-semibold text-destructive'}>
+                {r.got.toFixed(1)}
+              </span>
+              <span className="text-xs"> of {r.max.toFixed(1)} pts</span>
+            </span>
+          </div>
+          {/* The full-width track is what this criterion COULD have contributed,
+              so a short bar on a wide track is the biggest available win. */}
+          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted" style={{ width: `${(r.max / widest) * 100}%` }}>
+            <div className={`h-full rounded-full ${r.passed ? 'bg-success' : 'bg-destructive'}`}
+              style={{ width: `${Math.max(2, (r.got / r.max) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
