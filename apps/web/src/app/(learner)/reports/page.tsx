@@ -189,8 +189,10 @@ function ReportView({ sessionId }: { sessionId: string }) {
                 : 'It stays in Scenarios until you clear the mark. The weakest criteria below are where the points are.'}
             </p>
             <p className="mt-1.5 text-xs text-muted-foreground">
-              {meta?.duration_sec != null && <>{Math.floor(meta.duration_sec / 60)}m {meta.duration_sec % 60}s spoken · </>}
-              {passedCount} of {report.criteria_scores.length} criteria passed
+              {meta?.duration_sec != null && <>{Math.floor(meta.duration_sec / 60)}m {meta.duration_sec % 60}s spoken</>}
+              {/* Older sessions were scored without a per-criterion breakdown, and
+                  "0 of 0 criteria passed" reads like a bug rather than an absence. */}
+              {report.criteria_scores.length > 0 && <> · {passedCount} of {report.criteria_scores.length} criteria passed</>}
               {report.body_language_score != null && <> · body language {Math.round(report.body_language_score)}</>}
             </p>
           </div>
