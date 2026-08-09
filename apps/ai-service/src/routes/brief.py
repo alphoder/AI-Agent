@@ -125,6 +125,74 @@ class BriefRequest(BaseModel):
     language: str = "en"
 
 
+_ATTEMPTS = 4
+
+def _backoff(exc: Exception, attempt: int) -> float:
+    """
+    Seconds to wait before retrying. A rate limit is waited out on Gemini's own terms
+    where it gives them (it returns a RetryInfo `retryDelay`), and otherwise for long
+    enough to leave the quota minute. Everything else backs off gently: a malformed
+    JSON body is not helped by waiting.
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 429:
+        body = ""
+        try:
+            body = exc.response.text  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001
+            pass
+        m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', body)
+        if m:
+            return min(45.0, float(m.group(1)) + 1.0)
+        return min(45.0, 20.0 * (attempt + 1))
+    return 1.5 * (attempt + 1)
+
+
+def _shape_problems(out: dict) -> list[str]:
+    """
+    What would make this brief unusable on the module page. Mirrors the committed
+    check in api/src/db/briefs.test.ts: whatever is rejected here must not be able
+    to reach briefs.ts, and whatever that test rejects must be caught here first.
+    """
+    problems: list[str] = []
+    b = out.get("brief")
+    if not isinstance(b, dict):
+        return ["no brief object"]
+
+    for f in ("name", "headline", "situation", "manner"):
+        if not str(b.get(f) or "").strip():
+            problems.append(f"brief.{f} empty")
+    for f in ("life", "pressures", "standing", "unknowns", "facts"):
+        if not isinstance(b.get(f), list) or not b[f]:
+            problems.append(f"brief.{f} empty")
+    if isinstance(b.get("facts"), list):
+        if any(not str((f or {}).get("label") or "").strip() or not str((f or {}).get("value") or "").strip() for f in b["facts"]):
+            problems.append("a fact has a blank label or value")
+
+    q = out.get("quiz")
+    if not isinstance(q, dict) or not str(q.get("question") or "").strip():
+        problems.append("quiz has no question")
+    else:
+        opts = q.get("options") if isinstance(q.get("options"), list) else []
+        ids = [str((o or {}).get("id") or "").strip() for o in opts]
+        if len([i for i in ids if i]) < 2:
+            problems.append("quiz has fewer than two usable options")
+        if any(not str((o or {}).get("text") or "").strip() for o in opts):
+            problems.append("a quiz option has no text")
+        if str(q.get("correct") or "").strip() not in ids:
+            problems.append("quiz.correct is not one of the options")
+
+    ex = out.get("exchange")
+    if not isinstance(ex, list) or len(ex) < 2:
+        problems.append("exchange too short")
+    else:
+        if any(not str((t or {}).get("line") or "").strip() for t in ex):
+            problems.append("an exchange turn has no line")
+        if not any((t or {}).get("speaker") == "client" for t in ex):
+            problems.append("exchange has no client line")
+    return problems
+
+
 def _safe(exc: Exception | None) -> str:
     return re.sub(r"key=[A-Za-z0-9_\-]+", "key=REDACTED", str(exc))
 
@@ -197,17 +265,28 @@ async def generate_brief(body: BriefRequest):
         "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096, "responseMimeType": "application/json"},
     }
 
+    # Bulk generation runs hundreds of these back to back, so a 429 is routine rather
+    # than exceptional. A 1.5s backoff just burns the retries inside the same quota
+    # minute and the whole scenario fails; a rate limit needs to be waited out.
     last: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(_ATTEMPTS):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
                 out = _parse(resp.json())
 
+            # Valid JSON is not the same as a usable file. The model sometimes returns
+            # the right shape with the contents hollowed out: quiz options with blank
+            # ids, an exchange turn with no line. That renders as a broken Learn step,
+            # so it counts as a failed attempt rather than something to write.
+            broken = _shape_problems(out)
+            if broken:
+                raise ValueError("unusable brief: " + "; ".join(broken[:3]))
+
             brief = out.get("brief") or {}
             leaked = _COACHING.findall(_brief_text(brief))
-            if leaked and attempt < 2:
+            if leaked and attempt < _ATTEMPTS - 1:
                 # It coached. Say so plainly and let it try again.
                 logger.warning("brief.coaching_leak", title=body.title, terms=sorted(set(t.lower() for t in leaked))[:5])
                 payload["contents"].append({"role": "model", "parts": [{"text": json.dumps(out)[:2000]}]})
@@ -227,8 +306,8 @@ async def generate_brief(body: BriefRequest):
         except Exception as exc:  # noqa: BLE001
             last = exc
             logger.warning("brief.attempt_failed", attempt=attempt, error=_safe(exc))
-            if attempt < 2:
-                await asyncio.sleep(1.5 * (attempt + 1))
+            if attempt < _ATTEMPTS - 1:
+                await asyncio.sleep(_backoff(exc, attempt))
 
     logger.error("brief.failed", error=_safe(last))
     raise HTTPException(status_code=502, detail="brief generation failed")

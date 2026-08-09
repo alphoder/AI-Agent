@@ -22,14 +22,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { SCENARIO_BRIEFS } from '@avatar-platform/shared';
 import type { SeedScenario } from './scenarios/kit';
-import { SALES_SCENARIOS } from './scenarios/sales';
-import { CLIENT_GROWTH_SCENARIOS } from './scenarios/client-growth';
-import { INTERVIEW_SCENARIOS } from './scenarios/interview';
-import { SUPPORT_SCENARIOS } from './scenarios/support';
-import { NEGOTIATION_SCENARIOS } from './scenarios/negotiation';
-import { LEADERSHIP_SCENARIOS } from './scenarios/leadership';
-import { SPEAKING_SCENARIOS } from './scenarios/speaking';
-import { CONFIDENCE_SCENARIOS } from './scenarios/confidence';
+import { ALL_SEED_SCENARIOS } from './scenarios/all';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
@@ -42,16 +35,7 @@ function briefJson(title: string): string | null {
   return b ? JSON.stringify(b) : null;
 }
 
-const SCENARIOS: SeedScenario[] = [
-  ...SALES_SCENARIOS,
-  ...CLIENT_GROWTH_SCENARIOS,
-  ...INTERVIEW_SCENARIOS,
-  ...SUPPORT_SCENARIOS,
-  ...NEGOTIATION_SCENARIOS,
-  ...LEADERSHIP_SCENARIOS,
-  ...SPEAKING_SCENARIOS,
-  ...CONFIDENCE_SCENARIOS,
-];
+const SCENARIOS: SeedScenario[] = ALL_SEED_SCENARIOS;
 
 async function seed() {
   const pool = new Pool({ connectionString: DATABASE_URL });
