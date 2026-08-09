@@ -58,3 +58,6 @@ k8s/secrets/
 # Internal planning docs (kept locally, off GitHub)
 /docs/
 /.claude/
+
+# impeccable hook caches
+.impeccable/
