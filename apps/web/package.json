@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@avatar-platform/shared": "workspace:*",
+    "@clerk/nextjs": "^6.39.6",
     "@react-oauth/google": "^0.12.1",
     "@react-pdf/renderer": "^3.4.4",
     "axios": "^1.6.0",

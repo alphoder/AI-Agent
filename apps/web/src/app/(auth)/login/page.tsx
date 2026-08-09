@@ -1,8 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { GoogleLogin } from '@react-oauth/google';
+import { ClerkProvider, SignInButton, useAuth as useClerkAuth } from '@clerk/nextjs';
 import { Mic, Check } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { setAccessToken } from '@/lib/auth';
@@ -12,6 +13,35 @@ import { AssistantOrb } from '@/components/assistant/assistant-orb';
 import { Accent } from '@/components/ui/accent';
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
+const CLERK_KEY = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
+
+/**
+ * Clerk sign-in. Clerk only proves who you are; the moment it does, its session
+ * token is traded for the app's own JWT so every downstream path (refresh
+ * rotation, WS tickets, route protection) stays exactly as it was.
+ */
+function ClerkSignIn({ onToken, busy }: { onToken: (t: string) => void; busy: boolean }) {
+  const { isSignedIn, getToken } = useClerkAuth();
+  const traded = useRef(false);
+
+  useEffect(() => {
+    if (!isSignedIn || traded.current) return;
+    traded.current = true;
+    getToken().then((t) => { if (t) onToken(t); });
+  }, [isSignedIn, getToken, onToken]);
+
+  return (
+    <SignInButton mode="modal">
+      <button
+        type="button"
+        disabled={busy}
+        className="press w-full rounded-full border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-60"
+      >
+        Continue with Clerk
+      </button>
+    </SignInButton>
+  );
+}
 
 function safeRedirect(target: string | null): string {
   if (target && target.startsWith('/') && !target.startsWith('//')) return target;
@@ -30,7 +60,7 @@ function LoginInner() {
   // Dev sign-in: on by default locally; in prod only when explicitly enabled.
   const devLoginOn = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEV_LOGIN === 'true';
   const [devEmail, setDevEmail] = useState('dev@speakcoach.local');
-  const [devPass, setDevPass] = useState('speakcoach-dev-2026');
+  const [devPass, setDevPass] = useState('hfihdiugweifiewjfbifbi');
 
   useEffect(() => { warmBackend(); }, []); // wake the backend while the user signs in
 
@@ -58,6 +88,20 @@ function LoginInner() {
       setError(err?.response?.status === 404
         ? 'Dev sign-in is disabled on this environment.'
         : 'Invalid dev email or password.');
+      setBusy(false);
+    }
+  }
+
+  async function onClerk(token: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await apiClient.post('/auth/clerk', { token });
+      finish(data.data.accessToken, data.data.user);
+    } catch (err: any) {
+      setError(err?.response?.status === 404
+        ? 'Clerk sign-in is not configured on this environment.'
+        : 'Could not sign you in with Clerk. Please try again.');
       setBusy(false);
     }
   }
@@ -131,6 +175,19 @@ function LoginInner() {
               </p>
             )}
           </div>
+
+          {CLERK_KEY && (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">or</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              <ClerkProvider publishableKey={CLERK_KEY}>
+                <ClerkSignIn onToken={onClerk} busy={busy} />
+              </ClerkProvider>
+            </>
+          )}
 
           {/* Dev / demo sign-in — admin + learner in one account */}
           {devLoginOn && (

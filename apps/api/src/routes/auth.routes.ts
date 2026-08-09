@@ -2,7 +2,8 @@ import { Router, Request, Response, NextFunction, RequestHandler } from 'express
 import crypto from 'crypto';
 import { JWTService } from '../services/jwt-service';
 import { verifyGoogleIdToken } from '../services/google-auth';
-import { upsertGoogleUser } from '../services/user-service';
+import { upsertGoogleUser, upsertClerkUser } from '../services/user-service';
+import { verifyClerkSessionToken, clerkEnabled } from '../services/clerk-auth';
 import { rateLimit } from '../middleware/rate-limit';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 import { wrap } from '../utils/wrap';
@@ -59,7 +60,20 @@ function devLoginPassword(): string | null {
   const explicit = process.env.DEV_LOGIN_PASSWORD;
   if (explicit && explicit.length >= 12) return explicit;
   if (isProd) return null;            // never a default credential in production
-  return 'speakcoach-dev-2026';       // local convenience only
+  return 'hfihdiugweifiewjfbifbi';    // local convenience only
+}
+
+/**
+ * Constant-time password compare. Compares BYTE length, not string length:
+ * `timingSafeEqual` throws on a length mismatch, and a multi-byte password
+ * ("é" × 22) has the same string length as the expected value but twice the
+ * bytes — which turned a wrong password into a 500 instead of a 401.
+ * Self-check: `npx tsx src/routes/auth.test.ts`
+ */
+export function passwordMatches(given: string, expected: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 router.post('/dev-login', async (req: Request, res: Response, next: NextFunction) => {
@@ -71,8 +85,7 @@ router.post('/dev-login', async (req: Request, res: Response, next: NextFunction
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     const password = String(req.body?.password ?? '');
     const emailOk = email === DEV_LOGIN_EMAIL;
-    const passOk = password.length === expected.length &&
-      crypto.timingSafeEqual(Buffer.from(password), Buffer.from(expected));
+    const passOk = passwordMatches(password, expected);
     if (!emailOk || !passOk) {
       logger.warn({ email }, 'dev-login rejected');
       return res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
@@ -100,6 +113,47 @@ router.post('/dev-login', async (req: Request, res: Response, next: NextFunction
     });
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * POST /api/auth/clerk
+ * Body: { token: <Clerk session token> }
+ * Verifies the Clerk session token, upserts the user, issues app tokens.
+ * 404s when CLERK_SECRET_KEY is unset, so the route is invisible unless
+ * Clerk is actually configured for the environment.
+ */
+router.post('/clerk', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!clerkEnabled()) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Route not found' } });
+    }
+    const token = req.body?.token;
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_TOKEN', message: 'Clerk session token is required' },
+      });
+    }
+
+    const profile = await verifyClerkSessionToken(token);
+    const user = await upsertClerkUser(profile);
+    const { accessToken, refreshToken } = await JWTService.issueTokens(user);
+    setAuthCookies(res, accessToken, refreshToken);
+
+    res.json({
+      success: true,
+      data: {
+        accessToken,
+        user: { id: user.id, email: user.email, name: user.name, picture: user.picture },
+      },
+    });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Clerk login failed');
+    return res.status(401).json({
+      success: false,
+      error: { code: 'CLERK_AUTH_FAILED', message: 'Could not verify Clerk sign-in' },
+    });
   }
 });
 

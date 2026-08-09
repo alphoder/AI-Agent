@@ -16,6 +16,12 @@ const envSchema = z.object({
   // Google ID tokens against it. Client secret only needed for the code flow.
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // Clerk — optional second identity provider. Unset = POST /api/auth/clerk 404s.
+  CLERK_SECRET_KEY: z.string().optional(),
+  // Password for POST /api/auth/dev-login. Required (>=12 chars) for the route
+  // to exist in production; below that it only works outside production.
+  DEV_LOGIN_PASSWORD: z.string().optional(),
+  DEV_LOGIN_EMAIL: z.string().optional(),
   AI_SERVICE_URL: z.string().default('http://localhost:8000'),
   INTERNAL_API_KEY: z.string().default('dev-internal-key'),
   // Secret used to sign short-lived WebSocket tickets. Must match the AI
