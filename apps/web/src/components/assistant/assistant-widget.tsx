@@ -11,6 +11,128 @@ import { AssistantOrb, OrbState } from './assistant-orb';
 
 interface Entry { role: 'user' | 'assistant'; text: string }
 
+// --- where Bixy sits -------------------------------------------------------
+
+/** Orb box. Clamping keeps this much of her on screen, so she is always grabbable. */
+const ORB = 128;
+const HOME = { right: 20, bottom: 20 };  // matches the old bottom-5 right-5
+const POS_KEY = 'bixy-position';
+const DRAG_SLOP = 4;                     // px before a tap counts as a drag
+/** Headroom the tallest panel (the built-scenario card) needs above the orb. */
+const PANEL_ROOM = 280;
+
+/**
+ * The caption's squared-off corner points at the orb, so it reads as her speech
+ * wherever she is. Written out rather than composed, because Tailwind only ships
+ * classes it can see as whole strings.
+ */
+const TAIL: Record<string, string> = {
+  'above-end': 'rounded-br-sm',
+  'above-start': 'rounded-bl-sm',
+  'below-end': 'rounded-tr-sm',
+  'below-start': 'rounded-tl-sm',
+};
+
+interface Pos { right: number; bottom: number }
+
+function clampToViewport(p: Pos): Pos {
+  return {
+    right: Math.min(Math.max(0, p.right), Math.max(0, window.innerWidth - ORB)),
+    bottom: Math.min(Math.max(0, p.bottom), Math.max(0, window.innerHeight - ORB)),
+  };
+}
+
+/**
+ * Drag Bixy anywhere, by the orb, with pointer events so mouse, touch and pen are
+ * one code path. Position is offsets from the bottom-right corner rather than
+ * left/top, because the panels stack upward from the orb and that only stays put
+ * if the bottom edge is the anchor.
+ */
+function useDraggable() {
+  const [pos, setPos] = useState<Pos>(HOME);
+  // True once she is left of centre, so the caption and panels flip to grow
+  // rightward instead of off the screen edge.
+  const [alignStart, setAlignStart] = useState(false);
+  // Near the top of the screen there is no room above her, and the built-scenario
+  // card would render off-screen with its "Start the call" button out of reach.
+  // Then the stack flips to hang below her instead.
+  const [stackBelow, setStackBelow] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const posRef = useRef(pos);
+  const grab = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
+  // Survives pointerup so the click that follows a drag does not also toggle Bixy.
+  const draggedRef = useRef(false);
+
+  const apply = useCallback((p: Pos) => {
+    const next = clampToViewport(p);
+    posRef.current = next;
+    setPos(next);
+    setAlignStart(window.innerWidth - next.right - ORB / 2 < window.innerWidth / 2);
+    setStackBelow(window.innerHeight - next.bottom - ORB < PANEL_ROOM);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(POS_KEY);
+      if (raw) apply(JSON.parse(raw) as Pos);
+      else apply(HOME);
+    } catch {
+      apply(HOME);  // storage blocked, or someone hand-edited the value
+    }
+    // A smaller window would otherwise strand her off-screen with no way back.
+    const onResize = () => apply(posRef.current);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [apply]);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    // Capture keeps the drag alive when the cursor outruns the orb. It throws if the
+    // pointer is already gone, which must not abort the drag.
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* no capture, drag still works */ }
+    grab.current = { x: e.clientX, y: e.clientY, ...posRef.current, moved: false };
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    const g = grab.current;
+    if (!g) return;
+    const dx = e.clientX - g.x;
+    const dy = e.clientY - g.y;
+    if (!g.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;  // a shaky tap is still a tap
+    g.moved = true;
+    draggedRef.current = true;
+    setDragging(true);
+    apply({ right: g.right - dx, bottom: g.bottom - dy });   // right/bottom grow leftward/upward
+  }, [apply]);
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    const g = grab.current;
+    grab.current = null;
+    setDragging(false);
+    if (!g?.moved) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* never captured */ }
+    try { localStorage.setItem(POS_KEY, JSON.stringify(posRef.current)); } catch { /* storage blocked */ }
+  }, []);
+
+  /** Call from onClick: true means "this was a drag, swallow the click". */
+  const consumeDrag = useCallback(() => {
+    if (!draggedRef.current) return false;
+    draggedRef.current = false;
+    return true;
+  }, []);
+
+  // Stacking below means anchoring by the orb's TOP edge, or the panels would still
+  // push her upward as they appear.
+  const anchor = stackBelow
+    ? { right: pos.right, top: Math.max(0, (typeof window === 'undefined' ? 0 : window.innerHeight) - pos.bottom - ORB) }
+    : { right: pos.right, bottom: pos.bottom };
+
+  return {
+    pos, anchor, alignStart, stackBelow, dragging, consumeDrag,
+    handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
+  };
+}
+
 const BIXY_VOICE = 'Leda';
 const WAKE = /\bbix(y|ie|i|ee)\b/i; // "hey bixy", "bixy", ...
 const IDLE_MS = 45000;             // close the session only after this much true silence
@@ -113,6 +235,7 @@ export function AssistantWidget() {
     adminRef.current = (user?.metadata as { role?: string } | null)?.role === 'admin';
   }, [user]);
 
+  const drag = useDraggable();
   const [ready, setReady] = useState(false);   // Gemini session live
   const [awake, setAwake] = useState(false);     // in a conversation
   const [speaking, setSpeaking] = useState(false);
@@ -480,7 +603,12 @@ export function AssistantWidget() {
   else caption = last?.role === 'user' ? `“${last.text}”` : 'Listening — just talk';
 
   return (
-    <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+    <div
+      className={`fixed z-40 flex gap-2 ${drag.stackBelow ? 'flex-col-reverse' : 'flex-col'} ${
+        drag.alignStart ? 'items-start' : 'items-end'
+      }`}
+      style={drag.anchor}
+    >
       {/* Being written. Shown because a minute of nothing on screen reads as broken,
           however chatty Bixy is being. */}
       {writing && !built && (
@@ -525,15 +653,22 @@ export function AssistantWidget() {
       <div
         key={caption}
         // Inverted, not fixed dark: a zinc-900 bubble vanishes on the dark canvas.
-        className="tooltip-bob animate-pop-in max-w-[260px] rounded-2xl rounded-br-sm bg-foreground text-background text-xs font-medium px-3.5 py-2 shadow-lg text-right line-clamp-3"
+        // The tail corner follows her side of the screen, so it points at the orb.
+        className={`tooltip-bob animate-pop-in max-w-[260px] rounded-2xl bg-foreground text-background text-xs font-medium px-3.5 py-2 shadow-lg line-clamp-3 ${
+          drag.alignStart ? 'text-left' : 'text-right'
+        } ${TAIL[`${drag.stackBelow ? 'below' : 'above'}-${drag.alignStart ? 'start' : 'end'}`]}`}
       >
         {caption}
       </div>
       <button
-        onClick={toggle}
-        className="relative grid h-32 w-32 place-items-center transition-transform hover:scale-105 active:scale-95"
+        {...drag.handlers}
+        onClick={() => { if (!drag.consumeDrag()) toggle(); }}
+        // touch-none: without it a touch drag scrolls the page instead of moving her.
+        className={`relative grid h-32 w-32 touch-none place-items-center transition-transform ${
+          drag.dragging ? 'cursor-grabbing scale-105' : 'cursor-grab hover:scale-105 active:scale-95'
+        }`}
         aria-label={awake ? 'Stop Bixy' : 'Wake Bixy'}
-        title={awake ? 'Tap to stop' : 'Tap or say “Hey Bixy”'}
+        title={awake ? 'Tap to stop, drag to move' : 'Tap or say “Hey Bixy”. Drag to move me.'}
       >
         <span aria-hidden className="bixy-halo absolute inset-0 m-auto h-24 w-24" />
         <AssistantOrb state={orbState} size={128} />
