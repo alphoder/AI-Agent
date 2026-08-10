@@ -132,7 +132,12 @@ export function CallPicker({ picker, setPicker, onClose }: {
     const a = new Audio(voiceSampleUrl(voiceId));
     audioRef.current = a;
     a.onended = () => setPlaying(null);
-    a.play().then(() => setPlaying(voiceId)).catch(() => setPlaying(null));
+    a.onerror = () => setPlaying(null);
+    // Flip the icon on the click, not on play()'s promise. That promise does not
+    // settle at all when the media never loads, which left the button looking
+    // completely dead — indistinguishable from a handler that never ran.
+    setPlaying(voiceId);
+    a.play().catch(() => setPlaying(null));
   }
 
   function goTo(step: number) {
