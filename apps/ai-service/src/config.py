@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     # REVERTED to flash-live: native-audio threw "stream error" mid-call under real
     # audio streaming. Re-test native-audio properly before switching back.
     gemini_live_model: str = "models/gemini-3.1-flash-live-preview"  # conversation (Live API)
+    # Gemini 2.5 native audio. Its one advantage over flash-live is
+    # `enable_affective_dialog` — it hears the emotion in the learner's voice and
+    # answers in kind; flash-live rejects that flag outright (1011).
+    # It costs coverage: only 18 language codes work and it hard-closes the socket
+    # (1007) on the rest, INCLUDING every regional accent. So it is used only where
+    # verified — see _NATIVE_AUDIO_LANGS in routes/session.py.
+    # Pinned, not `-latest`: that alias moves under you with no deploy.
+    gemini_native_audio_model: str = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+    # Kill switch. Native audio was reverted once for throwing a stream error
+    # mid-call under real audio; set NATIVE_AUDIO_ENABLED=false on the service to
+    # put every call back on flash-live instantly, without a deploy.
+    native_audio_enabled: bool = True
     gemini_flash_model: str = "gemini-3.5-flash-lite"      # reports + scoring + vision (key 1)
     gemini_prompt_model: str = "gemini-3.5-flash-lite"     # prompt redesign (key 2)
     # Scenario authoring runs on a stronger model: it writes a persona, an

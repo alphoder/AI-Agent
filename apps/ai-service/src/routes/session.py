@@ -113,6 +113,36 @@ def _bcp47(lang: str) -> str | None:
     if "-" in lang:
         return lang  # already region-qualified
     return _BCP47.get(lang)
+# Language codes Gemini 2.5 native audio actually accepts. VERIFIED 2026-08-10
+# against this key with scripts/verify_live_capabilities.py (18 of 74 replied).
+# Native audio hard-closes the socket with 1007 "Unsupported language code" on
+# anything else, so this list must never be widened by guesswork — re-run the
+# script and paste the result.
+#
+# Note what is NOT here: every regional accent fails — en-IN, en-GB, en-AU,
+# en-IE, es-ES, fr-CA, pt-PT. Accented sessions therefore stay on flash-live,
+# which handles all 23 accent codes. en-IN in particular is a common pick, so
+# most English calls will still route to flash-live by design.
+_NATIVE_AUDIO_LANGS = frozenset({
+    "en-US", "es-US", "fr-FR", "pt-BR", "de-DE", "it-IT", "nl-NL", "ru-RU",
+    "uk-UA", "pl-PL", "ro-RO", "tr-TR", "hi-IN", "th-TH", "vi-VN", "id-ID",
+    "ja-JP", "ko-KR",
+})
+
+
+def _live_model(bcp: str | None) -> tuple[str, bool]:
+    """Pick the live model for a resolved BCP-47 code.
+
+    Returns (model, affective_dialog). Native audio only where its support is
+    verified; everything else — unknown codes, every accent, and None — falls
+    back to flash-live, which is the model that covers all 74 languages.
+    Self-check: python scripts/test_model_routing.py
+    """
+    if settings.native_audio_enabled and bcp in _NATIVE_AUDIO_LANGS:
+        return settings.gemini_native_audio_model, True
+    return settings.gemini_live_model, False
+
+
 _MAX_MESSAGE_BYTES = 2_000_000         # ~2 MB cap per inbound message
 _MAX_MESSAGES_PER_SEC = 60             # flood guard
 _MAX_SESSION_SECONDS = 1800            # hard cap on the socket, ringing included
@@ -330,13 +360,21 @@ async def session_ws(websocket: WebSocket):
         speech_config = {"voice_config": {"prebuilt_voice_config": {"voice_name": state["voice"]}}}
         if bcp:
             speech_config["language_code"] = bcp  # pin understanding + output to the chosen language
+        live_model, affective = _live_model(bcp)
+        # Which model served a call is otherwise unknowable from the logs, and
+        # with two backends "the call misbehaved" is not answerable without it.
+        logger.info("session.live_model", model=live_model, lang=bcp, affective=affective)
+        generation_config: dict = {
+            "response_modalities": ["AUDIO"],
+            "speech_config": speech_config,
+        }
+        if affective:
+            # Native audio only; flash-live answers this flag with a 1011.
+            generation_config["enable_affective_dialog"] = True
         setup_msg = {
             "setup": {
-                "model": settings.gemini_live_model,
-                "generation_config": {
-                    "response_modalities": ["AUDIO"],
-                    "speech_config": speech_config,
-                },
+                "model": live_model,
+                "generation_config": generation_config,
                 "system_instruction": {"parts": [{"text": state["system_prompt"]}]},
                 "input_audio_transcription": {},
                 "output_audio_transcription": {},

@@ -26,7 +26,9 @@ Result: 30/30 voices accepted, 74/74 languages replied idiomatically in-script.
 import asyncio, json, re, sys, unicodedata
 import websockets
 
-MODEL = "models/gemini-3.1-flash-live-preview"
+import os
+# Override to compare candidates: LIVE_MODEL=models/... python scripts/verify_live_capabilities.py voices
+MODEL = os.environ.get("LIVE_MODEL", "models/gemini-3.1-flash-live-preview")
 URL = ("wss://generativelanguage.googleapis.com/ws/"
        "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=")
 
