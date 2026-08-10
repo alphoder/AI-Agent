@@ -240,8 +240,7 @@ export function ContributionBars({ criteria }: { criteria: RCriterion[] }) {
     max: contribution({ ...c, score: 5 }, total),
     passed: c.passed ?? c.score >= CRITERION_PASS,
     score: c.score,
-  }));
-  const widest = Math.max(...rows.map((r) => r.max), 1);
+  })).map((r) => ({ ...r, pct: r.max > 0 ? (r.got / r.max) * 100 : 0 }));
 
   return (
     <div className="space-y-3">
@@ -253,22 +252,16 @@ export function ContributionBars({ criteria }: { criteria: RCriterion[] }) {
               <span className={r.passed ? 'font-semibold text-foreground' : 'font-semibold text-destructive'}>
                 {r.got.toFixed(1)}
               </span>
-              <span className="text-xs"> of {r.max.toFixed(1)} pts</span>
+              <span className="text-xs"> of {r.max.toFixed(1)} pts · {Math.round(r.pct)}%</span>
             </span>
           </div>
-          {/* Every track is the SAME width, or the ragged right edges read as a
-              rendering fault rather than as data. One shared scale instead: the
-              fill is points earned, so bar lengths are comparable across rows,
-              and the notch is this criterion's ceiling. */}
-          <div className="relative mt-1.5 h-2 rounded-full bg-muted">
-            <div className={`h-full rounded-full ${r.passed ? 'bg-success' : 'bg-destructive'}`}
-              style={{ width: `${Math.max(2, (r.got / widest) * 100)}%` }} />
-            {r.max < widest && (
-              <span aria-hidden
-                className="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-muted-foreground/60"
-                style={{ left: `${(r.max / widest) * 100}%` }}
-                title={`ceiling ${r.max.toFixed(1)} pts`} />
-            )}
+          {/* One formula for every row: how much of THIS criterion was earned.
+              Scaling by points instead made 12 of 15 — four fifths of the marks
+              — render as a 40% bar, which reads as a much worse result than it
+              is. The absolute points stay in the label beside it. */}
+          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
+            <div className={`h-full rounded-full transition-[width] duration-500 ease-out ${r.passed ? 'bg-success' : 'bg-destructive'}`}
+              style={{ width: `${Math.max(2, r.pct)}%` }} />
           </div>
         </div>
       ))}

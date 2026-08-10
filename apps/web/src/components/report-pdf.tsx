@@ -186,8 +186,7 @@ function Contributions({ criteria, width = 250 }: { criteria: ReportData['criter
     got: contribution(c, total),
     max: contribution({ ...c, score: 5 }, total),
     passed: c.passed ?? c.score >= CRITERION_PASS,
-  }));
-  const widest = Math.max(...rows.map((r) => r.max), 1);
+  })).map((r) => ({ ...r, pct: r.max > 0 ? (r.got / r.max) * 100 : 0 }));
   const rowH = 17;
 
   return (
@@ -201,15 +200,11 @@ function Contributions({ criteria, width = 250 }: { criteria: ReportData['criter
               {r.name.length > 20 ? `${r.name.slice(0, 19)}…` : r.name}
             </Text>
             <Text x={width} y={y + 7} style={{ fontSize: 7 }} fill={r.passed ? C.slate : C.red} textAnchor="end">
-              {`${r.got.toFixed(1)} / ${r.max.toFixed(1)} pts`}
+              {`${r.got.toFixed(1)} / ${r.max.toFixed(1)} pts  ·  ${Math.round(r.pct)}%`}
             </Text>
             <Rect x={0} y={y + 10} width={full} height={5} rx={2.5} fill={C.track} />
-            <Rect x={0} y={y + 10} width={Math.max(2, (r.got / widest) * full)} height={5} rx={2.5}
+            <Rect x={0} y={y + 10} width={Math.max(2, (r.pct / 100) * full)} height={5} rx={2.5}
               fill={r.passed ? C.green : C.red} />
-            {r.max < widest && (
-              <Line x1={(r.max / widest) * full} y1={y + 8} x2={(r.max / widest) * full} y2={y + 17}
-                stroke={C.slate} strokeWidth={0.8} />
-            )}
           </G>
         );
       })}
@@ -265,7 +260,7 @@ export function ReportPDF({ data }: { data: ReportData }) {
             <View style={s.card}>
               <Text style={s.cardTitle}>Where the score came from</Text>
               <Contributions criteria={data.criteria_scores} />
-              <Text style={{ fontSize: 7, color: C.light, marginTop: 2 }}>All bars share one scale; the notch is each criterion&apos;s ceiling.</Text>
+              <Text style={{ fontSize: 7, color: C.light, marginTop: 2 }}>Each bar is the share of that criterion&apos;s own points that was earned.</Text>
             </View>
           )}
         </View>
