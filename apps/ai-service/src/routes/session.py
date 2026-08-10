@@ -109,9 +109,19 @@ _BCP47 = {
 
 
 def _bcp47(lang: str) -> str | None:
-    """Selected lang -> BCP-47 for Gemini, or None to leave it auto-detected."""
+    """Selected lang -> BCP-47 for Gemini, or None to leave it auto-detected.
+
+    The socket handler lower-cases the whole query param to sanitise it, so an
+    accent arrives as `en-in`, not `en-IN`. Canonical casing is restored here:
+    _BCP47's own values are region-upper, and anything compared against them —
+    _NATIVE_AUDIO_LANGS above — silently missed every accented code otherwise.
+    That cost `hi-IN` and `en-US` their native-audio routing, and `hi` has a
+    single accent variant the picker auto-selects, so EVERY Hindi call was
+    affected.
+    """
     if "-" in lang:
-        return lang  # already region-qualified
+        primary, _, region = lang.partition("-")     # 'cmn-cn' and 'fil-ph' exist
+        return f"{primary.lower()}-{region.upper()}" if region else primary.lower()
     return _BCP47.get(lang)
 # Language codes Gemini 2.5 native audio actually accepts. VERIFIED 2026-08-10
 # against this key with scripts/verify_live_capabilities.py (18 of 74 replied).

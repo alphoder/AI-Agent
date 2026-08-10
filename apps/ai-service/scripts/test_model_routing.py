@@ -59,4 +59,32 @@ assert len(_NATIVE_AUDIO_LANGS) == 18, f"expected the 18 verified codes, got {le
 assert not any("-IN" in c and c != "hi-IN" for c in _NATIVE_AUDIO_LANGS), \
     "only hi-IN survives on native audio; no other Indian code was verified"
 
+# --- the case that shipped broken -------------------------------------------
+# The socket handler lower-cases the query param, so routing must be exercised
+# with what PRODUCTION sends, not tidy uppercase codes. Testing `en-US` proved
+# nothing: the wire only ever carries `en-us`.
+LOWER_TO_NATIVE = ["en", "en-us", "hi", "hi-in", "ja", "ja-jp", "de", "de-de", "es-us"]
+for raw in LOWER_TO_NATIVE:
+    model, affective = _live_model(_bcp47(raw))
+    assert model == NATIVE, f"lowercase {raw!r} must reach native audio, got {model}"
+    assert affective is True
+
+LOWER_TO_FLASH = ["en-in", "en-gb", "en-au", "en-ie", "es-es", "fr-ca", "pt-pt",
+                  "ta-in", "bn-in", "ar-xa", "cmn-cn"]
+for raw in LOWER_TO_FLASH:
+    model, affective = _live_model(_bcp47(raw))
+    assert model == FLASH, f"lowercase {raw!r} must stay on flash-live, got {model}"
+    assert affective is False
+
+# Canonical casing, including the three-letter primary tags in the catalogue.
+assert _bcp47("en-in") == "en-IN"
+assert _bcp47("cmn-cn") == "cmn-CN"
+assert _bcp47("fil-ph") == "fil-PH"
+assert _bcp47("yue-hk") == "yue-HK"
+assert _bcp47("en") == "en-US"
+
+# Hindi auto-selects its single accent variant in the picker, so hi and hi-in
+# must land identically or every Hindi call quietly loses native audio.
+assert _live_model(_bcp47("hi")) == _live_model(_bcp47("hi-in"))
+
 print("test_model_routing.py: all checks passed")
