@@ -102,6 +102,7 @@ export default function LiveRoomPage() {
   const [rating, setRating] = useState<Rating | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unsupported, setUnsupported] = useState(false);
+  const [sttError, setSttError] = useState<string | null>(null);
   const [reel, setReel] = useState<SpeakTopic[]>([]);
   const [reelState, setReelState] = useState<'idle' | 'spinning' | 'settled'>('idle');
   const [winnerIdx, setWinnerIdx] = useState(-1);
@@ -139,7 +140,23 @@ export default function LiveRoomPage() {
     // Chrome stops the recogniser on its own after a pause; restart it while the
     // clock is still running or the back half of the minute is simply lost.
     rec.onend = () => { if (recRef.current?.wanted) { try { rec.start(); } catch { /* already starting */ } } };
-    rec.onerror = () => { /* transient — onend restarts */ };
+    // These used to be swallowed, so a browser that cannot reach the speech
+    // service just looped silently: the UI said "Listening" and captured
+    // nothing, with no way to tell why.
+    rec.onerror = (e: any) => {
+      const code = e?.error as string;
+      if (code === 'no-speech' || code === 'aborted') return;   // genuinely transient
+      if (recRef.current) recRef.current.wanted = false;        // stop the retry loop
+      setSttError(
+        code === 'not-allowed' || code === 'service-not-allowed'
+          ? 'Microphone access was blocked. Allow the mic for this site, then try again.'
+          : code === 'audio-capture'
+            ? 'No microphone was found. Check your input device and try again.'
+            : code === 'network'
+              ? 'This browser cannot reach the speech service. Brave and Firefox block it — Chrome or Edge will work.'
+              : `Speech recognition stopped (${code || 'unknown error'}).`,
+      );
+    };
     recRef.current = rec;
     return () => { rec.wanted = false; try { rec.stop(); } catch { /* not running */ } };
   }, []);
@@ -188,6 +205,7 @@ export default function LiveRoomPage() {
     setTranscript(''); setInterim('');
     setRating(null); setError(null);
     setPhase('speaking');
+    setSttError(null);
     setRemainingMs(SPEAK_SEC * 1000);
     if (recRef.current) {
       recRef.current.wanted = true;
@@ -531,6 +549,10 @@ export default function LiveRoomPage() {
             </>
           )}
         </div>
+      )}
+
+      {phase === 'speaking' && sttError && (
+        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-center text-sm text-destructive">{sttError}</p>
       )}
 
       {phase === 'speaking' && (
