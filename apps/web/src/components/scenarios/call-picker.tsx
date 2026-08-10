@@ -11,7 +11,7 @@ import type { Scenario } from './scenario-card';
 
 /** Steps: 1 language · 2 accent · 3 voice · 4 ready. Accent auto-skips. */
 export interface PickerState {
-  scenario: Scenario; step: number; lang: string; accent: string; locality: string; voice: string; grade: boolean;
+  scenario: Scenario; step: number; lang: string; accent: string; voice: string; grade: boolean;
 }
 
 export function newPicker(scenario: Scenario): PickerState {
@@ -19,7 +19,7 @@ export function newPicker(scenario: Scenario): PickerState {
   // allows it — otherwise the first voice that is actually on offer.
   const allowed = voicesForPersona(personaGenderOf(scenario.title, scenario.description));
   const voice = allowed.some((v) => v.id === scenario.voice) ? scenario.voice : allowed[0].id;
-  return { scenario, step: 1, lang: '', accent: '', locality: '', voice, grade: false };
+  return { scenario, step: 1, lang: '', accent: '', voice, grade: false };
 }
 
 /** One selectable card — the single shape used for languages, accents and voices. */
@@ -132,7 +132,12 @@ export function CallPicker({ picker, setPicker, onClose }: {
     const a = new Audio(voiceSampleUrl(voiceId));
     audioRef.current = a;
     a.onended = () => setPlaying(null);
-    a.play().then(() => setPlaying(voiceId)).catch(() => setPlaying(null));
+    a.onerror = () => setPlaying(null);
+    // Flip the icon on the click, not on play()'s promise. That promise does not
+    // settle at all when the media never loads, which left the button looking
+    // completely dead — indistinguishable from a handler that never ran.
+    setPlaying(voiceId);
+    a.play().catch(() => setPlaying(null));
   }
 
   function goTo(step: number) {
@@ -168,7 +173,6 @@ export function CallPicker({ picker, setPicker, onClose }: {
     audioRef.current?.pause();
     const p = new URLSearchParams({ lang: picker.lang, voice: picker.voice, grade: picker.grade ? '1' : '0' });
     if (picker.accent) p.set('accent', picker.accent);
-    if (picker.locality.trim()) p.set('locality', picker.locality.trim());
     router.push(`/session/${picker.scenario.id}?${p.toString()}`);
   }
 
@@ -297,19 +301,6 @@ export function CallPicker({ picker, setPicker, onClose }: {
           {picker.step === 4 && (
             <div className="mx-auto max-w-lg space-y-4">
               <StepHeading n={4} title="Ready when you are" />
-              <div>
-                <label htmlFor="locality" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Where&apos;s the customer from? <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
-                </label>
-                <input
-                  id="locality"
-                  value={picker.locality}
-                  onChange={(e) => setPicker((p) => p && ({ ...p, locality: e.target.value }))}
-                  placeholder="e.g. Chennai, rural Punjab, South Mumbai"
-                  className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-
               <div className="flex items-center justify-between rounded-xl border border-border bg-card px-3.5 py-3">
                 <div>
                   <p className="text-sm font-medium">Grade my body language</p>
