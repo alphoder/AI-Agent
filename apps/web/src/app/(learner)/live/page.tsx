@@ -10,7 +10,7 @@ import apiClient from '@/lib/api-client';
 const SPEAK_SEC = 60;
 const ITEM_W = 520;      // px per reel tile — fixed so the centring maths is exact
 const TAIL = 14;         // tiles parked past the winner so the strip never looks spent
-const SPIN_MS = 4200;
+const SPIN_MS = 5200;   // long enough to wind up, cruise, and coast to a stop
 const FILLERS = ['um', 'uh', 'like', 'so', 'basically', 'actually', 'you know', 'i mean'];
 
 type ModeKey = 'prepared' | 'instant' | 'own';
@@ -423,9 +423,6 @@ export default function LiveRoomPage() {
               {/* The stage. Fixed height, so a one-line topic and a two-line
                   topic cannot resize the grey band as they pass through. */}
               <div ref={reelBoxRef} className="relative mt-4 h-[220px] w-full overflow-hidden bg-muted/50">
-                {/* Centre lock: the winner comes to rest exactly between these. */}
-                <div aria-hidden className="pointer-events-none absolute inset-y-0 left-1/2 z-20 w-px -translate-x-[calc(50%+1px)] bg-primary/25" />
-                <div aria-hidden className="pointer-events-none absolute inset-y-0 left-1/2 z-20 w-px translate-x-[calc(50%+1px)] bg-primary/25" />
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-10 w-28 bg-gradient-to-r from-card to-transparent sm:w-56" />
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-10 w-28 bg-gradient-to-l from-card to-transparent sm:w-56" />
                 <div
@@ -435,7 +432,14 @@ export default function LiveRoomPage() {
                     // Only transform, never `all` — during the spin there are 50+
                     // large text nodes on screen and transitioning anything that
                     // touches paint on each of them is what made it stutter.
-                    transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.16, 1, 0.3, 1)` : 'none',
+                    //
+                    // The curve is the whole feel. A strong ease-out is fastest at
+                    // t=0, which is why this used to snap into motion the instant
+                    // the button was pressed. P1 y=0 holds the speed at zero and
+                    // lets it wind up; P2 y=1 arriving early gives a long cool-down.
+                    // One curve rather than chained spin-up/spin-down transitions,
+                    // so there is no velocity mismatch at a handover to jerk.
+                    transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.34, 0, 0.06, 1)` : 'none',
                     willChange: spinning ? 'transform' : 'auto',
                   }}
                   onTransitionEnd={() => setReelState('settled')}
