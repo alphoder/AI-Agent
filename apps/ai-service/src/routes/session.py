@@ -368,14 +368,29 @@ async def session_ws(websocket: WebSocket):
             "response_modalities": ["AUDIO"],
             "speech_config": speech_config,
         }
+        system_prompt = state["system_prompt"]
         if affective:
             # Native audio only; flash-live answers this flag with a 1011.
             generation_config["enable_affective_dialog"] = True
+            # The flag lets the model HEAR the learner's tone. Nothing in the
+            # persona prompt asks it to DO anything with that, so the capability
+            # was on and unused. This is appended only on the affective path —
+            # flash-live cannot read tone, and telling it to would invite it to
+            # invent emotions it never heard.
+            system_prompt += (
+                "\n\n## Listen to how they sound\n"
+                "You can hear their tone, not just their words. React to it as a person would: "
+                "if they sound nervous or unsure, you get less patient with the waffle; if they "
+                "sound confident and warm, you soften and give them more room; if they sound "
+                "pushy or rehearsed, you get guarded. Never name their tone out loud or coach "
+                "them on it — you are the customer, not their trainer. Just let it change how "
+                "you treat them."
+            )
         setup_msg = {
             "setup": {
                 "model": live_model,
                 "generation_config": generation_config,
-                "system_instruction": {"parts": [{"text": state["system_prompt"]}]},
+                "system_instruction": {"parts": [{"text": system_prompt}]},
                 "input_audio_transcription": {},
                 "output_audio_transcription": {},
                 "tools": [_END_CALL_TOOL],
