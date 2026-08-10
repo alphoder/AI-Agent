@@ -136,6 +136,9 @@ function useDraggable() {
 const BIXY_VOICE = 'Leda';
 const WAKE = /\bbix(y|ie|i|ee)\b/i; // "hey bixy", "bixy", ...
 const IDLE_MS = 30000;             // auto-off: close the session after this much true silence
+const RETRY_MS = 400;              // pause before restarting the wake recogniser
+/** Errors the recogniser will never recover from on its own — stop retrying. */
+const FATAL_SR_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'audio-capture']);
 
 const HINTS = [
   'Say “Hey Bixy” to wake me',
@@ -269,11 +272,10 @@ export function AssistantWidget() {
   const playCursorRef = useRef(0);
   const awakeRef = useRef(false);
   const recRef = useRef<any>(null);
+  const recRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playSrcsRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const speakingRef = useRef(false);
-  const vadHitsRef = useRef(0);
   const nappingUntilRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -318,9 +320,8 @@ export function AssistantWidget() {
     playSrcsRef.current.add(src);
     src.onended = () => playSrcsRef.current.delete(src);
     setSpeaking(true);
-    speakingRef.current = true;
     if (speakTimerRef.current) clearTimeout(speakTimerRef.current);
-    speakTimerRef.current = setTimeout(() => { setSpeaking(false); speakingRef.current = false; }, (playCursorRef.current - ctx.currentTime) * 1000 + 200);
+    speakTimerRef.current = setTimeout(() => setSpeaking(false), (playCursorRef.current - ctx.currentTime) * 1000 + 200);
   }, []);
 
   // Cut Bixy off right now and drop anything queued behind her. Without this, an
@@ -332,7 +333,6 @@ export function AssistantWidget() {
     playCursorRef.current = outCtxRef.current?.currentTime ?? 0;
     if (speakTimerRef.current) clearTimeout(speakTimerRef.current);
     speakTimerRef.current = null;
-    speakingRef.current = false;
     setSpeaking(false);
   }, []);
 
@@ -351,7 +351,12 @@ export function AssistantWidget() {
   const startMic = useCallback(async (ws: WebSocket) => {
     if (inCtxRef.current) return; // already streaming
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Bixy talks out loud with this mic open, so the browser has to cancel her
+      // own voice. Without asking for it we were streaming her back to Gemini,
+      // which read it as the user barging in and killed every reply mid-word.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       if (!awakeRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
       micStreamRef.current = stream;
       const inCtx = new AudioContext({ sampleRate: 16000 });
@@ -361,25 +366,19 @@ export function AssistantWidget() {
       procRef.current = proc;
       source.connect(proc);
       proc.connect(inCtx.destination);
+      // Barge-in is Gemini's call, not ours: it runs its own VAD on this same
+      // (echo-cancelled) audio and sends `interrupted`. The local level check we
+      // used to do here fired on Bixy's own voice leaking back in, so she cut
+      // herself off after about a second and never got a sentence out.
       proc.onaudioprocess = (e) => {
         if (!awakeRef.current || ws.readyState !== WebSocket.OPEN) return;
-        const ch = e.inputBuffer.getChannelData(0);
-        // Cheap VAD: if the user starts talking while Bixy is mid-reply, cut her
-        // off at once (Gemini also sends `interrupted`, but this is instant — no
-        // stale tail of her last sentence).
-        let rms = 0;
-        for (let i = 0; i < ch.length; i += 4) rms += ch[i] * ch[i];
-        rms = Math.sqrt(rms / (ch.length / 4));
-        if (rms > 0.02) vadHitsRef.current = Math.min(vadHitsRef.current + 1, 8);
-        else vadHitsRef.current = 0;
-        if (vadHitsRef.current >= 3 && speakingRef.current) flushPlayback();
-        const pcm = floatTo16BitPCM(ch);
+        const pcm = floatTo16BitPCM(e.inputBuffer.getChannelData(0));
         ws.send(JSON.stringify({ type: 'audio', data: arrayBufferToBase64(pcm) }));
       };
     } catch {
       setError('I need mic access to hear you.');
     }
-  }, [flushPlayback]);
+  }, []);
 
   // Tear down the Gemini session and go quiet (after real silence, on tap, or a
   // requested nap: "stay quiet for 10 minutes"). Flushes audio so a click always
@@ -389,7 +388,6 @@ export function AssistantWidget() {
     setAwake(false);
     setReady(false);
     setSpeaking(false);
-    speakingRef.current = false;
     pendingRef.current = [];
     flushPlayback();
     stopMic();
@@ -552,11 +550,38 @@ export function AssistantWidget() {
       }
       onHeard(text);
     };
-    rec.onerror = () => { /* keep going */ };
-    rec.onend = () => { if (mountedRef.current) { try { rec.start(); } catch { /* already running */ } } };
+    // A denied or busy mic ends the recogniser the instant it starts. Restarting
+    // blind then spins a hot loop — measured at ~14,000 restarts a second, which
+    // pegs the main thread and starves the audio callback that feeds Gemini.
+    let fatal = false;
+    rec.onerror = (e: any) => { if (FATAL_SR_ERRORS.has(e?.error)) fatal = true; };
+    // Restart only while this is still the live recogniser — stopRecognizer nulls
+    // the ref, and without that check this loop would bring it straight back.
+    rec.onend = () => {
+      if (!mountedRef.current || recRef.current !== rec) return;
+      if (fatal) { recRef.current = null; setUnsupported(true); return; }  // caption falls back to "Tap me to talk"
+      // A beat between attempts: harmless when it recovers, no spin when it does not.
+      recRestartRef.current = setTimeout(() => { try { rec.start(); } catch { /* already running */ } }, RETRY_MS);
+    };
     try { rec.start(); } catch { /* ignore */ }
     recRef.current = rec;
   }, [onHeard, wake, bumpIdle]);
+
+  const stopRecognizer = useCallback(() => {
+    if (recRestartRef.current) { clearTimeout(recRestartRef.current); recRestartRef.current = null; }
+    const rec = recRef.current;
+    if (!rec) return;
+    recRef.current = null;   // before stop(), so onend does not restart it
+    try { rec.stop(); } catch { /* not running */ }
+  }, []);
+
+  // The wake word needs the mic at rest; Gemini needs it during a conversation.
+  // Two captures of the same device fight, and the loser is the streamed one —
+  // which is why Bixy sat there listening and never heard a word.
+  useEffect(() => {
+    if (awake) stopRecognizer();
+    else startRecognizer();
+  }, [awake, startRecognizer, stopRecognizer]);
 
   // Open the Gemini session lazily, on wake. One session at a time; queued lines flush
   // on `listening`; retry only while awake (idle timer guarantees no infinite spin).
@@ -582,6 +607,10 @@ export function AssistantWidget() {
               queued.forEach((text) => ws.send(JSON.stringify({ type: 'text', text })));
               break;
             }
+            // Interim too: with the wake recogniser stopped, Gemini's transcription
+            // is the only proof the user is still talking — without it the idle
+            // timer hangs up on someone mid-sentence.
+            case 'transcript_interim':
             case 'transcript': if (msg.text) { setLast({ role: 'user', text: msg.text }); bumpIdle(); } break;
             case 'response_text': if (msg.text) { setLast({ role: 'assistant', text: msg.text }); bumpIdle(); } break;
             case 'audio_out': playAudio(msg.data); bumpIdle(); break;
@@ -603,7 +632,7 @@ export function AssistantWidget() {
           }
         };
         ws.onclose = () => {
-          wsRef.current = null; connectingRef.current = false; setReady(false); setSpeaking(false); speakingRef.current = false;
+          wsRef.current = null; connectingRef.current = false; setReady(false); setSpeaking(false);
           stopMic();
           // Reconnect only if the user is still in the conversation.
           if (mountedRef.current && awakeRef.current) {
@@ -641,8 +670,6 @@ export function AssistantWidget() {
 
   useEffect(() => {
     mountedRef.current = true;
-    // Local wake-word recogniser runs at rest — NO Gemini session until "Hey Bixy".
-    startRecognizer();
     const resume = () => outCtxRef.current?.resume().catch(() => {});
     window.addEventListener('pointerdown', resume);
     window.addEventListener('keydown', resume);
@@ -651,12 +678,12 @@ export function AssistantWidget() {
       window.removeEventListener('pointerdown', resume);
       window.removeEventListener('keydown', resume);
       [reconnectRef, speakTimerRef, idleTimerRef].forEach((r) => r.current && clearTimeout(r.current));
-      try { recRef.current?.stop(); } catch { /* ignore */ }
+      stopRecognizer();
       try { wsRef.current?.close(); } catch { /* ignore */ }
       stopMic();
       outCtxRef.current?.close().catch(() => {});
     };
-  }, [startRecognizer, stopMic]);
+  }, [stopRecognizer, stopMic]);
 
   // Inline caption (no panel) — speaks for itself right on the orb.
   let caption: string;
