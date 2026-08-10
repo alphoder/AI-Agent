@@ -6,6 +6,7 @@ export * from './catalog';
 export * from './brief';
 export * from './briefs';
 export * from './voices';
+export * from './topics';
 export * from './accents';
 export * from './journey';
 export * from './types/user';

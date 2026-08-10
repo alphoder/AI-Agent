@@ -1,436 +1,346 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { AudioLines, Play, Square, RotateCcw, AlertTriangle, AlertCircle, Sparkles } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Accent } from '@/components/ui/accent';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Mic, RefreshCw, Loader2, Play, SkipForward, RotateCcw } from 'lucide-react';
+import { randomTopic, type SpeakTopic } from '@avatar-platform/shared';
+import { ScoreRing } from '@/components/charts/charts';
+import apiClient from '@/lib/api-client';
 
-const FILLER_WORDS = ['um', 'uh', 'like', 'so', 'basically', 'actually', 'you know'];
+const SPEAK_SEC = 60;
+const PREP_SEC = 30;
+const FILLERS = ['um', 'uh', 'like', 'so', 'basically', 'actually', 'you know', 'i mean'];
 
-export default function LiveRoomPage() {
-  const [active, setActive] = useState(false);
-  const [transcript, setTranscript] = useState<string[]>([]);
-  const [interimText, setInterimText] = useState('');
-  
-  // Analytics metrics
-  const [wpm, setWpm] = useState(0);
-  const [fillerCounts, setFillerCounts] = useState<Record<string, number>>({
-    like: 0,
-    um: 0,
-    uh: 0,
-    so: 0,
-    basically: 0,
-    actually: 0,
-    'you know': 0,
-  });
-  const [totalWords, setTotalWords] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
+type Phase = 'idle' | 'prep' | 'speaking' | 'rating' | 'done';
+
+interface Rating {
+  overall: number; structure: number; ideas: number; reasoning: number; delivery: number;
+  verdict: string; strengths: string[]; improvements: string[]; next_time: string;
+}
+
+function countFillers(text: string): number {
+  const t = ` ${text.toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ')} `;
+  return FILLERS.reduce((n, f) => n + (t.split(` ${f} `).length - 1), 0);
+}
+
+/**
+ * The countdown dial. Driven by requestAnimationFrame off a wall-clock deadline
+ * rather than by an accumulating tick, so the sweep stays smooth and cannot
+ * drift when the tab is throttled.
+ * ponytail: local to this page — ui/progress-ring animates on mount, which
+ * fights a countdown. Promote it if a second screen ever needs a dial.
+ */
+function Clock({ remainingMs, total, urgent }: { remainingMs: number; total: number; urgent: boolean }) {
+  const size = 260, stroke = 10;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const frac = Math.max(0, Math.min(1, remainingMs / (total * 1000)));
+  const secs = Math.max(0, Math.ceil(remainingMs / 1000));
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} className="stroke-muted" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={c * (1 - frac)}
+          className={urgent ? 'stroke-destructive' : 'stroke-primary'}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className={`text-6xl font-bold tabular-nums tracking-tight ${urgent ? 'text-destructive' : 'text-foreground'}`}>
+          {secs}
+        </span>
+        <span className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">seconds left</span>
+      </div>
+    </div>
+  );
+}
+
+export default function SpeakForAMinutePage() {
+  const [topic, setTopic] = useState<SpeakTopic | null>(null);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [remainingMs, setRemainingMs] = useState(SPEAK_SEC * 1000);
+  const [transcript, setTranscript] = useState('');
+  const [interim, setInterim] = useState('');
+  const [rating, setRating] = useState<Rating | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [unsupported, setUnsupported] = useState(false);
 
-  const recognitionRef = useRef<any>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const micStreamRef = useRef<MediaStream | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  
-  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = useRef<number>(0);
+  // SpeechRecognition has no DOM lib types; `any` is the honest shape here.
+  const recRef = useRef<any>(null);
+  const rafRef = useRef<number | null>(null);
+  const finalRef = useRef('');            // text the recogniser has committed
+  const spokeSecRef = useRef(SPEAK_SEC);
 
-  // Initialize Speech Recognition
+  // Pick the first topic on the client — a server-rendered random value would
+  // differ from the client's and trip a hydration mismatch.
+  useEffect(() => { setTopic(randomTopic()); }, []);
+
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      setUnsupported(true);
-      return;
-    }
-
+    if (!SR) { setUnsupported(true); return; }
     const rec = new SR();
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = 'en-US';
-
     rec.onresult = (e: any) => {
-      let finalStr = '';
-      let interimStr = '';
-
+      let live = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        if (res.isFinal) {
-          finalStr += res[0].transcript + ' ';
-        } else {
-          interimStr += res[0].transcript;
-        }
+        const chunk = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalRef.current += chunk + ' ';
+        else live += chunk;
       }
-
-      if (interimStr) {
-        setInterimText(interimStr);
-      }
-
-      if (finalStr) {
-        setInterimText('');
-        setTranscript((prev) => [...prev, finalStr.trim()]);
-        processWords(finalStr);
-      }
+      setTranscript(finalRef.current);
+      setInterim(live);
     };
+    // Chrome stops the recogniser on its own after a pause; restart it while the
+    // clock is still running or the back half of the minute is simply lost.
+    rec.onend = () => { if (recRef.current?.wanted) { try { rec.start(); } catch { /* already starting */ } } };
+    rec.onerror = () => { /* transient — onend restarts */ };
+    recRef.current = rec;
+    return () => { rec.wanted = false; try { rec.stop(); } catch { /* not running */ } };
+  }, []);
 
-    rec.onerror = (event: any) => {
-      console.error('Speech recognition error', event.error);
-    };
-
-    rec.onend = () => {
-      // Auto restart if still marked active
-      if (active) {
-        try { rec.start(); } catch { /* ignore */ }
-      }
-    };
-
-    recognitionRef.current = rec;
-
-    return () => {
-      try { rec.stop(); } catch { /* ignore */ }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
-
-  // Audio Canvas Wave Visualizer
-  async function startVisualizer(stream: MediaStream) {
-    if (typeof window === 'undefined') return;
+  const rate = useCallback(async (text: string, secs: number) => {
+    if (!topic) return;
+    setPhase('rating');
+    setError(null);
     try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
-
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
-
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const draw = () => {
-        if (!analyserRef.current) return;
-        animationFrameRef.current = requestAnimationFrame(draw);
-
-        analyserRef.current.getByteFrequencyData(dataArray);
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = 'rgba(148, 163, 184, 0.05)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const barWidth = (canvas.width / bufferLength) * 1.5;
-        let barHeight;
-        let x = 0;
-
-        for (let i = 0; i < bufferLength; i++) {
-          barHeight = (dataArray[i] / 255) * canvas.height * 0.8;
-
-          // Draw double-sided mirror wave centered vertically
-          const y = (canvas.height - barHeight) / 2;
-          ctx.fillStyle = 'hsl(var(--primary))';
-          ctx.fillRect(x, y, barWidth - 2, barHeight);
-
-          x += barWidth;
-        }
-      };
-
-      draw();
-    } catch (err) {
-      console.warn('Canvas visualizer failed to build', err);
-    }
-  }
-
-  function stopVisualizer() {
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    audioContextRef.current?.close().catch(() => {});
-    audioContextRef.current = null;
-    analyserRef.current = null;
-  }
-
-  // Scan words for WPM and filler word increments
-  function processWords(text: string) {
-    const cleaned = text.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '');
-    const words = cleaned.split(' ').filter(Boolean);
-    
-    setTotalWords((prev) => {
-      const next = prev + words.length;
-      return next;
-    });
-
-    // Check for fillers
-    const increments: Record<string, number> = {};
-    words.forEach((w) => {
-      if (FILLER_WORDS.includes(w)) {
-        increments[w] = (increments[w] || 0) + 1;
-      }
-    });
-
-    // Check for two-word fillers ("you know")
-    if (cleaned.includes('you know')) {
-      const occurrences = (cleaned.match(/you know/g) || []).length;
-      increments['you know'] = occurrences;
-    }
-
-    if (Object.keys(increments).length > 0) {
-      setFillerCounts((prev) => {
-        const next = { ...prev };
-        Object.entries(increments).forEach(([k, val]) => {
-          next[k] = (next[k] || 0) + val;
-        });
-        return next;
+      const { data } = await apiClient.post('/speak/rate', {
+        topic: topic.text,
+        transcript: text,
+        duration_sec: secs,
+        words: text.trim() ? text.trim().split(/\s+/).length : 0,
+        fillers: countFillers(text),
       });
+      setRating(data.data);
+    } catch {
+      setError('Could not get a rating right now — your speech is safe below.');
+    } finally {
+      setPhase('done');
     }
-  }
+  }, [topic]);
 
-  // Calculate WPM live
-  useEffect(() => {
-    if (active && elapsed > 2) {
-      const mins = elapsed / 60;
-      setWpm(Math.round(totalWords / mins));
+  const stop = useCallback((secsSpoken: number) => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (recRef.current) { recRef.current.wanted = false; try { recRef.current.stop(); } catch { /* not running */ } }
+    setInterim('');
+    spokeSecRef.current = secsSpoken;
+    rate(finalRef.current, secsSpoken);
+  }, [rate]);
+
+  // One rAF loop drives both countdowns, off a deadline rather than a counter.
+  const runClock = useCallback((seconds: number, onDone: () => void) => {
+    const deadline = performance.now() + seconds * 1000;
+    const tick = () => {
+      const left = deadline - performance.now();
+      setRemainingMs(left);
+      if (left <= 0) { onDone(); return; }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const startSpeaking = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    finalRef.current = '';
+    setTranscript('');
+    setInterim('');
+    setRating(null);
+    setError(null);
+    setPhase('speaking');
+    setRemainingMs(SPEAK_SEC * 1000);
+    if (recRef.current) {
+      recRef.current.wanted = true;
+      try { recRef.current.start(); } catch { /* already running */ }
     }
-  }, [active, elapsed, totalWords]);
+    runClock(SPEAK_SEC, () => stop(SPEAK_SEC));
+  }, [runClock, stop]);
 
-  async function handleStart() {
-    if (unsupported) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
-      
-      setActive(true);
-      setTranscript([]);
-      setInterimText('');
-      setWpm(0);
-      setTotalWords(0);
-      setElapsed(0);
-      setFillerCounts({
-        like: 0,
-        um: 0,
-        uh: 0,
-        so: 0,
-        basically: 0,
-        actually: 0,
-        'you know': 0,
-      });
-
-      // Start timers
-      startTimeRef.current = Date.now();
-      timerIntervalRef.current = setInterval(() => {
-        setElapsed(Math.round((Date.now() - startTimeRef.current) / 1000));
-      }, 1000);
-
-      // Start visualizer
-      startVisualizer(stream);
-
-      // Start recognition
-      recognitionRef.current?.start();
-    } catch (err) {
-      alert('Could not start microphone. Please allow audio permission in browser.');
-    }
+  function startPrep() {
+    setPhase('prep');
+    setRemainingMs(PREP_SEC * 1000);
+    runClock(PREP_SEC, () => startSpeaking());
   }
 
-  function handleStop() {
-    setActive(false);
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    stopVisualizer();
-    micStreamRef.current?.getTracks().forEach((t) => t.stop());
-    recognitionRef.current?.stop();
-    setInterimText('');
+  function nextTopic() {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (recRef.current) { recRef.current.wanted = false; try { recRef.current.stop(); } catch { /* not running */ } }
+    setTopic(randomTopic(topic?.text));
+    setPhase('idle');
+    finalRef.current = '';
+    setTranscript(''); setInterim('');
+    setRating(null); setError(null);
+    setRemainingMs(SPEAK_SEC * 1000);
   }
 
-  function handleReset() {
-    handleStop();
-    setTranscript([]);
-    setWpm(0);
-    setTotalWords(0);
-    setElapsed(0);
-    setFillerCounts({
-      like: 0,
-      um: 0,
-      uh: 0,
-      so: 0,
-      basically: 0,
-      actually: 0,
-      'you know': 0,
-    });
-  }
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-  const ss = String(elapsed % 60).padStart(2, '0');
+  const words = transcript.trim() ? transcript.trim().split(/\s+/).length : 0;
+  const urgent = phase === 'speaking' && remainingMs <= 10_000;
 
-  const totalFillers = Object.values(fillerCounts).reduce((a, b) => a + b, 0);
-
-  // Determine pacing category
-  let paceStatus = 'Ready';
-  let paceColor = 'text-muted-foreground';
-  if (active && elapsed > 5) {
-    if (wpm < 110) { paceStatus = 'Too Slow'; paceColor = 'text-warning'; }
-    else if (wpm > 165) { paceStatus = 'Too Fast'; paceColor = 'text-warning'; }
-    else { paceStatus = 'Ideal'; paceColor = 'text-success'; }
+  if (unsupported) {
+    return (
+      <div className="mx-auto max-w-lg rounded-2xl border border-border bg-card p-10 text-center">
+        <p className="font-semibold">This browser can&apos;t listen</p>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Speak for a Minute needs speech recognition. Chrome or Edge works; Firefox does not.
+        </p>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
-            <AudioLines className="h-5 w-5" />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Warm-up Live Room</h1>
-            <p className="mt-0.5 max-w-xl text-sm text-muted-foreground">
-              Speak freely to calibrate pacing, track filler habits, and test microphone levels.
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          {active ? (
-            <Button
-              onClick={handleStop}
-              className="rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5"
-            >
-              <Square className="h-4 w-4 fill-current" /> Stop Warm-up
-            </Button>
-          ) : (
-            <Button
-              onClick={handleStart}
-              disabled={unsupported}
-              className="rounded-full bg-primary text-primary-foreground hover:bg-primary/95 flex items-center gap-1.5"
-            >
-              <Play className="h-4 w-4 fill-current" /> Start Warm-up
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            onClick={handleReset}
-            className="rounded-full p-2.5"
-            title="Reset"
-          >
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Speak for a Minute</h1>
+        <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
+          A random topic, {PREP_SEC} seconds to think, then one minute to talk. Scored on structure,
+          ideas and reasoning — the drill that builds thinking on your feet.
+        </p>
       </div>
 
-      {unsupported && (
-        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 text-xs flex items-center gap-2.5">
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          <span>
-            Voice Recognition requires browser microphone APIs. Please use Google Chrome, Apple Safari, or Microsoft Edge for the best experience.
-          </span>
+      <div className="rounded-2xl border border-border bg-card p-6 text-center">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your topic</p>
+        <p className="mx-auto mt-2 max-w-2xl text-balance text-2xl font-semibold tracking-tight">
+          {topic ? topic.text : '…'}
+        </p>
+        {topic && <p className="mt-1.5 text-xs capitalize text-muted-foreground">{topic.kind}</p>}
+        {phase === 'idle' && (
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            <button onClick={startPrep}
+              className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <Play className="h-4 w-4" /> Prepare ({PREP_SEC}s)
+            </button>
+            <button onClick={startSpeaking}
+              className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">
+              <Mic className="h-4 w-4" /> Skip prep, speak now
+            </button>
+            <button onClick={nextTopic}
+              className="press inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted">
+              <RefreshCw className="h-4 w-4" /> Another topic
+            </button>
+          </div>
+        )}
+      </div>
+
+      {(phase === 'prep' || phase === 'speaking') && (
+        <div className="flex flex-col items-center gap-4">
+          <Clock remainingMs={remainingMs} total={phase === 'prep' ? PREP_SEC : SPEAK_SEC} urgent={urgent} />
+          {phase === 'prep' ? (
+            <>
+              <p className="text-sm text-muted-foreground">Think. Pick an angle and one example.</p>
+              <button onClick={startSpeaking}
+                className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                <SkipForward className="h-4 w-4" /> I&apos;m ready — start speaking
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="flex items-center gap-2 text-sm text-primary">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
+                </span>
+                Listening · {words} words
+              </p>
+              <button onClick={() => stop(SPEAK_SEC - Math.ceil(remainingMs / 1000))}
+                className="press rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
+                Finish early
+              </button>
+            </>
+          )}
         </div>
       )}
 
-      {/* Main Dashboard */}
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* Visualizer & Pacing Card */}
-        <div className="md:col-span-2 space-y-6">
-          <Card className="p-5 flex flex-col justify-between h-56 relative overflow-hidden">
-            <div>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Voice Input Level
-              </span>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Waveform updates dynamically as you speak out loud.
-              </p>
-            </div>
+      {phase === 'speaking' && (
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-sm leading-relaxed">
+            {transcript || <span className="italic text-muted-foreground">Start talking — your words appear here.</span>}
+            {interim && <span className="italic text-primary/70"> {interim}</span>}
+          </p>
+        </div>
+      )}
 
-            {/* Canvas */}
-            <div className="flex-1 w-full h-24 my-4 rounded-xl overflow-hidden relative">
-              <canvas ref={canvasRef} className="w-full h-full" width={400} height={100} />
-              {!active && (
-                <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/60 bg-secondary/10">
-                  Microphone inactive. Click &apos;Start Warm-up&apos;.
+      {phase === 'rating' && (
+        <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-foreground" />
+          <p className="text-sm">Reading back what you said…</p>
+        </div>
+      )}
+
+      {phase === 'done' && (
+        <div className="space-y-4">
+          {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+
+          {rating && (
+            <>
+              <div className="flex flex-col items-center gap-4 rounded-2xl border border-border bg-card p-6 sm:flex-row sm:gap-6">
+                <ScoreRing score={rating.overall} size={96} stroke={8} />
+                <div className="min-w-0 flex-1 text-center sm:text-left">
+                  <p className="font-semibold">{rating.verdict}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {spokeSecRef.current}s · {words} words · {countFillers(transcript)} fillers
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([['Structure', rating.structure], ['Ideas', rating.ideas],
+                   ['Reasoning', rating.reasoning], ['Delivery', rating.delivery]] as const).map(([label, v]) => (
+                  <div key={label} className="rounded-xl border border-border bg-card p-3 text-center">
+                    <p className="text-2xl font-bold tabular-nums">{v}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {rating.strengths.length > 0 && (
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-success">What worked</p>
+                    <ul className="mt-2 space-y-1.5 text-sm">
+                      {rating.strengths.map((s, i) => <li key={i}>{s}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {rating.improvements.length > 0 && (
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-warning">Sharpen this</p>
+                    <ul className="mt-2 space-y-1.5 text-sm">
+                      {rating.improvements.map((s, i) => <li key={i}>{s}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {rating.next_time && (
+                <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary">Next time</p>
+                  <p className="mt-1.5 text-sm">{rating.next_time}</p>
                 </div>
               )}
-            </div>
+            </>
+          )}
 
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Duration: <Accent className="font-mono">{mm}:{ss}</Accent></span>
-              <span className="flex items-center gap-1">
-                <span className={`h-2 w-2 rounded-full ${active ? 'bg-emerald-500 animate-ping' : 'bg-secondary'}`} />
-                {active ? 'Recording Live' : 'Idle'}
-              </span>
-            </div>
-          </Card>
+          {transcript && (
+            <details className="rounded-2xl border border-border bg-card p-5">
+              <summary className="cursor-pointer text-sm font-medium">What you said</summary>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{transcript}</p>
+            </details>
+          )}
 
-          {/* Transcript card */}
-          <Card className="p-6 space-y-4">
-            <h3 className="font-semibold text-sm">Live Transcript</h3>
-            <div className="rounded-xl border border-border bg-secondary/10 p-5 h-56 overflow-y-auto space-y-3">
-              {transcript.length === 0 && !interimText && (
-                <p className="text-xs text-muted-foreground/50 italic">
-                  Start speaking... your transcript will populate here word-for-word.
-                </p>
-              )}
-              {transcript.map((line, idx) => (
-                <p key={idx} className="text-sm leading-relaxed">{line}</p>
-              ))}
-              {interimText && (
-                <p className="text-sm leading-relaxed text-primary/70 italic animate-pulse">{interimText}</p>
-              )}
-            </div>
-          </Card>
+          <div className="flex flex-wrap justify-center gap-2 pt-2">
+            <button onClick={nextTopic}
+              className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <RefreshCw className="h-4 w-4" /> New topic
+            </button>
+            <button onClick={startSpeaking}
+              className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">
+              <RotateCcw className="h-4 w-4" /> Same topic again
+            </button>
+          </div>
         </div>
-
-        {/* Real-time Metrics Card */}
-        <div className="md:col-span-1 space-y-6">
-          {/* Pacing Stats */}
-          <Card className="p-5 space-y-4">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Pacing Speed (WPM)
-            </h3>
-            <div className="flex items-baseline justify-between">
-              <p className="text-4xl font-bold tracking-tight">{wpm}</p>
-              <span className={`text-xs font-bold ${paceColor}`}>{paceStatus}</span>
-            </div>
-            <p className="text-[10px] text-muted-foreground leading-normal">
-              Ideal professional speech speed targets 130–150 words per minute.
-            </p>
-          </Card>
-
-          {/* Filler Word Counter */}
-          <Card className="p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Filler Words Count
-              </h3>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                totalFillers > 10 ? 'bg-rose-500/10 text-rose-500' : 'bg-primary/10 text-primary'
-              }`}>
-                {totalFillers} total
-              </span>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              {FILLER_WORDS.map((word) => {
-                const count = fillerCounts[word] || 0;
-                return (
-                  <div key={word} className="flex items-center justify-between text-xs">
-                    <span className="font-mono text-muted-foreground">“{word}”</span>
-                    <div className="flex items-center gap-3 w-1/2">
-                      <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
-                        <div 
-                          className="h-full bg-primary" 
-                          style={{ width: `${Math.min(100, count * 15)}%` }}
-                        />
-                      </div>
-                      <span className="font-bold tabular-nums w-4 text-right">{count}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
