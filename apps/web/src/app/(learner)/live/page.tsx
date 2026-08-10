@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { Mic, RefreshCw, Loader2, Play, SkipForward, RotateCcw, ArrowLeft, Upload } from 'lucide-react';
-import { randomTopic, type SpeakTopic } from '@avatar-platform/shared';
+import { Mic, RefreshCw, Loader2, Play, SkipForward, RotateCcw, ArrowLeft, Upload, Sparkles } from 'lucide-react';
+import { randomTopic, SPEAK_TOPICS, type SpeakTopic } from '@avatar-platform/shared';
 import { ScoreRing } from '@/components/charts/charts';
 import apiClient from '@/lib/api-client';
 
 const SPEAK_SEC = 60;
-const ITEM_W = 300;      // px per reel tile — fixed so the centring maths is exact
-const REEL_LEN = 24;     // tiles that fly past before the winner lands
-const SPIN_MS = 2600;
+const ITEM_W = 520;      // px per reel tile — fixed so the centring maths is exact
+const TAIL = 14;         // tiles parked past the winner so the strip never looks spent
+const SPIN_MS = 4200;
 const FILLERS = ['um', 'uh', 'like', 'so', 'basically', 'actually', 'you know', 'i mean'];
 
 type ModeKey = 'prepared' | 'instant' | 'own';
@@ -103,9 +103,11 @@ export default function LiveRoomPage() {
   const [error, setError] = useState<string | null>(null);
   const [unsupported, setUnsupported] = useState(false);
   const [reel, setReel] = useState<SpeakTopic[]>([]);
-  const [spinning, setSpinning] = useState(false);
-  const [settled, setSettled] = useState(true);
+  const [reelState, setReelState] = useState<'idle' | 'spinning' | 'settled'>('idle');
+  const [winnerIdx, setWinnerIdx] = useState(-1);
   const [offset, setOffset] = useState(0);
+  const spinning = reelState === 'spinning';
+  const settled = reelState === 'settled';
 
   // SpeechRecognition has no DOM lib types; `any` is the honest shape here.
   const recRef = useRef<any>(null);
@@ -195,25 +197,31 @@ export default function LiveRoomPage() {
   }, [runClock, stop]);
 
   /**
-   * Spin the reel to a new topic. The strip is built with the winner last, then
-   * translated so that tile lands dead centre — one CSS transition with a heavy
-   * ease-out does the whole fast-then-settle motion, no per-frame JS.
+   * Spin the reel. The winner is drawn first — the animation only reveals a
+   * decision already made — then the strip is built so that EVERY topic rides
+   * past before it, with a tail of further topics parked behind so the reel
+   * never shows its end and reads as "out of topics".
    */
   const spin = useCallback((exclude?: string) => {
     const target = randomTopic(exclude);
-    const strip = [...Array.from({ length: REEL_LEN - 1 }, () => randomTopic()), target];
+    const rest = SPEAK_TOPICS.filter((t) => t.text !== target.text);
+    for (let i = rest.length - 1; i > 0; i--) {        // Fisher-Yates
+      const j = Math.floor(Math.random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j], rest[i]];
+    }
+    const idx = rest.length;                            // the winner sits after every other topic
+    const strip = [...rest, target, ...rest.slice(0, TAIL)];
     setReel(strip);
+    setWinnerIdx(idx);
     setTopic(target);
-    setSettled(false);
     setOffset(0);
 
     // Anyone who asked for less motion gets the result, not the ride.
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      setSpinning(false);
-      setSettled(true);
+      setReelState('settled');
       return;
     }
-    setSpinning(true);
+    setReelState('spinning');
     // Two frames: one to paint the strip at offset 0, one to start the move —
     // without the gap the browser coalesces both and there is no animation.
     // The container may not be laid out yet on the first frame after a phase
@@ -223,7 +231,7 @@ export default function LiveRoomPage() {
     const go = () => {
       const box = reelBoxRef.current?.clientWidth ?? 0;
       if (box === 0 && tries++ < 10) { requestAnimationFrame(go); return; }
-      setOffset((strip.length - 1) * ITEM_W + ITEM_W / 2 - box / 2);
+      setOffset(idx * ITEM_W + ITEM_W / 2 - box / 2);
     };
     requestAnimationFrame(() => requestAnimationFrame(go));
   }, []);
@@ -233,7 +241,7 @@ export default function LiveRoomPage() {
     setMode(key);
     setRating(null); setError(null);
     finalRef.current = ''; setTranscript(''); setInterim('');
-    if (key === 'own') { setTopic(null); setSettled(true); setPhase('material'); return; }
+    if (key === 'own') { setTopic(null); setReelState('settled'); setPhase('material'); return; }
     if (m.prepSec === 0) {                       // instant: no reel, no landing screen
       const t = randomTopic();
       setTopic(t);
@@ -241,8 +249,9 @@ export default function LiveRoomPage() {
       startSpeaking(t.text);
       return;
     }
-    setPhase('ready');
-    spin();
+    setReel([]); setWinnerIdx(-1); setOffset(0); setReelState('idle');
+    setTopic(null);
+    setPhase('ready');            // reel waits for the button; nothing moves on open
   }
 
   function startPrep() {
@@ -381,75 +390,90 @@ export default function LiveRoomPage() {
 
       {/* Topic + start */}
       {phase === 'ready' && (
-        <div className="overflow-hidden rounded-2xl border border-border bg-card py-10 text-center">
-          {/* Label fades in only once the reel has stopped, so nothing competes
-              with the motion while it is running. */}
-          <p className={`text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-all duration-500 ${
-            settled ? 'translate-y-0 opacity-100' : '-translate-y-3 opacity-0'
-          }`}>
-            {mode === 'own' ? 'Your material' : 'Your topic'}
-          </p>
-
+        <div className="overflow-hidden rounded-2xl border border-border bg-card text-center">
           {mode === 'own' ? (
-            <p className="mx-auto mt-3 max-w-2xl text-balance px-6 text-2xl font-semibold tracking-tight">
-              {material.length > 240 ? `${material.slice(0, 240)}…` : material}
-            </p>
-          ) : (
-            <div ref={reelBoxRef} className="relative mt-3 w-full overflow-hidden">
-              {/* Edges dissolve so tiles enter and leave instead of being clipped. */}
-              <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-card to-transparent sm:w-40" />
-              <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-gradient-to-l from-card to-transparent sm:w-40" />
-              <div
-                className="flex items-center will-change-transform"
-                style={{
-                  transform: `translate3d(${-offset}px, 0, 0)`,
-                  transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.09, 0.72, 0.11, 1)` : 'none',
-                }}
-                onTransitionEnd={() => { setSpinning(false); setSettled(true); }}
-              >
-                {((reel.length ? reel : topic ? [topic] : []) as SpeakTopic[]).map((t, i, list) => {
-                  // Off `list`, not `reel` — with the single-topic fallback,
-                  // reel.length - 1 is -1 and nothing would ever be the winner,
-                  // leaving the tile at opacity-0 once settled.
-                  const isWinner = i === list.length - 1;
-                  return (
-                    <div key={`${t.text}-${i}`} className="shrink-0 px-4" style={{ width: ITEM_W }}>
-                      <p className={`text-balance text-xl font-semibold leading-tight tracking-tight transition-opacity duration-300 ${
-                        settled && !isWinner ? 'opacity-0' : isWinner && settled ? 'opacity-100' : 'opacity-45'
-                      }`}>
-                        {t.text}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="p-8">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your material</p>
+              <p className="mx-auto mt-3 max-w-2xl text-balance text-2xl font-semibold tracking-tight">
+                {material.length > 240 ? `${material.slice(0, 240)}…` : material}
+              </p>
             </div>
+          ) : reelState === 'idle' ? (
+            /* Nothing moves until asked. */
+            <div className="px-6 py-16">
+              <p className="text-2xl font-semibold tracking-tight">Let&apos;s find your topic</p>
+              <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
+                One will be drawn at random. You get {cfg.prepSec / 60} minutes with it, then a minute to talk.
+              </p>
+              <button onClick={() => spin()}
+                className="press mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+                <Sparkles className="h-4 w-4" /> Search the topic
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className={`pt-8 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-all duration-500 ${
+                settled ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0'
+              }`}>
+                Your topic
+              </p>
+
+              {/* The stage: a grey band the topics travel through, so the reel
+                  reads as a machine rather than as floating text. */}
+              <div ref={reelBoxRef} className="relative mt-4 w-full overflow-hidden bg-muted/60 py-12">
+                <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-10 w-28 bg-gradient-to-r from-card to-transparent sm:w-56" />
+                <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-10 w-28 bg-gradient-to-l from-card to-transparent sm:w-56" />
+                <div
+                  className="flex items-center will-change-transform"
+                  style={{
+                    transform: `translate3d(${-offset}px, 0, 0)`,
+                    transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.07, 0.68, 0.09, 1)` : 'none',
+                  }}
+                  onTransitionEnd={() => setReelState('settled')}
+                >
+                  {reel.map((t, i) => {
+                    const isWinner = i === winnerIdx;
+                    return (
+                      <div key={`${t.text}-${i}`} className="shrink-0 px-8" style={{ width: ITEM_W }}>
+                        <p className={`text-balance text-3xl font-bold leading-tight tracking-tight transition-all duration-500 sm:text-4xl ${
+                          settled
+                            ? (isWinner ? 'scale-100 text-foreground opacity-100' : 'opacity-0')
+                            : 'text-foreground/55 opacity-100'
+                        }`}>
+                          {t.text}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <p aria-live="polite" className={`mt-3 text-xs capitalize text-muted-foreground transition-all duration-500 ${
+                settled ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
+              }`}>
+                {topic?.kind ?? ' '}
+              </p>
+            </>
           )}
 
-          <p aria-live="polite" className={`mt-2 text-xs capitalize text-muted-foreground transition-all duration-500 ${
-            settled ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'
-          }`}>
-            {mode === 'own' ? ' ' : (topic?.kind ?? ' ')}
-          </p>
-
-          <div className={`mt-6 flex flex-wrap items-center justify-center gap-2 px-6 transition-all duration-500 delay-100 ${
-            settled ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
-          }`}>
-            <button onClick={startPrep} disabled={!settled}
-              className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-              <Play className="h-4 w-4" /> Prepare ({cfg.prepSec / 60} min)
-            </button>
-            <button onClick={() => startSpeaking(subject)} disabled={!settled}
-              className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50">
-              <Mic className="h-4 w-4" /> Speak now
-            </button>
-            {mode !== 'own' && (
-              <button onClick={shuffle} disabled={spinning}
-                className="press inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50">
-                <RefreshCw className={`h-4 w-4 ${spinning ? 'animate-spin' : ''}`} /> Shuffle topic
+          {(mode === 'own' || reelState === 'settled') && (
+            <div className="flex flex-wrap items-center justify-center gap-2 px-6 pb-8 pt-6 duration-500 animate-in fade-in slide-in-from-bottom-2">
+              <button onClick={startPrep}
+                className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                <Play className="h-4 w-4" /> Prepare ({cfg.prepSec / 60} min)
               </button>
-            )}
-          </div>
+              <button onClick={() => startSpeaking(subject)}
+                className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">
+                <Mic className="h-4 w-4" /> Speak now
+              </button>
+              {mode !== 'own' && (
+                <button onClick={shuffle}
+                  className="press inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted">
+                  <RefreshCw className="h-4 w-4" /> Shuffle topic
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
