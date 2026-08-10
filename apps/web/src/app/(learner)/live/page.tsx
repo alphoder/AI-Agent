@@ -390,7 +390,9 @@ export default function LiveRoomPage() {
 
       {/* Topic + start */}
       {phase === 'ready' && (
-        <div className="overflow-hidden rounded-2xl border border-border bg-card text-center">
+        /* One height for every state, so the card does not jump when the reel
+           replaces the prompt or when the buttons appear. */
+        <div className="flex min-h-[440px] flex-col justify-center overflow-hidden rounded-2xl border border-border bg-card text-center">
           {mode === 'own' ? (
             <div className="p-8">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your material</p>
@@ -418,28 +420,45 @@ export default function LiveRoomPage() {
                 Your topic
               </p>
 
-              {/* The stage: a grey band the topics travel through, so the reel
-                  reads as a machine rather than as floating text. */}
-              <div ref={reelBoxRef} className="relative mt-4 w-full overflow-hidden bg-muted/60 py-12">
+              {/* The stage. Fixed height, so a one-line topic and a two-line
+                  topic cannot resize the grey band as they pass through. */}
+              <div ref={reelBoxRef} className="relative mt-4 h-[220px] w-full overflow-hidden bg-muted/50">
+                {/* Centre lock: the winner comes to rest exactly between these. */}
+                <div aria-hidden className="pointer-events-none absolute inset-y-0 left-1/2 z-20 w-px -translate-x-[calc(50%+1px)] bg-primary/25" />
+                <div aria-hidden className="pointer-events-none absolute inset-y-0 left-1/2 z-20 w-px translate-x-[calc(50%+1px)] bg-primary/25" />
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-10 w-28 bg-gradient-to-r from-card to-transparent sm:w-56" />
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-10 w-28 bg-gradient-to-l from-card to-transparent sm:w-56" />
                 <div
-                  className="flex items-center will-change-transform"
+                  className="absolute inset-y-0 left-0 flex items-center"
                   style={{
                     transform: `translate3d(${-offset}px, 0, 0)`,
-                    transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.07, 0.68, 0.09, 1)` : 'none',
+                    // Only transform, never `all` — during the spin there are 50+
+                    // large text nodes on screen and transitioning anything that
+                    // touches paint on each of them is what made it stutter.
+                    transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.16, 1, 0.3, 1)` : 'none',
+                    willChange: spinning ? 'transform' : 'auto',
                   }}
                   onTransitionEnd={() => setReelState('settled')}
                 >
                   {reel.map((t, i) => {
                     const isWinner = i === winnerIdx;
                     return (
-                      <div key={`${t.text}-${i}`} className="shrink-0 px-8" style={{ width: ITEM_W }}>
-                        <p className={`text-balance text-3xl font-bold leading-tight tracking-tight transition-all duration-500 sm:text-4xl ${
-                          settled
-                            ? (isWinner ? 'scale-100 text-foreground opacity-100' : 'opacity-0')
-                            : 'text-foreground/55 opacity-100'
-                        }`}>
+                      <div
+                        key={`${t.text}-${i}`}
+                        className="flex h-[220px] shrink-0 items-center justify-center px-10"
+                        style={{ width: ITEM_W }}
+                      >
+                        {/* One size, one weight, clamped to two lines: every tile
+                            occupies an identical box however long the topic is. */}
+                        <p
+                          className={`line-clamp-2 text-center text-4xl font-bold leading-[1.15] tracking-tight ${
+                            settled
+                              ? (isWinner
+                                  ? 'text-foreground opacity-100 transition-opacity duration-300 ease-out'
+                                  : 'opacity-0')
+                              : 'text-foreground/60'
+                          }`}
+                        >
                           {t.text}
                         </p>
                       </div>
