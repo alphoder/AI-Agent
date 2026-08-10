@@ -256,11 +256,19 @@ export function ContributionBars({ criteria }: { criteria: RCriterion[] }) {
               <span className="text-xs"> of {r.max.toFixed(1)} pts</span>
             </span>
           </div>
-          {/* The full-width track is what this criterion COULD have contributed,
-              so a short bar on a wide track is the biggest available win. */}
-          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted" style={{ width: `${(r.max / widest) * 100}%` }}>
+          {/* Every track is the SAME width, or the ragged right edges read as a
+              rendering fault rather than as data. One shared scale instead: the
+              fill is points earned, so bar lengths are comparable across rows,
+              and the notch is this criterion's ceiling. */}
+          <div className="relative mt-1.5 h-2 rounded-full bg-muted">
             <div className={`h-full rounded-full ${r.passed ? 'bg-success' : 'bg-destructive'}`}
-              style={{ width: `${Math.max(2, (r.got / r.max) * 100)}%` }} />
+              style={{ width: `${Math.max(2, (r.got / widest) * 100)}%` }} />
+            {r.max < widest && (
+              <span aria-hidden
+                className="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-muted-foreground/60"
+                style={{ left: `${(r.max / widest) * 100}%` }}
+                title={`ceiling ${r.max.toFixed(1)} pts`} />
+            )}
           </div>
         </div>
       ))}

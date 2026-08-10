@@ -194,7 +194,7 @@ function Contributions({ criteria, width = 250 }: { criteria: ReportData['criter
     <Svg width={width} height={rows.length * rowH + 4}>
       {rows.map((r, i) => {
         const y = i * rowH;
-        const track = (r.max / widest) * (width - 96);
+        const full = width - 96;   // one shared scale; ragged tracks looked broken
         return (
           <G key={i}>
             <Text x={0} y={y + 7} style={{ fontSize: 7 }} fill={C.ink}>
@@ -203,9 +203,13 @@ function Contributions({ criteria, width = 250 }: { criteria: ReportData['criter
             <Text x={width} y={y + 7} style={{ fontSize: 7 }} fill={r.passed ? C.slate : C.red} textAnchor="end">
               {`${r.got.toFixed(1)} / ${r.max.toFixed(1)} pts`}
             </Text>
-            <Rect x={0} y={y + 10} width={Math.max(2, track)} height={5} rx={2.5} fill={C.track} />
-            <Rect x={0} y={y + 10} width={Math.max(2, (r.got / r.max) * track)} height={5} rx={2.5}
+            <Rect x={0} y={y + 10} width={full} height={5} rx={2.5} fill={C.track} />
+            <Rect x={0} y={y + 10} width={Math.max(2, (r.got / widest) * full)} height={5} rx={2.5}
               fill={r.passed ? C.green : C.red} />
+            {r.max < widest && (
+              <Line x1={(r.max / widest) * full} y1={y + 8} x2={(r.max / widest) * full} y2={y + 17}
+                stroke={C.slate} strokeWidth={0.8} />
+            )}
           </G>
         );
       })}
@@ -261,7 +265,7 @@ export function ReportPDF({ data }: { data: ReportData }) {
             <View style={s.card}>
               <Text style={s.cardTitle}>Where the score came from</Text>
               <Contributions criteria={data.criteria_scores} />
-              <Text style={{ fontSize: 7, color: C.light, marginTop: 2 }}>Track length is the points each criterion could carry.</Text>
+              <Text style={{ fontSize: 7, color: C.light, marginTop: 2 }}>All bars share one scale; the notch is each criterion&apos;s ceiling.</Text>
             </View>
           )}
         </View>

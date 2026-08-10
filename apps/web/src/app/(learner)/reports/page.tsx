@@ -283,7 +283,7 @@ function ReportView({ sessionId }: { sessionId: string }) {
           <div className="rounded-2xl border border-border/50 bg-card p-5">
             <h3 className="text-sm font-semibold">Where the score came from</h3>
             <p className="mt-0.5 mb-3 text-xs text-muted-foreground">
-              Each criterion in points of the 100. The track is what it could have carried.
+              Each criterion in points of the 100, all on one scale. The notch marks its ceiling.
             </p>
             <ContributionBars criteria={report.criteria_scores} />
           </div>
