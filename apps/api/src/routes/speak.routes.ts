@@ -30,7 +30,9 @@ router.post('/rate', wrap(async (req: AuthenticatedRequest, res: Response) => {
     const aiRes = await callAIService({
       path: '/speech/rate',
       body: {
-        topic: topic.slice(0, 300),
+        // Generous, because "topic" is also the learner's own pasted notes in
+        // the bring-your-own-material mode, not just a one-line prompt.
+        topic: topic.slice(0, 2000),
         transcript: transcript.slice(0, 6000),
         duration_sec: Number(duration_sec) || 60,
         words: Number(words) || 0,

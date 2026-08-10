@@ -1,16 +1,41 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, RefreshCw, Loader2, Play, SkipForward, RotateCcw } from 'lucide-react';
+import Image from 'next/image';
+import { Mic, RefreshCw, Loader2, Play, SkipForward, RotateCcw, ArrowLeft, Upload } from 'lucide-react';
 import { randomTopic, type SpeakTopic } from '@avatar-platform/shared';
 import { ScoreRing } from '@/components/charts/charts';
 import apiClient from '@/lib/api-client';
 
 const SPEAK_SEC = 60;
-const PREP_SEC = 30;
 const FILLERS = ['um', 'uh', 'like', 'so', 'basically', 'actually', 'you know', 'i mean'];
 
-type Phase = 'idle' | 'prep' | 'speaking' | 'rating' | 'done';
+type ModeKey = 'prepared' | 'instant' | 'own';
+type Phase = 'hub' | 'material' | 'ready' | 'prep' | 'speaking' | 'rating' | 'done';
+
+const MODES: { key: ModeKey; title: string; blurb: string; image: string; prepSec: number }[] = [
+  {
+    key: 'prepared',
+    title: 'Prepared talk',
+    blurb: 'A random topic, ten minutes to think it through, then one minute to deliver it.',
+    image: '/categories/speaking.webp',
+    prepSec: 600,
+  },
+  {
+    key: 'instant',
+    title: 'Instant speak',
+    blurb: 'A random topic and the clock starts immediately. No thinking time, no hiding.',
+    image: '/categories/confidence.webp',
+    prepSec: 0,
+  },
+  {
+    key: 'own',
+    title: 'Your own material',
+    blurb: 'Bring a topic or paste your notes, prepare for ten minutes, then speak to it.',
+    image: '/categories/interview.webp',
+    prepSec: 600,
+  },
+];
 
 interface Rating {
   overall: number; structure: number; ideas: number; reasoning: number; delivery: number;
@@ -22,18 +47,24 @@ function countFillers(text: string): number {
   return FILLERS.reduce((n, f) => n + (t.split(` ${f} `).length - 1), 0);
 }
 
+function clock(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : String(s);
+}
+
 /**
  * The countdown dial. Driven by requestAnimationFrame off a wall-clock deadline
- * rather than by an accumulating tick, so the sweep stays smooth and cannot
- * drift when the tab is throttled.
+ * rather than an accumulating tick, so the sweep stays smooth and cannot drift
+ * when the tab is throttled — which a ten-minute prep would otherwise do badly.
  * ponytail: local to this page — ui/progress-ring animates on mount, which
  * fights a countdown. Promote it if a second screen ever needs a dial.
  */
-function Clock({ remainingMs, total, urgent }: { remainingMs: number; total: number; urgent: boolean }) {
+function Clock({ remainingMs, totalSec, urgent }: { remainingMs: number; totalSec: number; urgent: boolean }) {
   const size = 260, stroke = 10;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const frac = Math.max(0, Math.min(1, remainingMs / (total * 1000)));
+  const frac = Math.max(0, Math.min(1, remainingMs / (totalSec * 1000)));
   const secs = Math.max(0, Math.ceil(remainingMs / 1000));
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
@@ -46,18 +77,22 @@ function Clock({ remainingMs, total, urgent }: { remainingMs: number; total: num
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-6xl font-bold tabular-nums tracking-tight ${urgent ? 'text-destructive' : 'text-foreground'}`}>
-          {secs}
+        <span className={`font-bold tabular-nums tracking-tight ${secs >= 60 ? 'text-5xl' : 'text-6xl'} ${urgent ? 'text-destructive' : 'text-foreground'}`}>
+          {clock(secs)}
         </span>
-        <span className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">seconds left</span>
+        <span className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
+          {secs >= 60 ? 'left to prepare' : 'seconds left'}
+        </span>
       </div>
     </div>
   );
 }
 
-export default function SpeakForAMinutePage() {
+export default function LiveRoomPage() {
+  const [mode, setMode] = useState<ModeKey | null>(null);
+  const [phase, setPhase] = useState<Phase>('hub');
   const [topic, setTopic] = useState<SpeakTopic | null>(null);
-  const [phase, setPhase] = useState<Phase>('idle');
+  const [material, setMaterial] = useState('');
   const [remainingMs, setRemainingMs] = useState(SPEAK_SEC * 1000);
   const [transcript, setTranscript] = useState('');
   const [interim, setInterim] = useState('');
@@ -68,12 +103,11 @@ export default function SpeakForAMinutePage() {
   // SpeechRecognition has no DOM lib types; `any` is the honest shape here.
   const recRef = useRef<any>(null);
   const rafRef = useRef<number | null>(null);
-  const finalRef = useRef('');            // text the recogniser has committed
+  const finalRef = useRef('');
   const spokeSecRef = useRef(SPEAK_SEC);
 
-  // Pick the first topic on the client — a server-rendered random value would
-  // differ from the client's and trip a hydration mismatch.
-  useEffect(() => { setTopic(randomTopic()); }, []);
+  const cfg = MODES.find((m) => m.key === mode) ?? MODES[0];
+  const subject = mode === 'own' ? material.trim() : (topic?.text ?? '');
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -100,13 +134,12 @@ export default function SpeakForAMinutePage() {
     return () => { rec.wanted = false; try { rec.stop(); } catch { /* not running */ } };
   }, []);
 
-  const rate = useCallback(async (text: string, secs: number) => {
-    if (!topic) return;
+  const rate = useCallback(async (text: string, secs: number, subj: string) => {
     setPhase('rating');
     setError(null);
     try {
       const { data } = await apiClient.post('/speak/rate', {
-        topic: topic.text,
+        topic: subj,
         transcript: text,
         duration_sec: secs,
         words: text.trim() ? text.trim().split(/\s+/).length : 0,
@@ -118,17 +151,16 @@ export default function SpeakForAMinutePage() {
     } finally {
       setPhase('done');
     }
-  }, [topic]);
+  }, []);
 
-  const stop = useCallback((secsSpoken: number) => {
+  const stop = useCallback((secsSpoken: number, subj: string) => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (recRef.current) { recRef.current.wanted = false; try { recRef.current.stop(); } catch { /* not running */ } }
     setInterim('');
     spokeSecRef.current = secsSpoken;
-    rate(finalRef.current, secsSpoken);
+    rate(finalRef.current, secsSpoken, subj);
   }, [rate]);
 
-  // One rAF loop drives both countdowns, off a deadline rather than a counter.
   const runClock = useCallback((seconds: number, onDone: () => void) => {
     const deadline = performance.now() + seconds * 1000;
     const tick = () => {
@@ -140,37 +172,60 @@ export default function SpeakForAMinutePage() {
     rafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  const startSpeaking = useCallback(() => {
+  const startSpeaking = useCallback((subj: string) => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     finalRef.current = '';
-    setTranscript('');
-    setInterim('');
-    setRating(null);
-    setError(null);
+    setTranscript(''); setInterim('');
+    setRating(null); setError(null);
     setPhase('speaking');
     setRemainingMs(SPEAK_SEC * 1000);
     if (recRef.current) {
       recRef.current.wanted = true;
       try { recRef.current.start(); } catch { /* already running */ }
     }
-    runClock(SPEAK_SEC, () => stop(SPEAK_SEC));
+    runClock(SPEAK_SEC, () => stop(SPEAK_SEC, subj));
   }, [runClock, stop]);
+
+  function pickMode(key: ModeKey) {
+    const m = MODES.find((x) => x.key === key)!;
+    setMode(key);
+    setRating(null); setError(null);
+    finalRef.current = ''; setTranscript(''); setInterim('');
+    if (key === 'own') { setTopic(null); setPhase('material'); return; }
+    const t = randomTopic();
+    setTopic(t);
+    if (m.prepSec === 0) { setPhase('ready'); startSpeaking(t.text); return; }  // instant: no landing screen
+    setPhase('ready');
+  }
 
   function startPrep() {
     setPhase('prep');
-    setRemainingMs(PREP_SEC * 1000);
-    runClock(PREP_SEC, () => startSpeaking());
+    setRemainingMs(cfg.prepSec * 1000);
+    runClock(cfg.prepSec, () => startSpeaking(subject));
   }
 
-  function nextTopic() {
+  function shuffle() {
+    const t = randomTopic(topic?.text);
+    setTopic(t);
+  }
+
+  function backToHub() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (recRef.current) { recRef.current.wanted = false; try { recRef.current.stop(); } catch { /* not running */ } }
-    setTopic(randomTopic(topic?.text));
-    setPhase('idle');
-    finalRef.current = '';
-    setTranscript(''); setInterim('');
+    setMode(null); setPhase('hub'); setTopic(null); setMaterial('');
+    finalRef.current = ''; setTranscript(''); setInterim('');
     setRating(null); setError(null);
-    setRemainingMs(SPEAK_SEC * 1000);
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setError(null);
+    // ponytail: text() covers .txt/.md/.csv — the formats a browser can read
+    // without a parser. PDF/DOCX would each need a dependency; paste instead.
+    const text = await f.text();
+    if (!text.trim()) { setError('That file looks empty.'); return; }
+    setMaterial(text.slice(0, 20000));
   }
 
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
@@ -183,53 +238,139 @@ export default function SpeakForAMinutePage() {
       <div className="mx-auto max-w-lg rounded-2xl border border-border bg-card p-10 text-center">
         <p className="font-semibold">This browser can&apos;t listen</p>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Speak for a Minute needs speech recognition. Chrome or Edge works; Firefox does not.
+          The Live Room needs speech recognition. Chrome or Edge works; Firefox does not.
         </p>
       </div>
     );
   }
 
+  /* ---------------------------------------------------------------- the hub */
+  if (phase === 'hub') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Live Room</h1>
+          <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
+            One minute of speaking, scored on structure, ideas and reasoning. Pick how much
+            thinking time you want first.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {MODES.map((m, i) => (
+            <button
+              key={m.key}
+              onClick={() => pickMode(m.key)}
+              className="group overflow-hidden rounded-2xl border border-border bg-card text-left transition-colors hover:border-primary/40"
+            >
+              <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
+                <Image
+                  src={m.image}
+                  alt=""
+                  fill
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                  priority={i === 0}
+                  className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                />
+              </div>
+              <div className="p-5">
+                <p className="font-semibold tracking-tight">{m.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{m.blurb}</p>
+                <p className="mt-3 text-xs font-medium uppercase tracking-wider text-primary">
+                  {m.prepSec === 0 ? '0 prep · 1 min speak' : `${m.prepSec / 60} min prep · 1 min speak`}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ------------------------------------------------- everything inside a mode */
   return (
     <div className="space-y-6">
+      <button onClick={backToHub} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> Live Room
+      </button>
+
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Speak for a Minute</h1>
-        <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
-          A random topic, {PREP_SEC} seconds to think, then one minute to talk. Scored on structure,
-          ideas and reasoning — the drill that builds thinking on your feet.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">{cfg.title}</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">{cfg.blurb}</p>
       </div>
 
-      <div className="rounded-2xl border border-border bg-card p-6 text-center">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your topic</p>
-        <p className="mx-auto mt-2 max-w-2xl text-balance text-2xl font-semibold tracking-tight">
-          {topic ? topic.text : '…'}
-        </p>
-        {topic && <p className="mt-1.5 text-xs capitalize text-muted-foreground">{topic.kind}</p>}
-        {phase === 'idle' && (
+      {/* Your own material */}
+      {phase === 'material' && (
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-6">
+          <label htmlFor="material" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            What are you speaking about?
+          </label>
+          <textarea
+            id="material"
+            value={material}
+            onChange={(e) => setMaterial(e.target.value)}
+            rows={7}
+            placeholder="Paste your notes, a brief, an outline — or just type the topic."
+            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="press inline-flex cursor-pointer items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
+              <Upload className="h-4 w-4" /> Import a file
+              <input type="file" accept=".txt,.md,.markdown,.csv,text/plain" onChange={onFile} className="sr-only" />
+            </label>
+            <span className="text-xs text-muted-foreground">Text files (.txt, .md). For PDFs or Word, paste the text.</span>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <button
+            onClick={() => setPhase('ready')}
+            disabled={!material.trim()}
+            className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            Continue
+          </button>
+        </div>
+      )}
+
+      {/* Topic + start */}
+      {phase === 'ready' && (
+        <div className="rounded-2xl border border-border bg-card p-6 text-center">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {mode === 'own' ? 'Your material' : 'Your topic'}
+          </p>
+          <p className="mx-auto mt-2 max-w-2xl text-balance text-2xl font-semibold tracking-tight">
+            {mode === 'own' ? (material.length > 240 ? `${material.slice(0, 240)}…` : material) : topic?.text}
+          </p>
+          {mode !== 'own' && topic && <p className="mt-1.5 text-xs capitalize text-muted-foreground">{topic.kind}</p>}
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
             <button onClick={startPrep}
               className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              <Play className="h-4 w-4" /> Prepare ({PREP_SEC}s)
+              <Play className="h-4 w-4" /> Prepare ({cfg.prepSec / 60} min)
             </button>
-            <button onClick={startSpeaking}
+            <button onClick={() => startSpeaking(subject)}
               className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">
-              <Mic className="h-4 w-4" /> Skip prep, speak now
+              <Mic className="h-4 w-4" /> Speak now
             </button>
-            <button onClick={nextTopic}
-              className="press inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted">
-              <RefreshCw className="h-4 w-4" /> Another topic
-            </button>
+            {mode !== 'own' && (
+              <button onClick={shuffle}
+                className="press inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted">
+                <RefreshCw className="h-4 w-4" /> Another topic
+              </button>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
+      {/* Clock */}
       {(phase === 'prep' || phase === 'speaking') && (
         <div className="flex flex-col items-center gap-4">
-          <Clock remainingMs={remainingMs} total={phase === 'prep' ? PREP_SEC : SPEAK_SEC} urgent={urgent} />
+          <p className="max-w-2xl text-center text-sm font-medium">
+            {mode === 'own' ? (material.length > 160 ? `${material.slice(0, 160)}…` : material) : topic?.text}
+          </p>
+          <Clock remainingMs={remainingMs} totalSec={phase === 'prep' ? cfg.prepSec : SPEAK_SEC} urgent={urgent} />
           {phase === 'prep' ? (
             <>
-              <p className="text-sm text-muted-foreground">Think. Pick an angle and one example.</p>
-              <button onClick={startSpeaking}
+              <p className="text-sm text-muted-foreground">Think. Pick an angle, a reason and one example.</p>
+              <button onClick={() => startSpeaking(subject)}
                 className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
                 <SkipForward className="h-4 w-4" /> I&apos;m ready — start speaking
               </button>
@@ -243,7 +384,7 @@ export default function SpeakForAMinutePage() {
                 </span>
                 Listening · {words} words
               </p>
-              <button onClick={() => stop(SPEAK_SEC - Math.ceil(remainingMs / 1000))}
+              <button onClick={() => stop(SPEAK_SEC - Math.ceil(remainingMs / 1000), subject)}
                 className="press rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
                 Finish early
               </button>
@@ -330,13 +471,19 @@ export default function SpeakForAMinutePage() {
           )}
 
           <div className="flex flex-wrap justify-center gap-2 pt-2">
-            <button onClick={nextTopic}
+            <button onClick={() => startSpeaking(subject)}
               className="press inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              <RefreshCw className="h-4 w-4" /> New topic
+              <RotateCcw className="h-4 w-4" /> Same subject again
             </button>
-            <button onClick={startSpeaking}
-              className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">
-              <RotateCcw className="h-4 w-4" /> Same topic again
+            {mode !== 'own' && (
+              <button onClick={() => { shuffle(); setPhase('ready'); }}
+                className="press inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">
+                <RefreshCw className="h-4 w-4" /> New topic
+              </button>
+            )}
+            <button onClick={backToHub}
+              className="press inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted">
+              Change mode
             </button>
           </div>
         </div>

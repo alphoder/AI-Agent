@@ -86,7 +86,7 @@ async def rate_speech(body: RateRequest):
         }
 
     prompt = (
-        f"TOPIC: {body.topic[:300]}\n"
+        f"TOPIC: {body.topic[:2000]}\n"
         f"SPOKE FOR: {body.duration_sec}s · {body.words} words · {body.fillers} filler words\n\n"
         f"TRANSCRIPT:\n{said[:6000]}"
     )
