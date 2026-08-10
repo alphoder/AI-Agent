@@ -18,21 +18,21 @@ const MODES: { key: ModeKey; title: string; blurb: string; image: string; prepSe
     key: 'prepared',
     title: 'Prepared talk',
     blurb: 'A random topic, ten minutes to think it through, then one minute to deliver it.',
-    image: '/categories/speaking.webp',
+    image: '/live/prepared.webp',
     prepSec: 600,
   },
   {
     key: 'instant',
     title: 'Instant speak',
     blurb: 'A random topic and the clock starts immediately. No thinking time, no hiding.',
-    image: '/categories/confidence.webp',
+    image: '/live/instant.webp',
     prepSec: 0,
   },
   {
     key: 'own',
     title: 'Your own material',
     blurb: 'Bring a topic or paste your notes, prepare for ten minutes, then speak to it.',
-    image: '/categories/interview.webp',
+    image: '/live/own.webp',
     prepSec: 600,
   },
 ];
@@ -256,27 +256,29 @@ export default function LiveRoomPage() {
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Three equal portrait panels filling the section. The copy sits ON the
+            photo, so each card needs a scrim — white text straight onto a
+            mid-grey image fails contrast in the lighter frames. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {MODES.map((m, i) => (
             <button
               key={m.key}
               onClick={() => pickMode(m.key)}
-              className="group overflow-hidden rounded-2xl border border-border bg-card text-left transition-colors hover:border-primary/40"
+              className="group relative aspect-[3/4] overflow-hidden rounded-2xl border border-border text-left transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
-                <Image
-                  src={m.image}
-                  alt=""
-                  fill
-                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                  priority={i === 0}
-                  className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                />
-              </div>
-              <div className="p-5">
-                <p className="font-semibold tracking-tight">{m.title}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{m.blurb}</p>
-                <p className="mt-3 text-xs font-medium uppercase tracking-wider text-primary">
+              <Image
+                src={m.image}
+                alt=""
+                fill
+                sizes="(max-width: 640px) 100vw, 33vw"
+                priority={i === 0}
+                className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+              />
+              <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-black/5" />
+              <div className="absolute inset-x-0 bottom-0 p-5">
+                <p className="text-lg font-semibold tracking-tight text-white">{m.title}</p>
+                <p className="mt-1 text-sm leading-snug text-white/75">{m.blurb}</p>
+                <p className="mt-3 text-xs font-medium uppercase tracking-wider text-white/90">
                   {m.prepSec === 0 ? '0 prep · 1 min speak' : `${m.prepSec / 60} min prep · 1 min speak`}
                 </p>
               </div>

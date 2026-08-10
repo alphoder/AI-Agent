@@ -61,3 +61,6 @@ k8s/secrets/
 
 # impeccable hook caches
 .impeccable/
+
+# Source art for the Live Room cards — the shipped webps live in public/live/
+apps/web/public/Live_Studio/
