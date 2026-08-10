@@ -11,7 +11,8 @@ import sys
 sys.path.insert(0, ".")
 
 from src.config import settings  # noqa: E402
-from src.routes.session import _NATIVE_AUDIO_LANGS, _bcp47, _live_model  # noqa: E402
+from src.core.live_routing import LIVE_ROUTES, NATIVE_CODES, route_for  # noqa: E402
+from src.routes.session import _bcp47, _live_model  # noqa: E402
 
 NATIVE = settings.gemini_native_audio_model
 FLASH = settings.gemini_live_model
@@ -53,11 +54,20 @@ settings.native_audio_enabled = True
 # --- the routing table must line up with what the app can actually select ---
 # Every native-audio code has to be a real BCP-47 the resolver can produce,
 # or the branch is dead code that never fires.
-for code in _NATIVE_AUDIO_LANGS:
+for code in NATIVE_CODES:
     assert _bcp47(code) == code, f"{code} is not a code _bcp47 can return"
-assert len(_NATIVE_AUDIO_LANGS) == 18, f"expected the 18 verified codes, got {len(_NATIVE_AUDIO_LANGS)}"
-assert not any("-IN" in c and c != "hi-IN" for c in _NATIVE_AUDIO_LANGS), \
-    "only hi-IN survives on native audio; no other Indian code was verified"
+assert len(NATIVE_CODES) == 18, f"expected the 18 measured codes, got {len(NATIVE_CODES)}"
+assert not any("-IN" in c and c != "hi-IN" for c in NATIVE_CODES), \
+    "only hi-IN survives on native audio; no other Indian code was measured"
+
+# The table must cover every code the app can emit, or a real session falls
+# through to the None branch and silently loses its routing row.
+from src.routes.session import _BCP47  # noqa: E402
+for bcp in _BCP47.values():
+    assert route_for(bcp) is not None, f"{bcp} is missing from LIVE_ROUTES"
+for acc in ["en-IN", "en-GB", "en-AU", "en-IE", "es-ES", "fr-CA", "pt-PT"]:
+    assert route_for(acc) is not None, f"accent {acc} is missing from LIVE_ROUTES"
+assert len({r.code for r in LIVE_ROUTES}) == len(LIVE_ROUTES), "duplicate codes in LIVE_ROUTES"
 
 # --- the case that shipped broken -------------------------------------------
 # The socket handler lower-cases the query param, so routing must be exercised

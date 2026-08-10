@@ -24,6 +24,7 @@ import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.config import settings
+from src.core.live_routing import route_for
 from src.core.body_language import analyze_frame
 from src.core.origins import origin_allowed
 from src.core.ws_ticket import verify_ticket
@@ -114,7 +115,7 @@ def _bcp47(lang: str) -> str | None:
     The socket handler lower-cases the whole query param to sanitise it, so an
     accent arrives as `en-in`, not `en-IN`. Canonical casing is restored here:
     _BCP47's own values are region-upper, and anything compared against them —
-    _NATIVE_AUDIO_LANGS above — silently missed every accented code otherwise.
+    the live_routing table — silently missed every accented code otherwise.
     That cost `hi-IN` and `en-US` their native-audio routing, and `hi` has a
     single accent variant the picker auto-selects, so EVERY Hindi call was
     affected.
@@ -123,32 +124,18 @@ def _bcp47(lang: str) -> str | None:
         primary, _, region = lang.partition("-")     # 'cmn-cn' and 'fil-ph' exist
         return f"{primary.lower()}-{region.upper()}" if region else primary.lower()
     return _BCP47.get(lang)
-# Language codes Gemini 2.5 native audio actually accepts. VERIFIED 2026-08-10
-# against this key with scripts/verify_live_capabilities.py (18 of 74 replied).
-# Native audio hard-closes the socket with 1007 "Unsupported language code" on
-# anything else, so this list must never be widened by guesswork — re-run the
-# script and paste the result.
-#
-# Note what is NOT here: every regional accent fails — en-IN, en-GB, en-AU,
-# en-IE, es-ES, fr-CA, pt-PT. Accented sessions therefore stay on flash-live,
-# which handles all 23 accent codes. en-IN in particular is a common pick, so
-# most English calls will still route to flash-live by design.
-_NATIVE_AUDIO_LANGS = frozenset({
-    "en-US", "es-US", "fr-FR", "pt-BR", "de-DE", "it-IT", "nl-NL", "ru-RU",
-    "uk-UA", "pl-PL", "ro-RO", "tr-TR", "hi-IN", "th-TH", "vi-VN", "id-ID",
-    "ja-JP", "ko-KR",
-})
-
-
 def _live_model(bcp: str | None) -> tuple[str, bool]:
     """Pick the live model for a resolved BCP-47 code.
 
-    Returns (model, affective_dialog). Native audio only where its support is
-    verified; everything else — unknown codes, every accent, and None — falls
-    back to flash-live, which is the model that covers all 74 languages.
+    Returns (model, affective_dialog). The decision is a table lookup against
+    src/core/live_routing.py, which is generated from a real probe of every code
+    the app can emit — see scripts/build_live_routing.py. Anything not in that
+    table, including None, goes to flash-live: it serves all 81 codes, whereas an
+    unsupported code on native audio closes the socket with 1007 mid-call.
     Self-check: python scripts/test_model_routing.py
     """
-    if settings.native_audio_enabled and bcp in _NATIVE_AUDIO_LANGS:
+    route = route_for(bcp)
+    if settings.native_audio_enabled and route is not None and route.native:
         return settings.gemini_native_audio_model, True
     return settings.gemini_live_model, False
 
