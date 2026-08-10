@@ -49,8 +49,34 @@ function ReportView({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
+  // The report poll below refuses to start until `meta` arrives (it needs the
+  // duration to know whether the session is even scoreable). This request used
+  // to swallow its error, so a single failure — the free-tier API waking up is
+  // enough — left `meta` null forever and pinned the page on the "Scoring your
+  // conversation…" spinner with no error and nothing to retry. Retry through a
+  // cold start, then fail out loud.
   useEffect(() => {
-    apiClient.get(`/sessions/${sessionId}`).then(({ data }) => setMeta(data.data)).catch(() => {});
+    let active = true;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    async function loadMeta() {
+      try {
+        const { data } = await apiClient.get(`/sessions/${sessionId}`);
+        if (active) setMeta(data.data);
+      } catch {
+        tries += 1;
+        if (tries > 5) {                       // ~10s, past a typical cold start
+          if (active) { setError('Could not load this session. Refresh in a moment.'); setWaiting(false); }
+          return;
+        }
+        timer = setTimeout(loadMeta, 2000);
+      }
+    }
+    loadMeta();
+    return () => { active = false; clearTimeout(timer); };
+  }, [sessionId]);
+
+  useEffect(() => {
     apiClient.get(`/sessions/${sessionId}/transcript`).then(({ data }) => setTranscript(data.data || [])).catch(() => {});
     // Moments the learner flagged mid-call, so they can write them up now.
     apiClient.get(`/notes?context_type=session&context_id=${sessionId}`)
