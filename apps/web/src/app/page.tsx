@@ -176,14 +176,20 @@ export default function Landing() {
           tabIndex={-1}
           className="absolute inset-0 -z-20 h-full w-full object-cover"
         />
-        {/* Short fade so the clip does not end on a hard edge against the cream. */}
-        <div aria-hidden className="absolute inset-x-0 bottom-0 -z-10 h-32 bg-gradient-to-t from-[color:var(--cream)] to-transparent" />
+        {/* Two washes, both part of the footage rather than a panel on top of it:
+            one lifts the cream up the bottom edge so the clip does not end on a
+            hard line, the other keeps the left third calm enough to read dark
+            type over. Neither has an edge you can see. */}
+        <div aria-hidden className="absolute inset-x-0 bottom-0 -z-10 h-48 bg-gradient-to-t from-[color:var(--cream)] via-[color:var(--cream)]/70 to-transparent" />
+        <div aria-hidden className="absolute inset-y-0 left-0 -z-10 w-full bg-gradient-to-r from-[color:var(--cream)] via-[color:var(--cream)]/55 to-transparent sm:w-3/4" />
 
         <div className="absolute inset-x-0 bottom-0 z-10 pb-12 sm:pb-16">
           <div className="mx-auto w-full max-w-6xl px-6">
-            <div className="lp-ring max-w-lg rounded-3xl bg-white/70 px-6 py-6 shadow-[0_30px_80px_-40px_rgba(20,22,28,0.5)] backdrop-blur-xl sm:px-8 sm:py-7">
+            {/* No panel — the copy sits straight on the footage, held legible by
+                the washes above rather than by a card. */}
+            <div className="max-w-xl">
               <Reveal>
-                <h1 className="font-display text-3xl leading-[1.06] tracking-tight sm:text-[2.75rem]">
+                <h1 className="font-display text-4xl leading-[1.04] tracking-tight sm:text-[3.5rem]">
                   Your{' '}
                   <span key={moment} className="word-swap lp-accent inline-block italic">{MOMENTS[moment]}</span>,
                   <br />
