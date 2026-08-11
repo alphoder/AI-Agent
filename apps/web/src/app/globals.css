@@ -245,3 +245,103 @@
   border-radius: 8px;
 }
 .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------------------------------------------------------------------------
+   Landing page only — scoped under .lp.
+   The app's design system is blue-and-grey and says "no purple, ever". The
+   marketing page is deliberately allowed the periwinkle ramp, so the tokens
+   live here and cannot leak into the product UI.
+
+   The ramp is sampled from the reference hero (hue 220-240, nothing cyan and
+   nothing magenta): a deep indigo shadow, a periwinkle body, a lavender haze.
+   Cream is sampled from our own hero video's field, so the page the video sits
+   on is the same colour as the video, and the lavender end of the ramp is close
+   enough in lightness to sit on cream without a seam.
+
+   Type is never gradient-filled. In the reference the headings are solid over a
+   soft field, which is what keeps them readable; the colour lives in the
+   background, the buttons and the haze.
+--------------------------------------------------------------------------- */
+.lp {
+  --cream: #fbf8f0;
+  --cream-deep: #f4eee1;
+  --ink: #14161c;
+  --ink-soft: #5a6076;
+
+  --peri: #6c78f0;        /* the signature */
+  --peri-light: #8490f0;
+  --indigo-deep: #1e3fd0; /* the shadow end */
+  --haze: #ccd8f0;        /* the light end */
+  --lilac: #e4e4f0;
+
+  --lp-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  background: var(--cream);
+  color: var(--ink);
+}
+
+/* Accent type: solid, one step darker than the periwinkle so it holds contrast
+   on cream. Used for eyebrows and the odd emphasised word — never a gradient. */
+.lp-accent { color: var(--indigo-deep); }
+
+/* The soft field. Two very slow blurred blobs in the sampled hues: it reads as
+   weather behind the page rather than as an animation being run at you. */
+.lp-field { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.lp-field::before,
+.lp-field::after {
+  content: '';
+  position: absolute;
+  width: 52vw;
+  height: 52vw;
+  border-radius: 9999px;
+  filter: blur(100px);
+}
+.lp-field::before {
+  left: -12vw; top: -16vw;
+  background: radial-gradient(circle, rgba(108,120,240,0.42) 0%, rgba(108,120,240,0) 70%);
+  animation: lp-drift-a 28s ease-in-out infinite alternate;
+}
+.lp-field::after {
+  right: -14vw; bottom: -20vw;
+  background: radial-gradient(circle, rgba(30,63,208,0.28) 0%, rgba(30,63,208,0) 70%);
+  animation: lp-drift-b 34s ease-in-out infinite alternate;
+}
+@keyframes lp-drift-a { to { transform: translate3d(6vw, 4vw, 0) scale(1.14); } }
+@keyframes lp-drift-b { to { transform: translate3d(-5vw, -3vw, 0) scale(1.1); } }
+
+/* Hairline periwinkle border, masked so the fill stays transparent. */
+.lp-ring { position: relative; }
+.lp-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, rgba(108,120,240,0.5), rgba(30,63,208,0.28), rgba(108,120,240,0.06));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Primary button: indigo→periwinkle, with the fill sliding on hover. */
+.lp-cta {
+  background: linear-gradient(100deg, var(--indigo-deep), var(--peri) 65%, var(--peri-light));
+  background-size: 165% 100%;
+  transition: background-position 600ms var(--lp-ease), transform 300ms var(--lp-ease), box-shadow 300ms var(--lp-ease);
+}
+.lp-cta:hover { background-position: 100% 0; transform: translateY(-2px); box-shadow: 0 16px 40px -14px rgba(30,63,208,0.6); }
+
+/* Card lift. Transform + shadow only, so it stays on the compositor. */
+.lp-card { transition: transform 400ms var(--lp-ease), box-shadow 400ms var(--lp-ease), border-color 400ms var(--lp-ease); }
+.lp-card:hover { transform: translateY(-5px); box-shadow: 0 28px 60px -32px rgba(30,63,208,0.35); }
+
+/* Endless band of scenario names. Duplicated content + -50% keeps it seamless. */
+.lp-marquee { display: flex; width: max-content; animation: lp-marquee 46s linear infinite; }
+.lp-marquee:hover { animation-play-state: paused; }
+@keyframes lp-marquee { to { transform: translate3d(-50%, 0, 0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-field::before, .lp-field::after, .lp-marquee { animation: none !important; }
+  .lp-card:hover, .lp-cta:hover { transform: none; }
+}
