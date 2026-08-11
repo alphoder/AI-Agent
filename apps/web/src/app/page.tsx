@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Mic, Video, Languages, BarChart3, Sparkles, FileText, ArrowRight, ArrowUpRight } from 'lucide-react';
 import { FrequencyField } from '@/components/landing/frequency-field';
@@ -31,6 +31,47 @@ const CATEGORIES = [
   'Neuro selling', 'Whitespace mapping', 'Meaningful conversations',
 ];
 
+/**
+ * Who this is for. `tracks` are the scenario categories that already serve each
+ * one (see packages/shared/src/catalog.ts) — the claim is only made where the
+ * library can back it. `core` marks the three the seeded library was built for.
+ * Full version, including the feature-by-feature benefits, lives in
+ * docs/BROCHURE.md.
+ */
+const INDUSTRIES = [
+  { name: 'Life, health & general insurance', core: true,
+    body: 'Cold calls, price objections, renewals, claims and the ULIP pitch — against a named customer with a file, in the language they actually speak.',
+    tracks: ['Cold calls', 'Objections', 'Renewals', 'Compliance'] },
+  { name: 'Banking & NBFC', core: true,
+    body: 'They came in for banking, not insurance. Rehearse the counter cross-sell, the relationship review and the recovery call before they cost you a customer.',
+    tracks: ['Bancassurance', 'Collections', 'Grievance'] },
+  { name: 'Wealth, mutual funds & broking', core: true,
+    body: 'Risk profiling, suitability and the call you have to make the morning after a market drop.',
+    tracks: ['Suitability', 'Pricing', 'Compliance'] },
+  { name: 'IT, SaaS & B2B technology',
+    body: 'Discovery that is not an interrogation, a demo that does not narrate itself, and the CFO who has heard every pitch before.',
+    tracks: ['Client growth', 'The pitch', 'Negotiation'] },
+  { name: 'BPO & customer support',
+    body: 'Take the heat and keep the customer. Angry callers, escalations already one level up, and the save when they have a foot out of the door.',
+    tracks: ['Angry customers', 'Escalations', 'Saves'] },
+  { name: 'Staffing, recruitment & HR',
+    body: 'Both sides of the table: screening calls and offer conversations, plus the performance review most managers keep postponing.',
+    tracks: ['Interview', 'Salary', 'Feedback'] },
+  { name: 'Education, EdTech & placement cells',
+    body: 'Turn enquiries into admissions, and get students through the screen, the viva and the question they did not prepare for.',
+    tracks: ['Interview', 'Q&A', 'Confidence'] },
+  { name: 'Healthcare & pharma',
+    body: 'Counselling a worried patient, detailing to a doctor with four minutes, and a front desk on the wrong end of a bad day.',
+    tracks: ['Support', 'Client growth', 'De-escalation'] },
+];
+
+/** Same skills, different vocabulary — listed, not oversold. */
+const ALSO_FITS = [
+  'Real estate & housing finance', 'Telecom & broadband', 'Automotive & consumer durables',
+  'Travel & hospitality', 'Logistics & distribution', 'Microfinance & co-operative banks',
+  'Utilities', 'Consulting, legal & accounting',
+];
+
 // High-stakes insurance calls an agent only gets one shot at.
 const MOMENTS = ['cold call', 'price objection', 'policy renewal', 'angry customer', 'ULIP pitch', 'claim call', 'quarterly review', 'tough close'];
 
@@ -54,15 +95,21 @@ const FILE = {
 export default function Landing() {
   const [dest, setDest] = useState('/login');
   const [moment, setMoment] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     try { if (localStorage.getItem('access_token')) setDest('/journey'); } catch { /* ignore */ }
     warmBackend(); // wake the backend now, while the visitor reads the page
   }, []);
 
-  // Cycle the headline scenario (paused when the visitor prefers reduced motion).
+  // Cycle the headline scenario, and hold the hero on its poster frame — both
+  // paused when the visitor prefers reduced motion. Pausing beats hiding the
+  // video: hiding it left the hero blank now that nothing sits behind it.
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      videoRef.current?.pause();
+      return;
+    }
     const t = setInterval(() => setMoment((i) => (i + 1) % MOMENTS.length), 2200);
     return () => clearInterval(t);
   }, []);
@@ -78,6 +125,7 @@ export default function Landing() {
           <nav className="hidden md:flex items-center gap-8 text-sm text-zinc-500">
             <a href="#how" className="hover:text-zinc-900 transition-colors">How it works</a>
             <a href="#features" className="hover:text-zinc-900 transition-colors">Features</a>
+            <a href="#industries" className="hover:text-zinc-900 transition-colors">Industries</a>
             <a href="#scenarios" className="hover:text-zinc-900 transition-colors">Scenarios</a>
           </nav>
           <Link href={dest} className="rounded-full bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 text-sm font-medium transition-colors">
@@ -90,17 +138,16 @@ export default function Landing() {
       {/* Shorter on phones: a 16:9 clip in a portrait viewport is already cropped hard,
           and a full-height hero left the panel covering most of what survived. */}
       <section className="relative isolate flex min-h-[78vh] items-center overflow-hidden bg-white sm:min-h-[90vh]">
-        {/* The still stays underneath: it paints immediately, it is what shows if the
-            video cannot play, and it is the whole hero for anyone who asked for less
-            motion. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/landing/hero-full.png" alt="Bixy, your AI speaking coach, listening in 70+ languages"
-          className="absolute inset-0 -z-20 h-full w-full object-cover" />
+        {/* The video is the whole hero. The poster is its own first frame, so the
+            still that paints first and the motion that follows are the same picture —
+            there is no second image underneath to notice. It is also what anyone who
+            asked for less motion keeps looking at, since the effect above pauses. */}
         {/* muted + playsInline are what make autoplay legal on iOS and Chrome; without
             both, the hero is a frozen first frame. */}
         <video
+          ref={videoRef}
           src="/landing/video.mp4"
-          poster="/landing/hero-full.png"
+          poster="/landing/hero-poster.jpg"
           autoPlay
           muted
           loop
@@ -108,7 +155,7 @@ export default function Landing() {
           preload="auto"
           aria-hidden
           tabIndex={-1}
-          className="absolute inset-0 -z-20 h-full w-full object-cover motion-reduce:hidden"
+          className="absolute inset-0 -z-20 h-full w-full object-cover"
         />
         {/* The old scrim washed flat white across 84% of the frame, which is why the
             video read as barely there. Nothing covers it now except the small panel
@@ -274,6 +321,57 @@ export default function Landing() {
               </Reveal>
             );
           })}
+        </div>
+      </section>
+
+      {/* Industries — who this is for, and what changes for each */}
+      <section id="industries" className="relative bg-zinc-50 border-y border-zinc-200/70">
+        <div className="mx-auto max-w-6xl px-6 py-24">
+          <Reveal>
+            <h2 className="font-display text-4xl sm:text-5xl tracking-tight text-center">Built for insurance. Useful anywhere the call is hard.</h2>
+            <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-500 leading-relaxed">
+              It is one skill underneath: hold a high-stakes conversation with someone who has their own agenda,
+              usually not in English, and be judged on how it went.
+            </p>
+          </Reveal>
+
+          <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {INDUSTRIES.map((ind, i) => (
+              <Reveal key={ind.name} delay={(i % 4) * 80}>
+                <TiltCard className={`flex h-full flex-col rounded-2xl border p-6 ${
+                  ind.core ? 'border-blue-200 bg-white shadow-sm' : 'border-zinc-200 bg-white/60'
+                }`}>
+                  {ind.core && (
+                    <span className="mb-3 self-start rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+                      Built for this
+                    </span>
+                  )}
+                  <h3 className="text-base font-semibold leading-snug">{ind.name}</h3>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-500">{ind.body}</p>
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {ind.tracks.map((t) => (
+                      <span key={t} className="rounded-full border border-zinc-200 px-2.5 py-1 text-[11px] text-zinc-500">{t}</span>
+                    ))}
+                  </div>
+                </TiltCard>
+              </Reveal>
+            ))}
+          </div>
+
+          <Reveal delay={120}>
+            <div className="mt-12 rounded-2xl border border-dashed border-zinc-300 p-7 text-center">
+              <p className="text-sm font-semibold text-zinc-700">Also in use for</p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {ALSO_FITS.map((a) => (
+                  <span key={a} className="rounded-full border border-zinc-300 bg-white px-3.5 py-1.5 text-sm text-zinc-600">{a}</span>
+                ))}
+              </div>
+              <p className="mx-auto mt-5 max-w-lg text-sm leading-relaxed text-zinc-500">
+                Nothing here is a different product. If your call is not in the library, tell Bixy what it is
+                and she writes it — with your objection, your customer, your language.
+              </p>
+            </div>
+          </Reveal>
         </div>
       </section>
 
