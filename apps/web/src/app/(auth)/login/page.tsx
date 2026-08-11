@@ -64,6 +64,21 @@ function LoginInner() {
 
   useEffect(() => { warmBackend(); }, []); // wake the backend while the user signs in
 
+  /**
+   * A failed sign-in is not one failure, and "please try again" for all of them
+   * hid which one it was: a call that never left the browser (API asleep, wrong
+   * domain, CORS) looked exactly like a rejected token. Say which.
+   */
+  function signInError(err: unknown, provider: string): string {
+    const res = (err as { response?: { status?: number } })?.response;
+    if (!res) return 'Could not reach SpeakCoach. Check your connection — or the server may still be waking up, so give it a moment and try again.';
+    const status = res.status ?? 0;
+    if (status === 404) return `${provider} sign-in is not configured on this environment.`;
+    if (status === 401 || status === 403) return `${provider} signed you in, but SpeakCoach did not accept it — the two are probably set up with different ${provider} credentials.`;
+    if (status >= 500) return 'SpeakCoach hit a problem signing you in. Please try again in a moment.';
+    return `Could not sign you in with ${provider}. Please try again.`;
+  }
+
   async function finish(token: string, fallbackUser: unknown) {
     setAccessToken(token);
     // Pull the full user (incl. metadata) so the store is complete before we
@@ -98,10 +113,8 @@ function LoginInner() {
     try {
       const { data } = await apiClient.post('/auth/clerk', { token });
       finish(data.data.accessToken, data.data.user);
-    } catch (err: any) {
-      setError(err?.response?.status === 404
-        ? 'Clerk sign-in is not configured on this environment.'
-        : 'Could not sign you in with Clerk. Please try again.');
+    } catch (err) {
+      setError(signInError(err, 'Clerk'));
       setBusy(false);
     }
   }
@@ -113,8 +126,8 @@ function LoginInner() {
     try {
       const { data } = await apiClient.post('/auth/google', { credential });
       finish(data.data.accessToken, data.data.user);
-    } catch {
-      setError('Could not sign you in with Google. Please try again.');
+    } catch (err) {
+      setError(signInError(err, 'Google'));
       setBusy(false);
     }
   }
