@@ -69,3 +69,20 @@ async def metrics_endpoint() -> Response:
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,
     )
+
+
+# --- Cost of a live call ---
+# Measured, not modelled: Gemini's own usageMetadata plus the egress bytes only
+# the relay can see. Paise (not rupees) because Prometheus counters are integers
+# and a single call rounds to zero in rupees.
+call_cost_paise_total = Counter(
+    "call_cost_paise_total",
+    "Measured cost of live calls, in paise",
+    labelnames=["relay", "component"],
+)
+
+call_egress_bytes_total = Counter(
+    "call_egress_bytes_total",
+    "Bytes the relay forwarded outbound — what Render bills for",
+    labelnames=["relay"],
+)

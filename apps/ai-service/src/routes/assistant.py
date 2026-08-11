@@ -19,6 +19,7 @@ import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.config import settings
+from src.core.meter import CallMeter, report_cost
 from src.core.origins import origin_allowed
 from src.core.ws_ticket import verify_ticket
 
@@ -123,6 +124,7 @@ async def assistant_ws(websocket: WebSocket):
     gemini_ws = None
     receiver_task = None
     api = _internal_client()
+    meter = CallMeter()
     rate = {"window": 0.0, "count": 0}
     state = {
         "system_prompt": "You are a helpful voice assistant for this website.",
@@ -170,6 +172,7 @@ async def assistant_ws(websocket: WebSocket):
         try:
             async for raw in gemini_ws:
                 data = json.loads(raw)
+                meter.note_usage(data.get("usageMetadata"))
                 if "setupComplete" in data:
                     await websocket.send_json({"type": "listening"})
                     continue
@@ -231,6 +234,7 @@ async def assistant_ws(websocket: WebSocket):
                     for part in model_turn.get("parts", []):
                         inline = part.get("inlineData") or part.get("inline_data")
                         if inline and inline.get("data"):
+                            meter.note_egress(inline["data"])
                             await websocket.send_json({"type": "audio_out", "data": inline["data"]})
                 if sc.get("turnComplete"):
                     coach = state["assistant_transcript"].strip()
@@ -312,6 +316,7 @@ async def assistant_ws(websocket: WebSocket):
                 if mic_active and gemini_ws and gemini_ws.state.name == "OPEN":
                     data = msg.get("data")
                     if isinstance(data, str) and data:
+                        meter.note_egress(data)
                         await gemini_ws.send(json.dumps({
                             "realtime_input": {"audio": {"mime_type": "audio/pcm;rate=16000", "data": data}}
                         }))
@@ -343,6 +348,7 @@ async def assistant_ws(websocket: WebSocket):
         except Exception:
             pass
     finally:
+        report_cost("assistant", meter, sid=sid, uid=uid)
         if _ACTIVE.get(sid) is websocket:
             _ACTIVE.pop(sid, None)
         if receiver_task:

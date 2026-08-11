@@ -25,6 +25,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.config import settings
 from src.core.live_routing import route_for
+from src.core.meter import CallMeter, report_cost
 from src.core.body_language import analyze_frame
 from src.core.origins import origin_allowed
 from src.core.ws_ticket import verify_ticket
@@ -208,6 +209,7 @@ async def session_ws(websocket: WebSocket):
         "last_frame_at": 0.0,
         "frame_in_flight": False,
     }
+    meter = CallMeter()
 
     async def persist_turn(learner: str, coach: str):
         if not (learner or coach):
@@ -280,6 +282,9 @@ async def session_ws(websocket: WebSocket):
                                 pass
                             return
                     continue
+                # What Gemini says it billed. Arrives alongside other messages
+                # and is cumulative, so it is absorbed rather than summed.
+                meter.note_usage(data.get("usageMetadata"))
                 sc = data.get("serverContent")
                 if not sc:
                     continue
@@ -306,6 +311,7 @@ async def session_ws(websocket: WebSocket):
                             # Their first word starts the call clock.
                             if state["first_audio_at"] is None:
                                 state["first_audio_at"] = time.monotonic()
+                            meter.note_egress(inline["data"])
                             await websocket.send_json({"type": "audio_out", "data": inline["data"]})
                 if sc.get("turnComplete"):
                     # The opening line is done: the learner's mic opens from here.
@@ -444,6 +450,7 @@ async def session_ws(websocket: WebSocket):
                         # New Live API audio input format: realtime_input.audio
                         # (the old realtime_input.media_chunks is rejected by
                         # gemini-3.x-live and closes the stream).
+                        meter.note_egress(data)
                         await gemini_ws.send(json.dumps({
                             "realtime_input": {"audio": {"mime_type": "audio/pcm;rate=16000", "data": data}}
                         }))
@@ -488,6 +495,7 @@ async def session_ws(websocket: WebSocket):
             pass
     finally:
         _ACTIVE_SESSIONS.discard(session_id)
+        report_cost("session", meter, session_id=session_id)
         if receiver_task:
             receiver_task.cancel()
         if gemini_ws and gemini_ws.state.name == "OPEN":
