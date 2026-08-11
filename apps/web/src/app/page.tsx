@@ -27,18 +27,20 @@ const STEPS = [
 /**
  * Who this is for. `tracks` are the scenario categories that already serve each
  * one (see packages/shared/src/catalog.ts) — the claim is only made where the
- * library can back it. `core` marks the three the seeded library was built for.
+ * library can back it. Order still runs insurance-first because that is where the
+ * seeded library is deepest, but nothing is singled out: the spotlight below
+ * gives every one of them the same turn.
  * Full version, including the feature-by-feature benefits, lives in
  * docs/BROCHURE.md.
  */
 const INDUSTRIES = [
-  { name: 'Life, health & general insurance', core: true,
+  { name: 'Life, health & general insurance',
     body: 'Cold calls, price objections, renewals, claims and the ULIP pitch — against a named customer with a file, in the language they actually speak.',
     tracks: ['Cold calls', 'Objections', 'Renewals', 'Compliance'] },
-  { name: 'Banking & NBFC', core: true,
+  { name: 'Banking & NBFC',
     body: 'They came in for banking, not insurance. Rehearse the counter cross-sell, the relationship review and the recovery call before they cost you a customer.',
     tracks: ['Bancassurance', 'Collections', 'Grievance'] },
-  { name: 'Wealth, mutual funds & broking', core: true,
+  { name: 'Wealth, mutual funds & broking',
     body: 'Risk profiling, suitability, and the call you have to make the morning after a market drop.',
     tracks: ['Suitability', 'Pricing', 'Compliance'] },
   { name: 'IT, SaaS & B2B technology',
@@ -116,6 +118,8 @@ function Heading({ eyebrow, title, lede, className = '' }: { eyebrow: string; ti
 export default function Landing() {
   const [dest, setDest] = useState('/login');
   const [moment, setMoment] = useState(0);
+  const [spot, setSpot] = useState(0);          // which industry is lit
+  const [spotHeld, setSpotHeld] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -134,6 +138,15 @@ export default function Landing() {
     const t = setInterval(() => setMoment((i) => (i + 1) % MOMENTS.length), 2200);
     return () => clearInterval(t);
   }, []);
+
+  // The industry spotlight. Held while the pointer is in the grid, and off
+  // entirely for anyone who asked for less motion — they see a static grid where
+  // no card is promoted over the others, which is the point of the change.
+  useEffect(() => {
+    if (spotHeld || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const t = setInterval(() => setSpot((i) => (i + 1) % INDUSTRIES.length), 2400);
+    return () => clearInterval(t);
+  }, [spotHeld]);
 
   return (
     <div className="lp relative min-h-screen overflow-x-clip">
@@ -176,12 +189,18 @@ export default function Landing() {
           tabIndex={-1}
           className="absolute inset-0 -z-20 h-full w-full object-cover"
         />
-        {/* Two washes, both part of the footage rather than a panel on top of it:
-            one lifts the cream up the bottom edge so the clip does not end on a
-            hard line, the other keeps the left third calm enough to read dark
-            type over. Neither has an edge you can see. */}
-        <div aria-hidden className="absolute inset-x-0 bottom-0 -z-10 h-48 bg-gradient-to-t from-[color:var(--cream)] via-[color:var(--cream)]/70 to-transparent" />
-        <div aria-hidden className="absolute inset-y-0 left-0 -z-10 w-full bg-gradient-to-r from-[color:var(--cream)] via-[color:var(--cream)]/55 to-transparent sm:w-3/4" />
+        {/* One wash, and only one: a quarter circle of cream radiating out of the
+            bottom-left corner, exactly under the copy. Solid at the corner, gone
+            by the time it reaches Bixy or the top of the frame, so the rest of the
+            footage is untouched and there is no straight edge anywhere. */}
+        <div
+          aria-hidden
+          className="absolute inset-0 -z-10"
+          style={{
+            background:
+              'radial-gradient(70% 95% at 0% 100%, var(--cream) 0%, var(--cream) 44%, rgba(251,248,240,0.86) 62%, rgba(251,248,240,0) 84%)',
+          }}
+        />
 
         <div className="absolute inset-x-0 bottom-0 z-10 pb-12 sm:pb-16">
           <div className="mx-auto w-full max-w-6xl px-6">
@@ -213,7 +232,9 @@ export default function Landing() {
                 </div>
               </Reveal>
               <Reveal delay={300}>
-                <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-[color:var(--ink-soft)]">
+                {/* Held to the same width as the copy so it stays inside the calm
+                    part of the wash instead of running out over the lettering. */}
+                <div className="mt-6 flex max-w-md flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-[color:var(--ink-soft)]">
                   <span>Free while in beta</span>
                   <span className="hidden sm:inline">Built for BFSI teams in India</span>
                   <span>Five minutes a call</span>
@@ -412,8 +433,11 @@ export default function Landing() {
                 { src: '/landing/scenarios.png', alt: 'Browse practice scenarios' },
               ].map((im) => (
                 <TiltCard key={im.src} className="lp-card overflow-hidden rounded-3xl border border-black/5 bg-white shadow-[0_30px_80px_-40px_rgba(20,22,28,0.4)]">
+                  {/* width/height are the real pixel dimensions: they reserve the box
+                      before the file arrives, so the sections below do not jump when
+                      it does. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={im.src} alt={im.alt} className="w-full" />
+                  <img src={im.src} alt={im.alt} width={1408} height={768} className="h-auto w-full" />
                 </TiltCard>
               ))}
             </div>
@@ -431,22 +455,30 @@ export default function Landing() {
             lede="It is one skill underneath: hold a high-stakes conversation with someone who has their own agenda, usually not in English, and be judged on how it went."
           />
 
-          <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* Every industry gets the same turn: the spotlight walks the grid on a
+              timer instead of three of them being permanently promoted. Hovering
+              anywhere holds it, so nothing moves under a reader. */}
+          <div
+            className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4"
+            onMouseEnter={() => setSpotHeld(true)}
+            onMouseLeave={() => setSpotHeld(false)}
+          >
             {INDUSTRIES.map((ind, i) => (
               <Reveal key={ind.name} delay={(i % 4) * 80}>
-                <TiltCard className={`lp-card flex h-full flex-col rounded-2xl p-6 ${
-                  ind.core ? 'lp-ring bg-white shadow-sm' : 'border border-black/5 bg-white/60 backdrop-blur'
+                <TiltCard className={`lp-card flex h-full flex-col rounded-2xl p-6 transition-[background-color,box-shadow] duration-500 ${
+                  spot === i
+                    ? 'lp-ring bg-white shadow-[0_24px_60px_-30px_rgba(30,63,208,0.45)]'
+                    : 'border border-black/5 bg-white/60 backdrop-blur'
                 }`}>
-                  {ind.core && (
-                    <span className="mb-3 self-start rounded-full bg-gradient-to-r from-[color:var(--indigo-deep)]/10 to-[color:var(--peri-light)]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[color:var(--peri)]">
-                      Built for this
-                    </span>
-                  )}
                   <h3 className="text-base font-semibold leading-snug">{ind.name}</h3>
                   <p className="mt-2 flex-1 text-sm leading-relaxed text-[color:var(--ink-soft)]">{ind.body}</p>
                   <div className="mt-4 flex flex-wrap gap-1.5">
                     {ind.tracks.map((t) => (
-                      <span key={t} className="rounded-full border border-black/10 px-2.5 py-1 text-[11px] text-[color:var(--ink-soft)]">{t}</span>
+                      <span key={t} className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors duration-500 ${
+                        spot === i
+                          ? 'border-[color:var(--peri)]/40 text-[color:var(--indigo-deep)]'
+                          : 'border-black/10 text-[color:var(--ink-soft)]'
+                      }`}>{t}</span>
                     ))}
                   </div>
                 </TiltCard>

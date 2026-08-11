@@ -83,8 +83,18 @@ export function SessionDemo() {
           <div className="flex flex-row-reverse items-start gap-3">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-600 text-[11px] font-semibold text-white">You</div>
             <div className="max-w-md rounded-2xl rounded-tr-sm bg-blue-600 px-4 py-3 text-[15px] leading-snug text-white">
-              <span>{typed}</span>
-              <span className="ml-0.5 inline-block h-[1.05em] w-[2px] -translate-y-[1px] animate-pulse bg-white/80 align-middle" />
+              {/* The bubble is held at the height of the FINISHED sentence. Without
+                  this the card grew a line at a time and collapsed on every loop,
+                  which shifted every section below it up and down forever. The ghost
+                  copy measures itself at whatever width the bubble ends up, so there
+                  is no hard-coded height to get wrong on a phone. */}
+              <div className="relative">
+                <span aria-hidden className="invisible">{ANSWER}</span>
+                <span className="absolute inset-0">
+                  {typed}
+                  <span className="ml-0.5 inline-block h-[1.05em] w-[2px] -translate-y-[1px] animate-pulse bg-white/80 align-middle" />
+                </span>
+              </div>
               <div className="mt-2.5 flex h-5 items-center gap-[3px]" aria-hidden>
                 {BARS.map((h, i) => (
                   <span key={i} className="w-[3px] rounded-full bg-white/70" style={{ height: `${h}px` }} />
