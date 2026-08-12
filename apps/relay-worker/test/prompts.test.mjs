@@ -25,6 +25,10 @@ const SOURCE_OF = {
   SCENARIO_SYSTEM: ['scenario.py', '_SYSTEM'],
   SCENARIO_STAY_IN_CHARACTER: ['scenario.py', '_STAY_IN_CHARACTER'],
   SPEECH_SYSTEM: ['speech.py', '_SYSTEM'],
+  EVALUATION_SYSTEM: ['../core/scoring.py', 'EVALUATION_SYSTEM_PROMPT'],
+  BEGINNER_RUBRIC: ['../core/scoring.py', 'BEGINNER_RUBRIC'],
+  INTERMEDIATE_RUBRIC: ['../core/scoring.py', 'INTERMEDIATE_RUBRIC'],
+  ADVANCED_RUBRIC: ['../core/scoring.py', 'ADVANCED_RUBRIC'],
 };
 
 /** The true value of a module-level constant, via Python's parser. */
@@ -40,16 +44,32 @@ for node in tree.body:
   return JSON.parse(execFileSync('python3', ['-c', code, ROUTES + file, name], { encoding: 'utf8' }));
 }
 
-const found = [...TS.matchAll(/^export const (\w+) = (".*");$/gm)];
+const found = [...TS.matchAll(/^export const (\w+) = (.*);$/gm)];
 
 test('every generated prompt has a known source', () => {
   assert.ok(found.length >= 8, `expected 8 prompts, found ${found.length}`);
   for (const [, name] of found) assert.ok(SOURCE_OF[name], `${name} has no source mapped`);
 });
 
-test('each prompt is byte-identical to the Python constant', () => {
-  for (const [, name, json] of found) {
+test('each constant is identical to its Python source', () => {
+  for (const [, name, literal] of found) {
     const [file, constant] = SOURCE_OF[name];
-    assert.equal(JSON.parse(json), pythonValue(file, constant), `${name} drifted from ${file}:${constant}`);
+    // Strings and the rubric arrays alike: compare parsed value to parsed value.
+    assert.deepEqual(
+      JSON.parse(literal), pythonValue(file, constant),
+      `${name} drifted from ${file}:${constant}`,
+    );
+  }
+});
+
+test('the default rubrics still carry their weights', () => {
+  for (const name of ['BEGINNER_RUBRIC', 'INTERMEDIATE_RUBRIC', 'ADVANCED_RUBRIC']) {
+    const entry = found.find(([, n]) => n === name);
+    const rubric = JSON.parse(entry[2]);
+    assert.ok(rubric.length >= 4, `${name} lost criteria`);
+    for (const c of rubric) {
+      assert.ok(c.name, `${name} has a criterion with no name`);
+      assert.ok(Number(c.weight) > 0, `${name}: ${c.name} has no weight`);
+    }
   }
 });

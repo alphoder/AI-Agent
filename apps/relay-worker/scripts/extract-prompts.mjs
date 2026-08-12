@@ -20,6 +20,10 @@ const WANT = [
   ['SCENARIO_SYSTEM', 'scenario.py', '_SYSTEM'],
   ['SCENARIO_STAY_IN_CHARACTER', 'scenario.py', '_STAY_IN_CHARACTER'],
   ['SPEECH_SYSTEM', 'speech.py', '_SYSTEM'],
+  ['EVALUATION_SYSTEM', '../core/scoring.py', 'EVALUATION_SYSTEM_PROMPT'],
+  ['BEGINNER_RUBRIC', '../core/scoring.py', 'BEGINNER_RUBRIC'],
+  ['INTERMEDIATE_RUBRIC', '../core/scoring.py', 'INTERMEDIATE_RUBRIC'],
+  ['ADVANCED_RUBRIC', '../core/scoring.py', 'ADVANCED_RUBRIC'],
 ];
 
 const PY = `

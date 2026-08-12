@@ -10,6 +10,7 @@
  */
 import { GeminiError, callGemini, parseJsonish } from './gemini.ts';
 import * as P from './prompts.ts';
+import { buildUserPrompt, defaultRubric, grade, overall } from './scoring.ts';
 import type { Env } from './shared.ts';
 
 const FLASH_MODEL = 'gemini-3.5-flash-lite';        // scoring, notes, drills, speech
@@ -39,8 +40,93 @@ export async function httpRoutes(request: Request, env: Env, path: string): Prom
     case '/drill/turn': return drillTurn(body, env);
     case '/notes/summarise': return summariseNotes(body, env);
     case '/speech/rate': return rateSpeech(body, env);
+    case '/scoring/evaluate': return evaluateSession(body, env);
     default: return detail(404, 'Not found');
   }
+}
+
+/**
+ * POST /scoring/evaluate — grade a finished session and persist the result.
+ *
+ * Three steps, as the Python had them: fetch the transcript from the gateway,
+ * ask Gemini, save the score. A failed save is logged but not fatal — the
+ * caller still gets its result, because losing the grade the learner is waiting
+ * on is worse than a missing row we can backfill.
+ */
+async function evaluateSession(body: any, env: Env): Promise<Response> {
+  if (!env.GEMINI_API_KEY) return detail(503, 'scoring is not configured');
+  const sessionId = String(body?.session_id ?? '');
+  if (!sessionId) return detail(400, 'session_id is required');
+
+  let transcript: any[];
+  try {
+    const r = await fetch(`${env.API_GATEWAY_URL}/api/internal/sessions/${sessionId}/transcript`, {
+      headers: { 'X-Internal-Key': env.INTERNAL_API_KEY },
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const payload = await r.json() as any;
+    transcript = payload?.data ?? payload;
+  } catch (err) {
+    console.error('scoring.transcript_fetch_failed', sessionId, redact(err));
+    return detail(502, 'Failed to fetch transcript');
+  }
+
+  const rubric = Array.isArray(body?.rubric) && body.rubric.length
+    ? body.rubric
+    : defaultRubric(String(body?.difficulty_level ?? 'intermediate'));
+
+  const user = buildUserPrompt({
+    objective: String(body?.scenario_objective ?? ''),
+    persona: String(body?.persona_context ?? ''),
+    rubric,
+    notes: Array.isArray(body?.body_language_notes) ? body.body_language_notes : [],
+    transcript: Array.isArray(transcript) ? transcript : [],
+  });
+
+  // Two attempts, as the Python did: a truncated or fenced reply is common
+  // enough that one retry is worth more than a clean failure.
+  let parsed: any = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+    try {
+      parsed = parseJsonish<any>(await callGemini({
+        model: FLASH_MODEL, apiKey: env.GEMINI_API_KEY, system: P.EVALUATION_SYSTEM,
+        user, temperature: 0.3, maxOutputTokens: 8192, json: true, timeoutMs: 45_000,
+      }));
+    } catch (err) {
+      lastError = err;
+      console.warn('scoring.attempt_failed', attempt + 1, redact(err));
+    }
+  }
+  if (!parsed) {
+    console.error('scoring.engine_failed', sessionId, redact(lastError));
+    return detail(502, 'Scoring failed after 2 attempts');
+  }
+
+  const criteria = grade(parsed.criteria_scores ?? [], rubric);
+  const result = {
+    overall_score: overall(criteria),
+    criteria_scores: criteria,
+    strengths: parsed.strengths ?? [],
+    improvements: parsed.improvements ?? [],
+    narrative_feedback: parsed.narrative_feedback ?? '',
+    body_language_score: parsed.body_language_score ?? null,
+    body_language_feedback: parsed.body_language_feedback ?? '',
+    scored_by_model: FLASH_MODEL,
+  };
+
+  try {
+    const save = await fetch(`${env.API_GATEWAY_URL}/api/internal/sessions/${sessionId}/score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-Key': env.INTERNAL_API_KEY },
+      body: JSON.stringify(result),
+    });
+    if (!save.ok) throw new Error(`HTTP ${save.status}`);
+  } catch (err) {
+    console.error('scoring.save_failed', sessionId, redact(err));
+  }
+
+  return json({ session_id: sessionId, ...result });
 }
 
 /**
