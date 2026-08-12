@@ -216,13 +216,13 @@ export default {
 
     // Everything below runs after the 101 goes back, so the browser is not kept
     // waiting on Gemini's handshake.
-    ctx.waitUntil(pump(server, env, ticket, lang));
+    ctx.waitUntil(pump(server, env, ticket, lang, ctx));
 
     return new Response(null, { status: 101, webSocket: client });
   },
 };
 
-async function pump(browser: WebSocket, env: Env, ticket: Ticket, lang: string): Promise<void> {
+async function pump(browser: WebSocket, env: Env, ticket: Ticket, lang: string, ctx: ExecutionContext): Promise<void> {
   const sessionId = ticket.sid;
   const meter = new CallMeter();
   const startedAt = Date.now();
@@ -248,15 +248,23 @@ async function pump(browser: WebSocket, env: Env, ticket: Ticket, lang: string):
       body: JSON.stringify(body),
     }).catch((e) => console.warn('persist failed', String(e)));
 
-  const persistTurn = (learner: string, coach: string) => {
+  /**
+   * Fire and forget, deliberately. The transcript goes edge -> gateway (Oregon)
+   * -> Neon (us-east-1), which is ~1.6s from here. Awaiting it inside the turn
+   * handler put that between turnComplete and response_end, and queued every
+   * later Gemini message behind it — a database round trip in the middle of a
+   * live conversation. waitUntil keeps the write alive past the handler without
+   * anyone waiting on it.
+   */
+  const persistTurn = (learner: string, coach: string): void => {
     if (!learner && !coach) return;
     turn += 1;
-    return api('/api/internal/transcripts', {
+    ctx.waitUntil(api('/api/internal/transcripts', {
       session_id: sessionId,
       turn_number: turn,
       learner_content: learner || null,
       coach_content: coach || null,
-    });
+    }));
   };
 
   const shutdown = (code = 1000) => {
@@ -326,7 +334,7 @@ async function pump(browser: WebSocket, env: Env, ticket: Ticket, lang: string):
       for (const call of toolCall.functionCalls) {
         if (call.name === 'end_call') {
           const reason = String(call.args?.reason ?? 'ended');
-          await persistTurn('', `[Customer ended the call: ${reason}]`);
+          persistTurn('', `[Customer ended the call: ${reason}]`);
           send({ type: 'call_ended', reason });
           shutdown();
           return;
@@ -363,7 +371,7 @@ async function pump(browser: WebSocket, env: Env, ticket: Ticket, lang: string):
       const learner = userTranscript.trim();
       const coach = coachTranscript.trim();
       if (coach) send({ type: 'response_text', text: coach, role: 'assistant' });
-      await persistTurn(learner, coach);
+      persistTurn(learner, coach);
       userTranscript = ''; coachTranscript = ''; userFinalSent = false;
       send({ type: 'response_end' });
     }

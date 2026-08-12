@@ -210,6 +210,11 @@ async def session_ws(websocket: WebSocket):
         "frame_in_flight": False,
     }
     meter = CallMeter()
+    # Fire-and-forget transcript writes. Awaiting them put a round trip to the
+    # gateway and on to Neon (us-east-1, ~1.6s from India) between turnComplete
+    # and response_end, and queued every later Gemini frame behind it. Held in a
+    # set because asyncio only keeps weak references to tasks.
+    pending_writes: set[asyncio.Task] = set()
 
     async def persist_turn(learner: str, coach: str):
         if not (learner or coach):
@@ -322,7 +327,9 @@ async def session_ws(websocket: WebSocket):
                     coach = state["assistant_transcript"].strip()
                     if coach:
                         await websocket.send_json({"type": "response_text", "text": coach, "role": "assistant"})
-                    await persist_turn(learner, coach)
+                    t = asyncio.create_task(persist_turn(learner, coach))
+                    pending_writes.add(t)
+                    t.add_done_callback(pending_writes.discard)
                     state["user_transcript"] = ""
                     state["assistant_transcript"] = ""
                     state["user_final_sent"] = False
@@ -500,4 +507,9 @@ async def session_ws(websocket: WebSocket):
             receiver_task.cancel()
         if gemini_ws and gemini_ws.state.name == "OPEN":
             await gemini_ws.close()
+        # The last turn's transcript is usually still in flight when the socket
+        # closes. Closing the client under it would lose that turn, so give the
+        # writes a moment to land — bounded, because teardown must not hang.
+        if pending_writes:
+            await asyncio.wait(pending_writes, timeout=5.0)
         await api.aclose()
