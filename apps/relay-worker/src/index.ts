@@ -15,6 +15,7 @@
  * hijacking. See README.md for what is deliberately not ported.
  */
 import { assistantRelay } from './assistant';
+import { httpRoutes } from './http';
 import { sessionRelay } from './session';
 import { Env, originAllowed, verifyTicket } from './shared';
 
@@ -23,6 +24,10 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/health') return new Response('ok');
+
+    // Ported Python endpoints. Returns null for anything it does not own.
+    const http = await httpRoutes(request, env, url.pathname);
+    if (http) return http;
 
     const isSession = url.pathname === '/ws/session';
     const isAssistant = url.pathname === '/ws/assistant';
