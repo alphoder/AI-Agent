@@ -11,7 +11,10 @@ export interface GeminiCall {
   model: string;
   apiKey: string;
   system: string;
-  user: string;
+  /** A single user turn. Use `contents` instead when the history matters. */
+  user?: string;
+  /** Full conversation, for the endpoints that send one (the drill). */
+  contents?: Array<{ role: string; parts: Array<{ text: string }> }>;
   temperature: number;
   maxOutputTokens: number;
   json?: boolean;              // responseMimeType: application/json
@@ -22,7 +25,7 @@ export interface GeminiCall {
 export async function callGemini(c: GeminiCall): Promise<string | null> {
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: c.system }] },
-    contents: [{ role: 'user', parts: [{ text: c.user }] }],
+    contents: c.contents ?? [{ role: 'user', parts: [{ text: c.user ?? '' }] }],
     generationConfig: {
       temperature: c.temperature,
       maxOutputTokens: c.maxOutputTokens,
@@ -49,8 +52,15 @@ export async function callGemini(c: GeminiCall): Promise<string | null> {
 }
 
 export class GeminiError extends Error {
-  constructor(public status: number, public detail: string) {
+  // Written out rather than as constructor parameter properties, so the file
+  // can be imported directly by node --experimental-strip-types in tests.
+  status: number;
+  detail: string;
+
+  constructor(status: number, detail: string) {
     super(`gemini ${status}: ${detail}`);
+    this.status = status;
+    this.detail = detail;
   }
 }
 

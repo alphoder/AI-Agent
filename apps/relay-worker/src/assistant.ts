@@ -10,7 +10,8 @@
  *     memory from the gateway, and go_sleep, which tells the page to mute her;
  *   - Bixy has a 30-minute socket, not a 5-minute call.
  */
-import { CallMeter, Env, GEMINI_WS, Ticket, gatewayPost } from './shared';
+import { CallMeter, GEMINI_WS, gatewayPost } from './shared.ts';
+import type { Env, Ticket } from './shared.ts';
 
 // Native-audio voices. Leda is youthful — closest to a child-like voice for Bixy.
 const LIVE_VOICES = new Set([

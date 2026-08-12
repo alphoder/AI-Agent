@@ -5,7 +5,8 @@
  * language routing, and the one-socket-per-session guard (needs a Durable
  * Object). Everything else is parity.
  */
-import { CallMeter, Env, GEMINI_WS, Ticket, gatewayPost } from './shared';
+import { CallMeter, GEMINI_WS, gatewayPost } from './shared.ts';
+import type { Env, Ticket } from './shared.ts';
 
 // --- must match packages/shared/src/voices.ts -------------------------------
 const LIVE_VOICES = new Set([

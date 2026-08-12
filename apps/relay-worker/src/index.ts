@@ -14,10 +14,11 @@
  * gate, the origin check is defence in depth against cross-site WebSocket
  * hijacking. See README.md for what is deliberately not ported.
  */
-import { assistantRelay } from './assistant';
-import { httpRoutes } from './http';
-import { sessionRelay } from './session';
-import { Env, originAllowed, verifyTicket } from './shared';
+import { assistantRelay } from './assistant.ts';
+import { httpRoutes } from './http.ts';
+import { sessionRelay } from './session.ts';
+import { originAllowed, verifyTicket } from './shared.ts';
+import type { Env } from './shared.ts';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
