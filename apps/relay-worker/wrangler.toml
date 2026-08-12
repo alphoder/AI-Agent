@@ -16,8 +16,10 @@ enabled = true
 API_GATEWAY_URL = "https://speakcoach-api.onrender.com"
 CORS_ORIGINS = "https://speak.wisdora.com"
 GEMINI_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
+GEMINI_ASSISTANT_MODEL = "models/gemini-3.1-flash-live-preview"
 
 # Secrets — set with `wrangler secret put <NAME>`, never in this file:
-#   GEMINI_API_KEY     the same key the Python relay uses
+#   GEMINI_API_KEY        key 1 — practice sessions
+#   GEMINI_PROMPT_API_KEY key 2 — Bixy, so neither starves the other
 #   WS_TICKET_SECRET   MUST match the API gateway's WS_TICKET_SECRET
 #   INTERNAL_API_KEY   MUST match the gateway's internal key
