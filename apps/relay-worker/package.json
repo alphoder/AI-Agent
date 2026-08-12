@@ -1,0 +1,16 @@
+{
+  "name": "@avatar-platform/relay-worker",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit",
+    "test": "node --test test/ticket.test.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260801.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

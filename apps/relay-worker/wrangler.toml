@@ -1,0 +1,23 @@
+name = "speakcoach-relay"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# nodejs_compat is deliberately NOT set: nothing here needs it, and leaving it
+# off keeps the isolate small and the cold start short.
+
+# Workers run at the edge nearest the caller, which for our users is Mumbai.
+# That is the entire point — do NOT add smart_placement, which would move the
+# Worker close to the origin instead of close to the person talking.
+
+[observability]
+enabled = true
+
+[vars]
+API_GATEWAY_URL = "https://speakcoach-api.onrender.com"
+CORS_ORIGINS = "https://speak.wisdora.com"
+GEMINI_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
+
+# Secrets — set with `wrangler secret put <NAME>`, never in this file:
+#   GEMINI_API_KEY     the same key the Python relay uses
+#   WS_TICKET_SECRET   MUST match the API gateway's WS_TICKET_SECRET
+#   INTERNAL_API_KEY   MUST match the gateway's internal key
