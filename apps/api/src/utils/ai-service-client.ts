@@ -15,7 +15,12 @@ interface AIServiceRequestOptions {
  * Example: https://my-ai.onrender.com + /ws/test-chat → wss://my-ai.onrender.com/ws/test-chat
  */
 export function aiServiceWsUrl(path: string): string {
-  const base = (config.AI_SERVICE_URL || 'http://localhost:8000').replace(/\/$/, '');
+  // The practice-call relay can be served by the Cloudflare Worker while
+  // everything else — scoring, briefs, plans, and Bixy's own socket — stays on
+  // the Python service. Only /ws/session moves, and only when RELAY_WS_URL is
+  // set, so the cutover is one variable and so is the way back.
+  const useRelay = path === '/ws/session' && config.RELAY_WS_URL;
+  const base = ((useRelay ? config.RELAY_WS_URL : config.AI_SERVICE_URL) || 'http://localhost:8000').replace(/\/$/, '');
   let wsBase = base;
   if (base.startsWith('https://')) wsBase = 'wss://' + base.slice('https://'.length);
   else if (base.startsWith('http://')) wsBase = 'ws://' + base.slice('http://'.length);

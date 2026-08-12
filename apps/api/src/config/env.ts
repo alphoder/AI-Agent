@@ -23,6 +23,9 @@ const envSchema = z.object({
   DEV_LOGIN_PASSWORD: z.string().optional(),
   DEV_LOGIN_EMAIL: z.string().optional(),
   AI_SERVICE_URL: z.string().default('http://localhost:8000'),
+  // Cloudflare Worker that serves /ws/session. Unset = the Python relay keeps
+  // it, which is also how you roll back.
+  RELAY_WS_URL: z.string().optional(),
   INTERNAL_API_KEY: z.string().default('dev-internal-key'),
   // Secret used to sign short-lived WebSocket tickets. Must match the AI
   // service's WS_TICKET_SECRET. Falls back to INTERNAL_API_KEY if unset.
