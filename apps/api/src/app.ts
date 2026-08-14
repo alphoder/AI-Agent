@@ -66,7 +66,7 @@ export function createApp(): express.Express {
     res.json({ status: 'warming' });
   });
 
-  app.get('/health', async (_req, res) => {
+  const healthHandler = async (_req: express.Request, res: express.Response) => {
     const checks: Record<string, string> = {};
     let healthy = true;
     try {
@@ -82,7 +82,10 @@ export function createApp(): express.Express {
       dependencies: checks,
       timestamp: new Date().toISOString(),
     });
-  });
+  };
+
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
 
   app.get('/metrics', metricsHandler);
 
