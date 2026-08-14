@@ -4,8 +4,8 @@ import { logger } from './logger';
 
 const pool = new Pool({
   connectionString: config.DATABASE_URL,
-  min: 2,
-  max: 20,
+  min: 0,
+  max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
