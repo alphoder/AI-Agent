@@ -9,9 +9,9 @@
     "test": "node --experimental-strip-types --test test/*.test.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260801.0",
+    "@cloudflare/workers-types": "^4.20241230.0",
     "typescript": "^5.6.0",
-    "wrangler": "^4.0.0"
+    "wrangler": "^3.100.0"
   },
   "type": "module"
 }
