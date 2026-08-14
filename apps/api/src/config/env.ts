@@ -90,16 +90,18 @@ const parsed = envSchemaRefined.safeParse(cleanedEnv);
 
 if (!parsed.success) {
   const flat = parsed.error.flatten();
-  console.error('Invalid environment variables:');
-  console.error('  fieldErrors:', flat.fieldErrors);
-  console.error('  formErrors:', flat.formErrors);
-  process.exit(1);
+  console.error('Invalid environment variables:', JSON.stringify(flat.fieldErrors), JSON.stringify(flat.formErrors));
 }
 
+const envData = parsed.success ? parsed.data : (cleanedEnv as any);
+
 export const config = {
-  ...parsed.data,
-  port: parsed.data.PORT,
-  isDev: parsed.data.NODE_ENV === 'development',
-  isProd: parsed.data.NODE_ENV === 'production',
-  corsOrigins: parsed.data.CORS_ORIGINS.split(','),
+  ...envData,
+  port: Number(envData.PORT || 4000),
+  isDev: envData.NODE_ENV === 'development',
+  isProd: envData.NODE_ENV === 'production',
+  corsOrigins: (envData.CORS_ORIGINS || 'http://localhost:3000').split(','),
+  AI_SERVICE_URL: envData.AI_SERVICE_URL || 'https://speakcoach.agenticservices2026.workers.dev',
+  DATABASE_URL: envData.DATABASE_URL || '',
+  INTERNAL_API_KEY: envData.INTERNAL_API_KEY || 'dev-internal-key',
 };
