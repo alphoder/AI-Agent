@@ -315,21 +315,21 @@ export async function generatePlan(
   // three a "from day 10" scenario is legal on the first day of the week.
   const dayOffset = (week - 1) * PLAN_DAYS;
 
-  const days = (raw.days ?? [])
-    .map((d, i) => ({
+  const days = ((raw as any).days ?? [])
+    .map((d: any, i: number) => ({
       day: i + 1,
       focus: clean(d.focus, 60),
       tasks: (d.tasks ?? [])
-        .filter((t) => byId.has(t.scenarioId) && PLAN_TASK_TYPES.includes(t.type as PlanTaskType))
-        .filter((t) => unlockDay(intake.intensity, byId.get(t.scenarioId)!.difficulty_level) <= dayOffset + i + 1)
+        .filter((t: any) => byId.has(t.scenarioId) && PLAN_TASK_TYPES.includes(t.type as PlanTaskType))
+        .filter((t: any) => unlockDay(intake.intensity, byId.get(t.scenarioId)!.difficulty_level) <= dayOffset + i + 1)
         .slice(0, INTAKE_LIMITS.tasksPerDay)
-        .map((t) => ({ type: t.type, scenarioId: t.scenarioId, why: clean(t.why, 160) })),
+        .map((t: any) => ({ type: t.type, scenarioId: t.scenarioId, why: clean(t.why, 160) })),
     }))
-    .map((d) => ({ ...d, tasks: fitTheDay(d.tasks, intake.minutesPerDay) }))
-    .filter((d) => d.tasks.length > 0)
+    .map((d: any) => ({ ...d, tasks: fitTheDay(d.tasks, intake.minutesPerDay) }))
+    .filter((d: any) => d.tasks.length > 0)
     .slice(0, INTAKE_LIMITS.planDays)
     // Dropping an illegal task can empty a day, so renumber after filtering.
-    .map((d, i) => ({ ...d, day: i + 1 }));
+    .map((d: any, i: number) => ({ ...d, day: i + 1 }));
 
   if (days.length === 0) throw new Error('plan had no usable days');
 

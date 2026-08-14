@@ -27,7 +27,7 @@ export function aiServiceWsUrl(path: string): string {
   return wsBase + (path.startsWith('/') ? path : '/' + path);
 }
 
-export async function callAIService({ path, body, timeoutMs = 10000 }: AIServiceRequestOptions): Promise<Response> {
+export async function callAIService({ path, body, timeoutMs = 10000 }: AIServiceRequestOptions): Promise<globalThis.Response> {
   const url = `${config.AI_SERVICE_URL}${path}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
