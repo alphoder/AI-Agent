@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "pnpm --filter @avatar-platform/shared build && tsc",
     "start": "node dist/index.js",
     "lint": "eslint src/",
     "type-check": "tsc --noEmit",
